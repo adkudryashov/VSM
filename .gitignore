@@ -1,0 +1,24 @@
+# === СЕКРЕТЫ ботов ===
+bots/.env
+bots/.env.backup*
+!bots/.env.example
+
+# === ДАННЫЕ ботов ===
+# базы содержат IP пользователей и токены доступа к VPN-панелям,
+# GeoIP — ~175 МБ под лицензией MaxMind
+bots/data/
+
+# === ОКРУЖЕНИЕ ===
+bots/venv/
+
+# === PYTHON ===
+__pycache__/
+*.py[cod]
+
+# === МУСОР ===
+*.bak
+*.bak[0-9]*
+*.orig
+*~
+*.swp
+.DS_Store

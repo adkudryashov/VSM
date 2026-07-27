@@ -1,0 +1,86 @@
+from aiogram import types
+from aiogram.types import InputRichMessage
+from aiogram.exceptions import TelegramBadRequest
+
+async def send_rich_or_fallback(message: types.Message, html_content: str, fallback_text: str, reply_markup=None):
+    """
+    Отправляет Rich Message (Bot API 10.1); при любой ошибке API — откатывается
+    на обычный HTML-текст через send_long_message, чтобы бот не падал.
+    reply_markup (если передан) прокидывается в обоих случаях — и в Rich
+    Message, и в фолбэк — чтобы интерактивные кнопки (например, выбор
+    пользователя или пагинация) не терялись независимо от исхода.
+    """
+    try:
+        kwargs = {"reply_markup": reply_markup} if reply_markup is not None else {}
+        await message.bot.send_rich_message(
+            chat_id=message.chat.id,
+            rich_message=InputRichMessage(html=html_content),
+            **kwargs
+        )
+    except Exception as e:
+        await message.answer(
+            f"⚠️ Rich Message не отправился, показываю как обычный текст.\nОшибка: {e}"
+        )
+        kwargs = {"reply_markup": reply_markup} if reply_markup is not None else {}
+        await send_long_message(message, fallback_text, **kwargs)
+
+async def edit_rich_or_fallback(target_message: types.Message, html_content: str, fallback_text: str, reply_markup=None):
+    """
+    Редактирует существующее сообщение как Rich Message — editMessageText
+    поддерживает параметр rich_message начиная с Bot API 10.1 / aiogram 3.29+
+    (aiogram.types.Message.edit_text(rich_message=...)). Сообщение
+    обновляется на месте, а не отправляется заново — кнопки (пагинация,
+    выбор пользователя) продолжают работать под тем же сообщением.
+
+    При ошибке Rich Message откатывается на обычный HTML-текст тем же
+    edit_text(). "Message is not modified" (двойной клик на ту же страницу)
+    отличается от реальных ошибок Rich Message — в этом случае просто
+    молча ничего не делаем, как и раньше.
+    """
+    try:
+        await target_message.edit_text(rich_message=InputRichMessage(html=html_content), reply_markup=reply_markup)
+    except TelegramBadRequest as e:
+        if "message is not modified" in str(e).lower():
+            return
+        try:
+            await target_message.edit_text(fallback_text, reply_markup=reply_markup, parse_mode="HTML")
+        except TelegramBadRequest as e2:
+            if "message is not modified" not in str(e2).lower():
+                raise
+    except Exception:
+        await target_message.edit_text(fallback_text, reply_markup=reply_markup, parse_mode="HTML")
+
+async def send_long_message(message: types.Message, text: str, **kwargs):
+    kwargs.pop('parse_mode', None)  # Избегаем конфликтов аргументов
+    
+    if len(text) <= 3900:
+        await message.answer(text, parse_mode="HTML", **kwargs)
+        return
+
+    # Умное разбиение по строкам, чтобы не ломать HTML-теги внутри строк
+    lines = text.split('\n')
+    current_chunk = []
+    current_length = 0
+
+    for line in lines:
+        # Страховка на случай, если одна строка сама по себе огромная
+        if len(line) > 3900:
+            if current_chunk:
+                await message.answer('\n'.join(current_chunk), parse_mode="HTML", **kwargs)
+                current_chunk = []
+                current_length = 0
+            for i in range(0, len(line), 3900):
+                await message.answer(line[i:i+3900], parse_mode="HTML", **kwargs)
+            continue
+
+        # Если добавление строки превысит лимит Telegram
+        if current_length + len(line) + 1 > 3900:
+            await message.answer('\n'.join(current_chunk), parse_mode="HTML", **kwargs)
+            current_chunk = [line]
+            current_length = len(line)
+        else:
+            current_chunk.append(line)
+            current_length += len(line) + 1
+
+    if current_chunk:
+        await message.answer('\n'.join(current_chunk), parse_mode="HTML", **kwargs)
