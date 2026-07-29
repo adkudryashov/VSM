@@ -252,11 +252,35 @@ def asn_lookup(ips):
     Сравнивать надо владельца сети: разные адреса одной AS — норма, адрес в
     чужой AS у одного резолвера из четырёх — уже признак.
 
-    Недоступность ipinfo не считается ошибкой проверки: без этих данных вывод
-    просто становится осторожнее, а не ложно тревожным.
+    Недоступность обоих источников не считается ошибкой проверки: без этих
+    данных вывод просто становится осторожнее, а не ложно тревожным.
+
+    Источников два. Основной — RIPEstat: открытый API самого реестра, без
+    ключей и без суточного лимита. Запасной — ipinfo.io, у которого без токена
+    лимит около тысячи запросов в сутки; упереться в него значит получить
+    «владелец неизвестен» и потерять способность отличить CDN от подмены ровно
+    тогда, когда проверок стало много.
     """
     out = {}
+    holders = {}  # имя оператора по AS запрашивается один раз на AS, а не на IP
+
     for ip in list(dict.fromkeys(ips))[:8]:
+        data, err = _request(
+            f"https://stat.ripe.net/data/network-info/data.json?resource={ip}",
+            timeout=10, retries=1)
+        asns = ((data or {}).get("data") or {}).get("asns") or []
+        if not err and asns:
+            asn = f"AS{asns[0]}"
+            if asn not in holders:
+                ov, ov_err = _request(
+                    f"https://stat.ripe.net/data/as-overview/data.json?resource={asn}",
+                    timeout=10, retries=1)
+                holders[asn] = "" if ov_err else (
+                    ((ov or {}).get("data") or {}).get("holder") or "")
+            out[ip] = {"asn": asn, "org": holders[asn]}
+            continue
+
+        # RIPEstat не ответил — пробуем ipinfo, прежде чем признать неудачу.
         data, err = _request(f"https://ipinfo.io/{ip}/json", timeout=8, retries=1)
         if err or not data:
             out[ip] = {"error": err or "нет данных"}
