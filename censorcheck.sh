@@ -533,7 +533,11 @@ set_ripe_key() {
     echo -e "API Keys -> Create (право «Schedule a new measurement»).${NC}\n"
     load_conf
     [ -n "$RIPE_API_KEY" ] && echo -e "Текущий ключ: ${GREEN}задан${NC} (${RIPE_API_KEY:0:8}…)"
-    read -r -p "Новый ключ (Enter — оставить как есть): " key
+    # -e включает readline: он сам разбирает bracketed paste терминала, поэтому
+    # вставленный ключ и на экране выглядит чисто, и в переменную попадает без
+    # обёртки ESC[200~…ESC[201~. Извлечение UUID ниже оставлено подстраховкой —
+    # на терминалы и сборки bash, где readline эту обёртку не снимает.
+    read -e -r -p "Новый ключ (Enter — оставить как есть): " key
     [ -z "$key" ] && { echo -e "${BLUE}Без изменений.${NC}"; return; }
 
     # Из введённого вытаскиваем UUID, а не сверяем строку целиком.

@@ -131,7 +131,9 @@ function run_censorcheck {
         case $cc_choice in
             1) bash "$CENSORCHECK_SCRIPT" --stack "$tg"; read -p "Нажмите Enter..." ;;
             2)
-                read -p "Домен для проверки: " cc_dom
+                # -e (readline) — чтобы вставленный домен не приезжал
+                # обёрнутым в escape-последовательности bracketed paste.
+                read -e -p "Домен для проверки: " cc_dom
                 if [ -z "$cc_dom" ]; then
                     echo -e "${RED}Домен не задан.${NC}"; sleep 1
                 else
