@@ -267,9 +267,16 @@ log "telemt установлен и проверен."
 # ---------------------------------------------------------------------------
 log "Этап 4: установка telemt_panel (порт ${PANEL_PORT})"
 
-# Установщик интерактивен. Скачиваем его в файл и только потом подаём
-# ответы на stdin: при "curl | bash" stdin занят самим текстом скрипта,
-# и read вычитывает исходный код вместо ответов.
+# Установщик интерактивен, и ответы ему нельзя подать ни через "curl | bash"
+# (там stdin занят текстом самого скрипта), ни просто через stdin: свои вопросы
+# он читает из /dev/tty напрямую — "read -r _val < /dev/tty". Пайп на stdin он
+# попросту игнорирует, а без управляющего терминала (запуск из systemd, по cron
+# или отсоединённым сеансом) падает с "/dev/tty: No such device or address" и
+# "_val: unbound variable". Поэтому скачиваем установщик в файл и запускаем под
+# псевдотерминалом script(1): /dev/tty у него появляется, а ответы приходят
+# туда же со стандартного ввода.
+command -v script >/dev/null 2>&1 || \
+    die "Нужен script(1) из util-linux — через него установщику telemt_panel выдаётся псевдотерминал."
 PANEL_INSTALLER="$(mktemp /tmp/telemt-panel-install.XXXXXX.sh)"
 trap 'rm -f "$PANEL_INSTALLER"' EXIT
 curl -fsSL https://raw.githubusercontent.com/amirotin/telemt_panel/main/install.sh -o "$PANEL_INSTALLER"
@@ -277,7 +284,8 @@ curl -fsSL https://raw.githubusercontent.com/amirotin/telemt_panel/main/install.
 
 # Порядок вопросов: API URL, auth header, admin user, admin password,
 # путь к бинарнику telemt, имя systemd-юнита. Пустая строка = дефолт.
-printf '\n\n%s\n%s\n\n\n' "$PANEL_ADMIN_USER" "$PANEL_ADMIN_PASS" | bash "$PANEL_INSTALLER"
+printf '\n\n%s\n%s\n\n\n' "$PANEL_ADMIN_USER" "$PANEL_ADMIN_PASS" \
+    | script -qe -c "bash '$PANEL_INSTALLER'" /dev/null
 
 PANEL_TOML=/etc/telemt-panel/config.toml
 [[ -f "$PANEL_TOML" ]] || die "telemt_panel не создал $PANEL_TOML."
