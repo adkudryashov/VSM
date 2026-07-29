@@ -4,6 +4,8 @@ import asyncio
 import json
 import html as html_lib
 from datetime import datetime, timedelta, timezone
+
+from common import datepicker as dp
 from xui.database import get_all_panels
 
 def bytes_to_gb(bytes_value):
@@ -103,7 +105,9 @@ async def get_all_servers_status_rich():
             elif days_left <= 3: icon = "🟠"
             elif days_left <= 7: icon = "🟡"
             else:                icon = "🟢"
-            return f"{icon} {expiry_date.strftime('%d.%m.%y')} ({days_left}д)"
+            # Формат берём из datepicker, а не своим strftime: иначе таблица
+            # снова разойдётся с экранами ввода, как было до этой правки.
+            return f"{icon} {dp.to_display(expiry_date)} ({days_left}д)"
         except ValueError:
             return "—"
 

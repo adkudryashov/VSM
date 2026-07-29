@@ -2,6 +2,23 @@ from aiogram import types
 from aiogram.types import InputRichMessage
 from aiogram.exceptions import TelegramBadRequest
 
+def format_traffic(bytes_val: int) -> str:
+    """
+    Единственное определение на весь telemt: раньше эта функция была скопирована
+    в common.py и reports.py, и правка в одной не доезжала до второй.
+    Значение приходит из API, поэтому нечисло тоже нужно пережить.
+    """
+    try:
+        val = int(bytes_val)
+    except (ValueError, TypeError):
+        return "0 KB"
+    if val < 1024 * 1024:
+        return f"{val / 1024:.1f} KB"
+    elif val < 1024 * 1024 * 1024:
+        return f"{val / (1024 * 1024):.1f} MB"
+    else:
+        return f"{val / (1024 * 1024 * 1024):.2f} GB"
+
 async def send_rich_or_fallback(message: types.Message, html_content: str, fallback_text: str, reply_markup=None):
     """
     Отправляет Rich Message (Bot API 10.1); при любой ошибке API — откатывается

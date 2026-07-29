@@ -1,4 +1,4 @@
-from telemt.utils.helpers import send_long_message, send_rich_or_fallback                                                                                                                                      
+from telemt.utils.helpers import send_long_message, send_rich_or_fallback, format_traffic                                                                                                                                      
 import asyncio
 import html                                                                                                                                                                   
 import httpx                                                                                                                                                                     
@@ -33,11 +33,6 @@ def format_connections(value: int) -> str:
     if value < 1000: return str(value)                                                                                                                                           
     elif value < 1_000_000: return f"{value/1000:.1f}k" if value % 1000 != 0 else f"{value//1000}k"                                                                              
     else: return f"{value/1_000_000:.1f}M"                                                                                                                                       
-                                                                                                                                                                                 
-def format_traffic(bytes_val: int) -> str:                                                                                                                                       
-    if bytes_val < 1024 * 1024: return f"{bytes_val / 1024:.1f} KB"                                                                                                              
-    elif bytes_val < 1024 * 1024 * 1024: return f"{bytes_val / (1024 * 1024):.1f} MB"                                                                                            
-    else: return f"{bytes_val / (1024 * 1024 * 1024):.2f} GB"                                                                                                                    
                                                                                                                                                                                  
 def get_server_name() -> str:                                                                                                                                                    
     config_path = Path("/etc/telemt/telemt.toml")                                                                                                                                
@@ -92,8 +87,8 @@ async def cmd_status(message: types.Message):
             f"🔹 Сетевая активность:\n"
             f"🌐 Активных IP: {total_active_ips}\n"
             f"🌐 Всего соединений: {format_connections(connections_total)}\n"
-            f"┗━ ✅ Успешных: {good_connections} ({success_percent:.2f}%)\n"
-            f"┗━ ⚠️ Сбои: {connections_bad} ({bad_percent:.2f}%)"
+            f"┗━ ✅ Успешных: {format_connections(good_connections)} ({success_percent:.1f}%)\n"
+            f"┗━ ⚠️ Сбои: {format_connections(connections_bad)} ({bad_percent:.1f}%)"
         )
         # Один экран в две колонки вместо двух таблиц одна под другой.
         # colspan в HTML-режиме проверен ответом sendRichMessage: сервер
@@ -105,9 +100,9 @@ async def cmd_status(message: types.Message):
             f"<tr><td>Аптайм</td><td>{html.escape(format_uptime(summary_data['uptime_seconds']))}</td>"
             f"<td>Всего соединений</td><td>{html.escape(format_connections(connections_total))}</td></tr>"
             f"<tr><td>Трафик</td><td>{html.escape(format_traffic(total_traffic))}</td>"
-            f"<td>🟢 Успешных</td><td>{good_connections} ({success_percent:.2f}%)</td></tr>"
+            f"<td>🟢 Успешных</td><td>{html.escape(format_connections(good_connections))} ({success_percent:.1f}%)</td></tr>"
             f"<tr><td>Активные IP</td><td>{total_active_ips}</td>"
-            f"<td>🔴 Сбои</td><td>{connections_bad} ({bad_percent:.2f}%)</td></tr>"
+            f"<td>🔴 Сбои</td><td>{html.escape(format_connections(connections_bad))} ({bad_percent:.1f}%)</td></tr>"
             # Версия вынесена вниз во всю ширину: строка длинная и в узкой
             # ячейке переносится, а пары к ней в правой колонке всё равно нет.
             f"<tr><td colspan=\"4\">Версия: {html.escape(version_text)}</td></tr>"

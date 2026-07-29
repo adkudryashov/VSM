@@ -13,7 +13,7 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.exceptions import TelegramBadRequest
 
 from telemt.utils.geo import country_flag, get_geoip_readers
-from telemt.utils.helpers import send_long_message, send_rich_or_fallback, edit_rich_or_fallback
+from telemt.utils.helpers import send_long_message, send_rich_or_fallback, edit_rich_or_fallback, format_traffic
 from telemt.api.client import TelemtAPIClient
 from config import settings
 
@@ -28,18 +28,6 @@ class ReportCb(CallbackData, prefix="log"):
     action: str
     user: str = ""
     page: int = 0
-
-def format_traffic(bytes_val: int) -> str:
-    try:
-        val = int(bytes_val)
-    except (ValueError, TypeError):
-        return "0 KB"
-    if val < 1024 * 1024:
-        return f"{val / 1024:.1f} KB"
-    elif val < 1024 * 1024 * 1024:
-        return f"{val / (1024 * 1024):.1f} MB"
-    else:
-        return f"{val / (1024 * 1024 * 1024):.2f} GB"
 
 def format_minutes(total_minutes: int) -> str:
     if total_minutes < 60:
