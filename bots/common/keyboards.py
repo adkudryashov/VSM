@@ -75,11 +75,11 @@ def xui_keyboard(panel_names, with_back: bool = True) -> ReplyKeyboardMarkup:
     names = list(panel_names)
     b = ReplyKeyboardBuilder()
     b.add(KeyboardButton(text=BTN_XUI_STATUS))
+    b.add(KeyboardButton(text=BTN_XUI_MANAGE))
     for name in names:
         b.add(KeyboardButton(text=f"{PANEL_PREFIX}{name}"))
-    b.add(KeyboardButton(text=BTN_XUI_MANAGE))
 
-    rows = [1, len(names), 1] if names else [1, 1]
+    rows = [2, len(names)] if names else [2]
     if with_back:
         b.add(KeyboardButton(text=BTN_BACK))
         rows.append(1)

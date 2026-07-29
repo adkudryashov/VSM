@@ -103,14 +103,10 @@ async def cmd_status(message: types.Message):
             f"<table>"
             f"<tr><th colspan=\"2\">Статус</th><th colspan=\"2\">Сетевая активность</th></tr>"
             f"<tr><td>Аптайм</td><td>{html.escape(format_uptime(summary_data['uptime_seconds']))}</td>"
-            f"<td>Активные IP</td><td>{total_active_ips}</td></tr>"
-            f"<tr><td>Трафик</td><td>{html.escape(format_traffic(total_traffic))}</td>"
             f"<td>Всего соединений</td><td>{html.escape(format_connections(connections_total))}</td></tr>"
-            # Слева строк меньше, чем справа. Пустые ячейки обязательны:
-            # без них строка теряет колонку и правая часть съезжает влево.
-            f"<tr><td></td><td></td>"
+            f"<tr><td>Трафик</td><td>{html.escape(format_traffic(total_traffic))}</td>"
             f"<td>🟢 Успешных</td><td>{good_connections} ({success_percent:.2f}%)</td></tr>"
-            f"<tr><td></td><td></td>"
+            f"<tr><td>Активные IP</td><td>{total_active_ips}</td>"
             f"<td>🔴 Сбои</td><td>{connections_bad} ({bad_percent:.2f}%)</td></tr>"
             # Версия вынесена вниз во всю ширину: строка длинная и в узкой
             # ячейке переносится, а пары к ней в правой колонке всё равно нет.
