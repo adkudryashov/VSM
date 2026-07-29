@@ -201,7 +201,11 @@ function run_diagnostics {
 
     echo -e "${BLUE}--- КОНФИГ TELEMT ------------------------------------${NC}"
     if [ -f /etc/telemt/telemt.toml ]; then
-        grep -E '^\[|^mask' /etc/telemt/telemt.toml | sed 's/^/    /'
+        # tls_domain здесь наравне с mask*: это цель self-SNI, и расхождение
+        # её с доменом панели ломает маскировку так же надёжно, как выключенный
+        # mask. Прежний фильтр её не захватывал, и в диагностике не было видно
+        # половины сути.
+        grep -E '^\[|^mask|^tls_domain' /etc/telemt/telemt.toml | sed 's/^/    /'
     fi
 
     echo -e "${BLUE}------------------------------------------------------${NC}"

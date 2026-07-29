@@ -142,15 +142,15 @@ fi
     # СТАТУС ПРИЛОЖЕНИЙ
     echo -e "${BLUE}--- СТАТУС ПРИЛОЖЕНИЙ --------------------------------${NC}"
     # Проверка X-UI
-    if systemctl is-active --quiet x-ui; then status_xui="${GREEN}РАБОТАЕТ${NC}"; else status_xui="${RED}Остановлен${NC}"; fi
+    if systemctl is-active --quiet x-ui; then status_xui="${GREEN}РАБОТАЕТ${NC}"; else status_xui="${RED}ОСТАНОВЛЕН${NC}"; fi
 
     # Проверка telemt (MTProto-прокси)
     if [ ! -f /etc/telemt/telemt.toml ]; then
-        status_telemt="${RED}Не установлен${NC}"
+        status_telemt="${RED}НЕ УСТАНОВЛЕН${NC}"
     elif systemctl is-active --quiet telemt; then
         status_telemt="${GREEN}РАБОТАЕТ${NC}"
     else
-        status_telemt="${RED}Остановлен${NC}"
+        status_telemt="${RED}ОСТАНОВЛЕН${NC}"
     fi
 
     # Проверка Telegram-ботов. Наличие юнита — признак установки; режимов три,
@@ -162,7 +162,7 @@ fi
         systemctl is-active --quiet "$unit" && bots_up=$((bots_up + 1))
     done
     if [ "$bots_total" -eq 0 ]; then
-        status_bots="${RED}Не установлены${NC}"
+        status_bots="${RED}НЕ УСТАНОВЛЕНЫ${NC}"
     elif [ "$bots_up" -eq "$bots_total" ]; then
         if [ -f /etc/systemd/system/3xui-telemt-bot.service ]; then
             status_bots="${GREEN}РАБОТАЕТ (объединённый)${NC}"
@@ -170,7 +170,7 @@ fi
             status_bots="${GREEN}РАБОТАЮТ ($bots_up/$bots_total)${NC}"
         fi
     else
-        status_bots="${RED}$bots_up/$bots_total запущено${NC}"
+        status_bots="${RED}ЧАСТИЧНО ($bots_up/$bots_total)${NC}"
     fi
 
     echo -e "    🎛️   X-UI:        [$status_xui]"

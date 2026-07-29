@@ -32,17 +32,17 @@ function load_conf {
 function unit_status {
     local unit="$1"
     if [ ! -f "/etc/systemd/system/$unit.service" ]; then
-        echo -e "${RED}не установлен${NC}"
+        echo -e "${RED}НЕ УСТАНОВЛЕН${NC}"
     elif systemctl is-active --quiet "$unit"; then
         echo -e "${GREEN}РАБОТАЕТ${NC}"
     else
-        echo -e "${YELLOW}остановлен${NC}"
+        echo -e "${YELLOW}ОСТАНОВЛЕН${NC}"
     fi
 }
 
 function map_status_line {
     if [ ! -f "$MAP_DIR/map.html" ]; then
-        echo -e "${YELLOW}ещё не построена${NC}"
+        echo -e "${YELLOW}НЕ ПОСТРОЕНА${NC}"
     else
         echo -e "${GREEN}$(date -r "$MAP_DIR/map.html" '+%d.%m %H:%M')${NC}"
     fi
@@ -258,7 +258,7 @@ function manage_services {
 function run_remove {
     clear
     echo -e "${RED}======================================================${NC}"
-    echo -e "${RED}            🗑  УДАЛЕНИЕ БОТОВ  🗑                    ${NC}"
+    echo -e "${RED}            🗑️  УДАЛЕНИЕ БОТОВ  🗑️                    ${NC}"
     echo -e "${RED}======================================================${NC}"
     echo -e "Будут остановлены и удалены службы, окружение и настройки."
     echo -e "${YELLOW}Данные (история IP, список панелей, GeoIP) сохраняются"
@@ -300,8 +300,8 @@ while true; do
     echo -e "${CYAN}5) 🔄  Обновить код ботов (с GitHub)${NC}"
     echo -e "${GREEN}6) ⚙️   Показать текущие настройки${NC}"
     echo -e "${GREEN}7) 🛠️   Управление службами (статус | старт | стоп | логи)${NC}"
-    echo -e "${RED}8) 🗑   Удалить ботов${NC}"
-    echo -e "${RED}X) 🔙  Назад${NC}"
+    echo -e "${RED}8) 🗑️   Удалить ботов${NC}"
+    echo -e "${RED}X) 🔙  Назад в главное меню${NC}"
     echo -e "${BLUE}------------------------------------------------------${NC}"
     read -p "$(echo -e "${CYAN}Ваш выбор: ${NC}")" choice
 

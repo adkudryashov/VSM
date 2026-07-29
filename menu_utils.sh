@@ -1,23 +1,16 @@
 #!/bin/bash
 source /usr/local/bin/_config_and_utils.sh
 
-# Функция проверки и установки зависимостей
+# Доустановка инструментов, на которых держатся пункты меню.
+#
+# Через ensure_packages, а не своим циклом: прежний вариант глушил вывод apt
+# и печатал «✅ Утилиты установлены» безусловно, не проверив результат. При
+# реальном отказе установки пользователь видел рапорт об успехе, а затем
+# «command not found» из пункта меню — без единого намёка на причину.
+# ensure_packages сверяет наличие команд ПОСЛЕ установки и показывает вывод apt.
 function check_utils_deps {
-    local deps=("htop" "ncdu" "nethogs" "mtr")
-    local missing=()
-    for dep in "${deps[@]}"; do
-        if ! command -v "$dep" &> /dev/null; then
-            missing+=("$dep")
-        fi
-    done
-    
-    if [ ${#missing[@]} -ne 0 ]; then
-        echo -e "${YELLOW}>>> Установка недостающих утилит: ${missing[*]}...${NC}"
-        apt-get update >/dev/null 2>&1
-        apt-get install -y "${missing[@]}" >/dev/null 2>&1
-        echo -e "${GREEN}✅ Утилиты установлены.${NC}"
-        sleep 1
-    fi
+    ensure_packages htop ncdu nethogs mtr || \
+        echo -e "${YELLOW}   Пункты, которым нужны недостающие утилиты, работать не будут.${NC}"
 }
 
 function run_utils_menu {
@@ -37,7 +30,6 @@ function run_utils_menu {
         echo -e "${RED}7) 💀  Завершение процессов (kill)${NC}"
         echo -e "${YELLOW}8) 🧹  Очистка системы (кэш | логи | мусор)${NC}"
         echo -e "${CYAN}9) 🔍  Проверка привязки домена к серверу${NC}"
-        echo -e "${BLUE}------------------------------------------------------${NC}"
         echo -e "${RED}X) 🔙  Назад в главное меню${NC}"
         echo -e "${BLUE}------------------------------------------------------${NC}"
         
@@ -58,6 +50,7 @@ function run_utils_menu {
                     2) ncdu /var/log ;;
                     3) ncdu . ;;
                     4) read -p "Введите путь: " custom_path; if [ -d "$custom_path" ]; then ncdu "$custom_path"; else echo -e "${RED}Папка не найдена.${NC}"; sleep 2; fi ;;
+                    *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
                 esac
                 ;;
             3)
@@ -74,6 +67,8 @@ function run_utils_menu {
                     else
                         echo -e "${RED}Неверный выбор.${NC}"; sleep 1
                     fi
+                else
+                    echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1
                 fi
                 ;;
             4)
@@ -94,6 +89,7 @@ function run_utils_menu {
                     1) ping -c 4 "$target" ;;
                     2) ping "$target" ;;
                     3) mtr "$target" ;;
+                    *) echo -e "${RED}❌ Неверный ввод.${NC}" ;;
                 esac
                 read -p "Нажмите Enter..."
                 ;;
@@ -108,6 +104,7 @@ function run_utils_menu {
                     1) ss -tlpn ;;
                     2) ss -ulpn ;;
                     3) ss -tulpn ;;
+                    *) echo -e "${RED}❌ Неверный ввод.${NC}" ;;
                 esac
                 echo ""
                 read -p "Нажмите Enter..."
@@ -132,6 +129,7 @@ function run_utils_menu {
                         read -p "Введите точное имя (например, nginx): " k_name
                         if killall -9 "$k_name" 2>/dev/null; then echo -e "${GREEN}Процессы $k_name убиты.${NC}"; else echo -e "${RED}Процесс не найден.${NC}"; fi
                         ;;
+                    *) echo -e "${RED}❌ Неверный ввод.${NC}" ;;
                 esac
                 read -p "Нажмите Enter..."
                 ;;
@@ -152,6 +150,7 @@ function run_utils_menu {
                        journalctl --vacuum-time=3d
                        echo -e "${GREEN}Полная очистка завершена! Место освобождено.${NC}"
                        ;;
+                    *) echo -e "${RED}❌ Неверный ввод.${NC}" ;;
                 esac
                 read -p "Нажмите Enter..."
                 ;;

@@ -101,7 +101,15 @@ function manage_adguard {
                 read -p "Нажмите Enter для продолжения..."
                 ;;
             2)
-                run_remote_script "$XUI_PRO_REPO/x-ui-adguard.sh" -uninstall y
+                # Подтверждение обязательно: AdGuard стоит на домене панели и
+                # обслуживает DNS через 443, то есть промах по клавише в этом
+                # меню молча уносит рабочий DNS-сервис.
+                read -p "$(echo -e "${RED}Удалить AdGuard Home? [y/N]: ${NC}")" ag_confirm
+                if [[ "$ag_confirm" =~ ^[Yy]$ ]]; then
+                    run_remote_script "$XUI_PRO_REPO/x-ui-adguard.sh" -uninstall y
+                else
+                    echo -e "${BLUE}Отменено.${NC}"
+                fi
                 read -p "Нажмите Enter для продолжения..."
                 ;;
             [Xx]) return ;;
@@ -147,9 +155,18 @@ function manage_backup {
 }
 
 function uninstall_xui_pro {
-    read -p "$(echo -e "${RED}Полностью удалить X-UI Pro (панель, nginx, сертификаты)? [y/N]: ${NC}")" confirm
-    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+    # Ввод слова, а не [y/N]: здесь сносится панель вместе с базой инбаундов и
+    # пользователей, nginx и сертификатами — восстановить это переустановкой
+    # нельзя. Остальные удаления такого масштаба в проекте (стек telemt, боты)
+    # тоже требуют напечатать УДАЛИТЬ; одиночная клавиша для самой тяжёлой
+    # операции была самым слабым подтверждением во всём меню.
+    echo -e "${RED}⚠️  Будут удалены: панель 3x-ui-pro с базой инбаундов и"
+    echo -e "    пользователей, nginx и выпущенные сертификаты.${NC}"
+    read -p "$(echo -e "${RED}Введите УДАЛИТЬ для подтверждения: ${NC}")" confirm
+    if [ "$confirm" == "УДАЛИТЬ" ]; then
         run_remote_script "$XUI_PRO_REPO/x-ui-latest.sh" -uninstall y
+    else
+        echo -e "${BLUE}Отменено.${NC}"
     fi
     read -p "Нажмите Enter для продолжения..."
 }
@@ -174,7 +191,7 @@ function manage_xui_service {
         echo -e "${YELLOW}5) 🚥  Управление сервисом (статус | старт | стоп | рестарт)${NC}"
         echo -e "${CYAN}6) 🖥️   Запустить панель X-UI (команда x-ui)${NC}"
         echo -e "${RED}7) 🗑️   Удалить X-UI Pro полностью${NC}"
-        echo -e "${RED}X) 🔙  Назад${NC}"
+        echo -e "${RED}X) 🔙  Назад в главное меню${NC}"
         echo -e "${BLUE}------------------------------------------------------${NC}"
 
         read -p "Ваш выбор [1-7, X]: " choice
