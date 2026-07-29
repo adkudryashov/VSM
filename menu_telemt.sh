@@ -280,6 +280,28 @@ function mtpr_latest_version {
         | tr -d '[:space:]'
 }
 
+# Установлен ли MTproxy-reanimation. Смотрим оба признака: каталог автора и
+# команду в PATH. Файл есть, а команды нет — установка оборвалась на полпути;
+# команда есть, а каталога нет — инструмент поставили в обход нашего пункта.
+# В обоих случаях считаем установленным: предлагать поставить то, что уже
+# стоит, хуже, чем лишний раз показать «установлен».
+function mtpr_is_installed {
+    [ -f "$MTPR_DIR/mtpr.sh" ] || command -v mtpr &> /dev/null
+}
+
+# Строка состояния для шапки меню. Сеть здесь не трогаем намеренно: шапка
+# перерисовывается при каждом возврате в меню, и сверка версии с GitHub
+# подвешивала бы её на таймаут всякий раз, когда сети нет.
+function mtpr_status_line {
+    local ver
+    if ! mtpr_is_installed; then
+        echo -e "${RED}НЕ УСТАНОВЛЕН${NC}"
+        return
+    fi
+    ver=$(mtpr_installed_version 2>/dev/null)
+    echo -e "${GREEN}УСТАНОВЛЕН${ver:+ v$ver}${NC}"
+}
+
 # Следы MEKO. Проверяются оба его режима: правила могут остаться и в
 # iptables, и в nftables, причём даже без самого менеджера — например, если
 # каталог удалили вручную, а служба и таблица уцелели. Именно nftables-вариант
@@ -344,7 +366,15 @@ function run_mtpr {
     fi
 
     echo -e "${BLUE}------------------------------------------------------${NC}"
-    read -p "$(echo -e "${CYAN}Установить и запустить MTproxy-reanimation? [y/N]: ${NC}")" go
+    # Вопрос зависит от состояния: при установленном инструменте пункт его НЕ
+    # переустанавливает, а просто открывает. Прежняя формулировка «Установить и
+    # запустить» этого не показывала, и выглядело так, будто установка идёт по
+    # кругу.
+    if mtpr_is_installed; then
+        read -p "$(echo -e "${CYAN}Открыть менеджер mtpr? [y/N]: ${NC}")" go
+    else
+        read -p "$(echo -e "${CYAN}Установить и запустить MTproxy-reanimation? [y/N]: ${NC}")" go
+    fi
     if [[ ! "$go" =~ ^[Yy]$ ]]; then
         echo -e "${BLUE}Отменено.${NC}"; sleep 1; return
     fi
@@ -473,6 +503,10 @@ function run_telemt_menu {
         echo -e "    telemt:         [$(stack_status_line)]"
         echo -e "    telemt_panel:   [$(panel_status_line)]"
         echo -e "    Маскировка:     [$(mask_status_line)]"
+        echo -e "    MTproxy-reanim: [$(mtpr_status_line)]"
+        if mtpr_is_installed; then
+            echo -e "    ${BLUE}Запуск его менеджера — команда${NC} ${CYAN}mtpr${NC}${BLUE}, из любой точки системы.${NC}"
+        fi
         if [ -n "$DOMAIN_PANEL" ]; then
             echo -e "    Домены:         ${YELLOW}${DOMAIN_PANEL}${NC} / ${YELLOW}${DOMAIN_REALITY}${NC}"
         fi
