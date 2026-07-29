@@ -14,7 +14,17 @@ STACK_SCRIPT="$REPO_DIR/telemt-stack.sh"
 REBUILD_SCRIPT="$REPO_DIR/rebuild-nginx-openssl35.sh"
 STACK_CONF="/etc/vsm/telemt.conf"
 STACK_CREDS="/etc/vsm/telemt-credentials.txt"
-MASK_VHOST="/etc/nginx/conf.d/telemt-mask.conf"
+
+# Генератор self-SNI vhost общий с telemt-stack.sh, он же задаёт MASK_VHOST.
+# Раньше это были две копии одного heredoc, и одинаковый дефект приходилось
+# бы чинить дважды.
+if [ -f "$REPO_DIR/_nginx_mask.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$REPO_DIR/_nginx_mask.sh"
+else
+    echo -e "${RED}❌ Не найден $REPO_DIR/_nginx_mask.sh — обнови VSM (install.sh).${NC}"
+    exit 1
+fi
 
 # Сторонний проект MTproxy-reanimation (лимитер | тюнинг) под Telemt.
 # Пришёл на смену MEKO: один самодостаточный файл вместо девяти докачиваемых,
@@ -205,45 +215,13 @@ function restore_mask {
     fi
 
     echo -e "\n${CYAN}>>> Восстановление self-SNI vhost...${NC}"
-    SRC_VHOST="/etc/nginx/sites-available/${DOMAIN_PANEL}"
-    [ -f "$SRC_VHOST" ] || SRC_VHOST="/etc/nginx/sites-enabled/${DOMAIN_PANEL}"
-    if [ ! -f "$SRC_VHOST" ]; then
-        echo -e "${RED}❌ Не найден vhost ${DOMAIN_PANEL}. Панель установлена на этот домен?${NC}"
-        read -p "Enter..."; return
-    fi
 
-    WEBROOT=$(grep -oP '^\s*root\s+\K[^;]+' "$SRC_VHOST" | head -1)
-    CERT_FILE=$(grep -oP 'ssl_certificate\s+\K[^;]+' "$SRC_VHOST" | head -1)
-    CERT_KEY=$(grep -oP 'ssl_certificate_key\s+\K[^;]+' "$SRC_VHOST" | head -1)
-    if [ -z "$WEBROOT" ] || [ -z "$CERT_FILE" ] || [ -z "$CERT_KEY" ]; then
-        echo -e "${RED}❌ Не удалось извлечь пути из $SRC_VHOST.${NC}"; read -p "Enter..."; return
-    fi
-
-    mkdir -p /etc/nginx/conf.d
-    cat > "$MASK_VHOST" << EOF
-# self-SNI цель для telemt (восстановлено из меню).
-server {
-    listen 127.0.0.1:${TELEMT_MASK_PORT} ssl;
-    http2 on;
-
-    server_name ${DOMAIN_PANEL};
-    root ${WEBROOT};
-
-    ssl_certificate     ${CERT_FILE};
-    ssl_certificate_key ${CERT_KEY};
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!eNULL:!MD5:!DES:!RC4:!ADH:!SSLv3:!EXP:!PSK:!DSS;
-
-    index index.html index.htm index.php;
-}
-EOF
-
-    if nginx -t; then
-        systemctl reload nginx
+    # Сборка, проверка nginx -t и откат при неудаче — в _nginx_mask.sh,
+    # общем с установщиком.
+    if nginx_mask_apply "$DOMAIN_PANEL" "$TELEMT_MASK_PORT"; then
         echo -e "${GREEN}✅ Маскировка восстановлена и nginx перезагружен.${NC}"
     else
-        rm -f "$MASK_VHOST"
-        echo -e "${RED}❌ nginx -t не прошёл, файл удалён обратно.${NC}"
+        echo -e "${RED}❌ Маскировка не восстановлена (причина выше).${NC}"
     fi
     read -p "Нажмите Enter..."
 }

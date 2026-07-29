@@ -32,11 +32,6 @@ STACK_CONF_DIR="/etc/vsm"
 STACK_CONF="$STACK_CONF_DIR/telemt.conf"
 STACK_CREDS="$STACK_CONF_DIR/telemt-credentials.txt"
 
-# self-SNI vhost лежит в conf.d, а НЕ в sites-enabled: установщик и патч
-# 3x-ui-pro очищают sites-enabled целиком (rm -rf / find -delete), и файл
-# в sites-enabled молча исчезал бы вместе с маскировкой.
-MASK_VHOST="/etc/nginx/conf.d/telemt-mask.conf"
-
 MODE="addon"
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -52,6 +47,16 @@ die()  { echo -e "\e[1;31m[СБОЙ]\e[0m $*" >&2; exit 1; }
 verify_or_die() { "$@" || die "проверка не прошла: $*"; }
 
 [[ "$(id -u)" -eq 0 ]] || die "Запускай под root."
+
+# Генератор self-SNI vhost общий с menu_telemt.sh: раньше он был двумя копиями
+# одного heredoc, и одинаковый дефект пришлось бы чинить дважды. Путь считаем
+# от своего расположения, а не жёстко: при запуске через симлинк из
+# /usr/local/bin readlink -f приводит к реальному файлу в каталоге репозитория.
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+[[ -f "$SCRIPT_DIR/_nginx_mask.sh" ]] || \
+    die "Не найден $SCRIPT_DIR/_nginx_mask.sh — обнови VSM (install.sh) и повтори."
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/_nginx_mask.sh"
 
 : "${DOMAIN_PANEL:?Не задан DOMAIN_PANEL}"
 : "${DOMAIN_REALITY:?Не задан DOMAIN_REALITY}"
@@ -179,46 +184,17 @@ PANEL_WEBPATH="$(/usr/local/x-ui/x-ui setting -show true 2>&1 | grep -oP 'webBas
 # ---------------------------------------------------------------------------
 log "Этап 2: nginx vhost для self-SNI маскировки (127.0.0.1:${TELEMT_MASK_PORT})"
 
-SRC_VHOST="/etc/nginx/sites-available/${DOMAIN_PANEL}"
-[[ -f "$SRC_VHOST" ]] || SRC_VHOST="/etc/nginx/sites-enabled/${DOMAIN_PANEL}"
-[[ -f "$SRC_VHOST" ]] || die "Не найден vhost домена $DOMAIN_PANEL — проверь, что 3x-ui-pro установлена именно на этот домен."
-
-WEBROOT="$(grep -oP '^\s*root\s+\K[^;]+' "$SRC_VHOST" | head -1)"
-CERT_FILE="$(grep -oP 'ssl_certificate\s+\K[^;]+' "$SRC_VHOST" | head -1)"
-CERT_KEY="$(grep -oP 'ssl_certificate_key\s+\K[^;]+' "$SRC_VHOST" | head -1)"
-[[ -n "$WEBROOT" && -n "$CERT_FILE" && -n "$CERT_KEY" ]] || \
-    die "Не удалось извлечь root/ssl_certificate из $SRC_VHOST."
-
 # nginx.conf обязан подключать conf.d — иначе наш файл не прочитается.
 if ! grep -qE '^\s*include\s+/etc/nginx/conf\.d/\*\.conf;' /etc/nginx/nginx.conf; then
     warn "nginx.conf не подключает conf.d — добавляю include."
     sed -i '0,/^http\s*{/s//http {\n    include \/etc\/nginx\/conf.d\/*.conf;/' /etc/nginx/nginx.conf
 fi
 
-mkdir -p /etc/nginx/conf.d
-cat > "$MASK_VHOST" << EOF
-# self-SNI цель для telemt. Лежит в conf.d намеренно: установщик и патч
-# 3x-ui-pro очищают sites-enabled целиком, и здесь файл это переживает.
-# БЕЗ proxy_protocol: telemt при сплайсинге заголовок не добавляет,
-# поэтому направить маскировку на штатный 7443 нельзя.
-server {
-    listen 127.0.0.1:${TELEMT_MASK_PORT} ssl;
-    http2 on;
-
-    server_name ${DOMAIN_PANEL};
-    root ${WEBROOT};
-
-    ssl_certificate     ${CERT_FILE};
-    ssl_certificate_key ${CERT_KEY};
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!eNULL:!MD5:!DES:!RC4:!ADH:!SSLv3:!EXP:!PSK:!DSS;
-
-    index index.html index.htm index.php;
-}
-EOF
-
-verify_or_die nginx -t
-systemctl reload nginx
+# Сборка, проверка и откат при неудаче — в _nginx_mask.sh. Откат тут не
+# роскошь: битый файл в conf.d не даёт nginx стартовать вообще, и упасть,
+# оставив его на диске, значит уронить панель при ближайшем рестарте.
+nginx_mask_apply "$DOMAIN_PANEL" "$TELEMT_MASK_PORT" || \
+    die "Не удалось установить vhost self-SNI маскировки (см. сообщение выше)."
 
 MASK_CODE="$(curl -sk --resolve "${DOMAIN_PANEL}:${TELEMT_MASK_PORT}:127.0.0.1" \
     "https://${DOMAIN_PANEL}:${TELEMT_MASK_PORT}/" -o /dev/null -w '%{http_code}')"
