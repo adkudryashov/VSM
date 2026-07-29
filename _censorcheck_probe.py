@@ -64,7 +64,22 @@ def _request(url, data=None, headers=None, timeout=DEFAULT_TIMEOUT, retries=2):
                 raw = resp.read().decode("utf-8", "replace")
             return (json.loads(raw) if raw.strip() else {}), None
         except urllib.error.HTTPError as e:
-            detail = e.read().decode("utf-8", "replace")[:200]
+            # Из тела ошибки достаём вложенный errors[].detail, а не режем JSON
+            # по длине: RIPE кладёт настоящую причину именно туда, а обрезка по
+            # 200 символам приходилась ровно на неё. Из-за этого «не хватает
+            # кредитов» доезжало до пользователя как «проблема с запросом».
+            raw = e.read().decode("utf-8", "replace")
+            detail = raw[:500]
+            try:
+                err_obj = (json.loads(raw) or {}).get("error") or {}
+                parts = [d.get("detail") for d in (err_obj.get("errors") or [])
+                         if isinstance(d, dict) and d.get("detail")]
+                if parts:
+                    detail = "; ".join(parts)
+                elif err_obj.get("detail"):
+                    detail = err_obj["detail"]
+            except Exception:  # noqa: BLE001 — тело может быть не JSON
+                pass
             last = f"HTTP {e.code}: {detail}"
             # 4xx — наша вина (ключ, лимит, синтаксис), повтор не поможет.
             if 400 <= e.code < 500:
@@ -192,12 +207,16 @@ def atlas_tls(domain, port, key, probes=10, wait=180):
     data, err = _request(f"{RIPE_API}/measurements/", data=body,
                          headers={"Authorization": f"Key {key}"}, retries=1)
     if err:
-        hint = None
-        if "credits" in err.lower() or "balance" in err.lower():
-            hint = "закончились кредиты RIPE Atlas"
-        elif "401" in err or "403" in err:
-            hint = "ключ RIPE Atlas отклонён"
-        return {"error": hint or f"замер не создан ({err})"}
+        low = err.lower()
+        # Числа из ответа RIPE (стоимость и баланс) сохраняем в сообщении: без
+        # них «не хватает кредитов» не подсказывает, сколько именно не хватает.
+        if "credit" in low or "balance" in low:
+            return {"error": "не хватает кредитов RIPE Atlas — "
+                             + err.split(": ", 1)[-1], "credits": True}
+        if "401" in err or "403" in err:
+            return {"error": "ключ RIPE Atlas отклонён (проверьте право "
+                             "«Schedule a new measurement»)", "configurable": True}
+        return {"error": f"замер не создан ({err})"}
 
     ids = (data or {}).get("measurements") or []
     if not ids:

@@ -324,7 +324,8 @@ import json,sys
 a=json.loads(sys.argv[1]).get("atlas") or {}
 if not a: print("SKIP|радар не запускался|"); raise SystemExit
 if "error" in a:
-    print(f"SKIP|{a['error']}|{'настраивается в меню' if a.get('configurable') else ''}")
+    kind = "CRED" if a.get("credits") else "SKIP"
+    print(f"{kind}|{a['error']}|{'настраивается в меню' if a.get('configurable') else ''}")
     raise SystemExit
 req=a.get("requested") or 0
 got=a.get("total") or 0
@@ -363,6 +364,15 @@ PY
             SKIP) say "  ${YELLOW}?${NC} $what ${detail:+($detail)}"
                   say "  ${YELLOW}Радар — единственный уровень, который видит фильтрацию${NC}"
                   say "  ${YELLOW}у домашнего абонента. Без него вывод неполон.${NC}"
+                  worst 1 ;;
+            # Нулевой баланс — самая частая причина неработающего радара у
+            # нового аккаунта, и она не чинится настройками. Подсказываем, как
+            # получить кредиты, иначе пользователь ищет ошибку в ключе.
+            CRED) say "  ${YELLOW}?${NC} $what"
+                  say "  ${YELLOW}Кредиты начисляются за размещение пробы RIPE Atlas${NC}"
+                  say "  ${YELLOW}(аппаратной или программной) либо переводом от другого${NC}"
+                  say "  ${YELLOW}участника. Баланс виден на atlas.ripe.net. Остальные два${NC}"
+                  say "  ${YELLOW}уровня проверки при этом работают.${NC}"
                   worst 1 ;;
         esac
     done <<< "$rows"
