@@ -284,8 +284,16 @@ curl -fsSL https://raw.githubusercontent.com/amirotin/telemt_panel/main/install.
 
 # Порядок вопросов: API URL, auth header, admin user, admin password,
 # путь к бинарнику telemt, имя systemd-юнита. Пустая строка = дефолт.
-printf '\n\n%s\n%s\n\n\n' "$PANEL_ADMIN_USER" "$PANEL_ADMIN_PASS" \
-    | script -qe -c "bash '$PANEL_INSTALLER'" /dev/null
+#
+# "stty -echo" плюс пауза перед подачей ответов — против утечки пароля. Строчная
+# дисциплина псевдотерминала отражает всё поданное на вход СРАЗУ по приходу,
+# задолго до того, как установщик доберётся до своего prompt_secret и сам
+# погасит эхо; без этого пароль админа уходит в stdout открытым текстом и
+# оседает в любом логе, куда перенаправлен вывод. Пауза нужна, чтобы stty успел
+# отработать раньше, чем script нальёт ответы в терминал. Если паузы всё же не
+# хватит, установка не сломается — вернётся прежнее поведение с эхом.
+{ sleep 2; printf '\n\n%s\n%s\n\n\n' "$PANEL_ADMIN_USER" "$PANEL_ADMIN_PASS"; } \
+    | script -qe -c "stty -echo 2>/dev/null; bash '$PANEL_INSTALLER'" /dev/null
 
 PANEL_TOML=/etc/telemt-panel/config.toml
 [[ -f "$PANEL_TOML" ]] || die "telemt_panel не создал $PANEL_TOML."
