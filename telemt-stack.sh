@@ -46,6 +46,19 @@ warn() { echo -e "\e[1;33m[!]\e[0m    $*"; }
 die()  { echo -e "\e[1;31m[СБОЙ]\e[0m $*" >&2; exit 1; }
 verify_or_die() { "$@" || die "проверка не прошла: $*"; }
 
+# Повторяет команду раз в секунду, пока та не вернёт 0. Нужна там, где systemd
+# уже отдал "active", а сама служба ещё дозапускается: фиксированный sleep либо
+# тормозит установку, либо не дожидается — и то и другое мы поймали в бою.
+wait_until() {
+    local tries="$1"; shift
+    local i
+    for ((i = 1; i <= tries; i++)); do
+        if "$@"; then return 0; fi
+        sleep 1
+    done
+    return 1
+}
+
 [[ "$(id -u)" -eq 0 ]] || die "Запускай под root."
 
 # Генератор self-SNI vhost общий с menu_telemt.sh: раньше он был двумя копиями
@@ -228,8 +241,18 @@ verify_or_die systemctl is-active --quiet telemt
 
 command -v ufw >/dev/null 2>&1 && ufw allow "${TELEMT_PORT}/tcp" >/dev/null 2>&1 || true
 
-sleep 2
-E2E="$(curl -sk "https://127.0.0.1:${TELEMT_PORT}/" -o /dev/null -w '%{http_code}' || echo 000)"
+# Ждём готовности, а не спим фиксированно: systemd считает юнит активным сразу,
+# а telemt после этого ещё поднимает пул middle-proxy — на живом сервере это
+# заняло дольше двух секунд, и установка падала на Этапе 3 при полностью
+# исправном сервисе, так и не добравшись до telemt_panel.
+log "жду готовности telemt..."
+if ! wait_until 30 curl -sf "http://127.0.0.1:9091/v1/users" -o /dev/null; then
+    die "API telemt (127.0.0.1:9091) не отвечает 30 секунд. Смотри: journalctl -u telemt -n 50"
+fi
+
+# Присваивание с "|| echo 000" внутри подстановки склеивало вывод curl с эхом и
+# давало "000000" вместо кода ответа. Код перезаписываем целиком.
+E2E="$(curl -sk --max-time 10 "https://127.0.0.1:${TELEMT_PORT}/" -o /dev/null -w '%{http_code}')" || E2E=000
 if [[ "$E2E" == "200" ]]; then
     log "Сквозной self-SNI тест через telemt: 200."
 else
@@ -237,7 +260,6 @@ else
     warn "Проверь вручную: curl -skv https://127.0.0.1:${TELEMT_PORT}/ и journalctl -u telemt -n 50"
 fi
 
-verify_or_die curl -sf "http://127.0.0.1:9091/v1/users" -o /dev/null
 log "telemt установлен и проверен."
 
 # ---------------------------------------------------------------------------
@@ -288,8 +310,11 @@ verify_or_die systemctl is-active --quiet telemt-panel
 
 command -v ufw >/dev/null 2>&1 && ufw allow "${PANEL_PORT}/tcp" >/dev/null 2>&1 || true
 
-sleep 2
-PCODE="$(curl -sk "https://127.0.0.1:${PANEL_PORT}/" -o /dev/null -w '%{http_code}' || echo 000)"
+# Та же гонка, что и у telemt: ждём готовности, а не спим наугад.
+if ! wait_until 20 curl -sk --max-time 5 "https://127.0.0.1:${PANEL_PORT}/" -o /dev/null; then
+    warn "telemt_panel не отвечает на https://127.0.0.1:${PANEL_PORT}/ — смотри journalctl -u telemt-panel"
+fi
+PCODE="$(curl -sk --max-time 10 "https://127.0.0.1:${PANEL_PORT}/" -o /dev/null -w '%{http_code}')" || PCODE=000
 [[ "$PCODE" == "200" ]] || warn "telemt_panel вернул $PCODE вместо 200 — смотри journalctl -u telemt-panel"
 
 # ---------------------------------------------------------------------------
