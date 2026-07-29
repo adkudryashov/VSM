@@ -142,14 +142,21 @@ def check_host_tcp(targets, nodes=("ru1", "ru2", "ru3"), wait=25):
 # ---------------------------------------------------------------------------
 # RIPE ATLAS — пробы в реальных сетях РФ, включая домашние и мобильные
 # ---------------------------------------------------------------------------
-def _atlas_probe_networks(probe_ids, key):
+def _atlas_probe_networks(probe_ids):
     """ASN и оператор для проб. Пустой словарь, если метаданные не достались:
-    без них разбивка по типу сети пропадёт, но сам замер останется валидным."""
+    без них разбивка по типу сети пропадёт, но сам замер останется валидным.
+
+    Запрос БЕЗ ключа намеренно: каталог проб публичный и отвечает анонимно.
+    Ключу для работы утилиты достаточно одного права «Schedule a new
+    measurement», а подстановка такого узкого ключа в чужой эндпоинт рискует
+    вернуть 403 — и разбивка по типу сети молча исчезла бы вместе с главным
+    выводом радара.
+    """
     if not probe_ids:
         return {}
     ids = ",".join(str(p) for p in sorted(set(probe_ids))[:200])
     url = f"{RIPE_API}/probes/?id__in={ids}&fields=id,asn_v4,country_code"
-    data, err = _request(url, headers={"Authorization": f"Key {key}"}, retries=1)
+    data, err = _request(url, retries=1)
     if err or not data:
         return {}
     return {p["id"]: p.get("asn_v4") for p in data.get("results", [])}
@@ -202,8 +209,14 @@ def atlas_tls(domain, port, key, probes=10, wait=180):
     deadline, results, stable = time.time() + wait, [], 0
     while time.time() < deadline:
         time.sleep(10)
-        data, err = _request(f"{RIPE_API}/measurements/{msm_id}/results/",
-                             headers={"Authorization": f"Key {key}"}, retries=1)
+        # Сначала анонимно: наши замеры публичные по умолчанию, а ключ с
+        # единственным правом «Schedule a new measurement» на чтении результатов
+        # может дать 403. Ключ подставляем только если анонимно не пустили —
+        # тогда замер оказался непубличным.
+        data, err = _request(f"{RIPE_API}/measurements/{msm_id}/results/", retries=1)
+        if err and ("401" in err or "403" in err):
+            data, err = _request(f"{RIPE_API}/measurements/{msm_id}/results/",
+                                 headers={"Authorization": f"Key {key}"}, retries=1)
         if err or data is None:
             continue
         if len(data) == len(results):
@@ -220,7 +233,7 @@ def atlas_tls(domain, port, key, probes=10, wait=180):
         return {"error": "пробы не прислали результатов за отведённое время",
                 "measurement": msm_id}
 
-    asn_by_probe = _atlas_probe_networks([r.get("prb_id") for r in results], key)
+    asn_by_probe = _atlas_probe_networks([r.get("prb_id") for r in results])
     home, dc = [], []
     for r in results:
         asn = asn_by_probe.get(r.get("prb_id"))
