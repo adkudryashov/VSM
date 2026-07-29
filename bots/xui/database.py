@@ -8,10 +8,15 @@ from config import settings
 DB_NAME = settings.PANELS_DB
 
 async def init_db():
+    # Схема повторяет то, что реально лежит в боевой базе: там есть id, а имя
+    # объявлено UNIQUE, а не PRIMARY KEY. IF NOT EXISTS на живой базе не
+    # срабатывает, так что раньше расхождение не мешало — но свежая установка
+    # получала таблицу, отличную от прода.
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute('''
             CREATE TABLE IF NOT EXISTS panels (
-                name TEXT PRIMARY KEY,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
                 base_url TEXT NOT NULL,
                 token TEXT NOT NULL,
                 expiry_date TEXT
@@ -40,6 +45,16 @@ async def add_new_panel(name, base_url, token, expiry_date):
             return True
         except aiosqlite.IntegrityError:
             return False
+
+async def update_panel_expiry(name, expiry_date):
+    # Возвращает bool, а не None: пока в одной админской сессии открыт
+    # календарь, панель могли удалить из другой — вызывающий должен это увидеть.
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute(
+            'UPDATE panels SET expiry_date = ? WHERE name = ?', (expiry_date, name)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
 
 async def delete_panel_by_name(name):
     async with aiosqlite.connect(DB_NAME) as db:
