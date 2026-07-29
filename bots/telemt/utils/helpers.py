@@ -19,6 +19,24 @@ def format_traffic(bytes_val: int) -> str:
     else:
         return f"{val / (1024 * 1024 * 1024):.2f} GB"
 
+def format_percent(value: float) -> str:
+    """
+    Округление до знака скрывает малое, но ненулевое: 11 сбоев из 30500 —
+    это 0.036%, и «0.0%» рядом с одиннадцатью сбоями читается как «сбоев нет»,
+    а «100.0%» успешных противоречит соседней строке. Поэтому ровный ноль и
+    ровная сотня имеют свои формы, а всё, что не дотягивает до младшего знака,
+    показывается границей: «<0.1%» — это честно, «0.0%» — нет.
+    """
+    if value <= 0:
+        return "0%"
+    if value >= 100:
+        return "100%"
+    if value < 0.1:
+        return "<0.1%"
+    if value > 99.9:
+        return ">99.9%"
+    return f"{value:.1f}%"
+
 async def send_rich_or_fallback(message: types.Message, html_content: str, fallback_text: str, reply_markup=None):
     """
     Отправляет Rich Message (Bot API 10.1); при любой ошибке API — откатывается

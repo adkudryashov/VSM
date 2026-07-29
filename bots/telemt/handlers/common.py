@@ -1,4 +1,4 @@
-from telemt.utils.helpers import send_long_message, send_rich_or_fallback, format_traffic                                                                                                                                      
+from telemt.utils.helpers import send_long_message, send_rich_or_fallback, format_traffic, format_percent                                                                                                                                      
 import asyncio
 import html                                                                                                                                                                   
 import httpx                                                                                                                                                                     
@@ -87,8 +87,8 @@ async def cmd_status(message: types.Message):
             f"🔹 Сетевая активность:\n"
             f"🌐 Активных IP: {total_active_ips}\n"
             f"🌐 Всего соединений: {format_connections(connections_total)}\n"
-            f"┗━ ✅ Успешных: {format_connections(good_connections)} ({success_percent:.1f}%)\n"
-            f"┗━ ⚠️ Сбои: {format_connections(connections_bad)} ({bad_percent:.1f}%)"
+            f"┗━ ✅ Успешных: {format_connections(good_connections)} ({format_percent(success_percent)})\n"
+            f"┗━ ⚠️ Сбои: {format_connections(connections_bad)} ({format_percent(bad_percent)})"
         )
         # Один экран в две колонки вместо двух таблиц одна под другой.
         # colspan в HTML-режиме проверен ответом sendRichMessage: сервер
@@ -100,9 +100,9 @@ async def cmd_status(message: types.Message):
             f"<tr><td>Аптайм</td><td>{html.escape(format_uptime(summary_data['uptime_seconds']))}</td>"
             f"<td>Всего соединений</td><td>{html.escape(format_connections(connections_total))}</td></tr>"
             f"<tr><td>Трафик</td><td>{html.escape(format_traffic(total_traffic))}</td>"
-            f"<td>🟢 Успешных</td><td>{html.escape(format_connections(good_connections))} ({success_percent:.1f}%)</td></tr>"
+            f"<td>🟢 Успешных</td><td>{html.escape(format_connections(good_connections))} ({format_percent(success_percent)})</td></tr>"
             f"<tr><td>Активные IP</td><td>{total_active_ips}</td>"
-            f"<td>🔴 Сбои</td><td>{html.escape(format_connections(connections_bad))} ({bad_percent:.1f}%)</td></tr>"
+            f"<td>🔴 Сбои</td><td>{html.escape(format_connections(connections_bad))} ({format_percent(bad_percent)})</td></tr>"
             # Версия вынесена вниз во всю ширину: строка длинная и в узкой
             # ячейке переносится, а пары к ней в правой колонке всё равно нет.
             f"<tr><td colspan=\"4\">Версия: {html.escape(version_text)}</td></tr>"
