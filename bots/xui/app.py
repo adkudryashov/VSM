@@ -267,8 +267,17 @@ async def date_widget(callback: types.CallbackQuery, callback_data: dp.DateCb,
         await callback.message.edit_reply_markup(reply_markup=None)
         await callback.message.answer(dp.MANUAL_PROMPT, reply_markup=kb.cancel_keyboard())
     elif action in ("preset", "day"):
-        chosen = (dp.shift(base, callback_data.value) if action == "preset"
-                  else date(callback_data.year, callback_data.month, callback_data.day))
+        # Числа приходят из callback_data, то есть снаружи. Своя клавиатура
+        # присылает только существующие даты, но подпись кнопки можно подделать
+        # и прислать 31 февраля или ключ пресета, которого нет, — без разбора
+        # исключения обработчик падал бы, а пользователь видел зависший
+        # календарь без единого объяснения.
+        try:
+            chosen = (dp.shift(base, callback_data.value) if action == "preset"
+                      else date(callback_data.year, callback_data.month, callback_data.day))
+        except (ValueError, KeyError):
+            await callback.answer(dp.STALE_ANSWER, show_alert=True)
+            return
         await callback.message.edit_reply_markup(reply_markup=None)
         await _finish_date(callback.message, state, chosen)
 
