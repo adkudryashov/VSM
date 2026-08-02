@@ -1,4 +1,6 @@
-from telemt.utils.helpers import send_long_message, send_rich_or_fallback, format_traffic, format_percent                                                                                                                                      
+from telemt.utils.helpers import (send_long_message, send_rich_or_fallback,
+                                  format_traffic, format_percent,
+                                  format_uptime, format_connections)                                                                                                                                      
 import asyncio
 import html                                                                                                                                                                   
 import httpx                                                                                                                                                                     
@@ -12,27 +14,6 @@ from telemt.keyboards.inline import get_main_keyboard
                                                                                                                                                                                  
 router = Router()                                                                                                                                                                
 api = TelemtAPIClient()                                                                                                                                                          
-                                                                                                                                                                                 
-def format_uptime(seconds: float) -> str:                                                                                                                                        
-    if not seconds: return "0м"                                                                                                                                                  
-    weeks = int(seconds // (7 * 24 * 3600))                                                                                                                                      
-    seconds %= (7 * 24 * 3600)                                                                                                                                                   
-    days = int(seconds // (24 * 3600))                                                                                                                                           
-    seconds %= (24 * 3600)                                                                                                                                                       
-    hours = int(seconds // 3600)                                                                                                                                                 
-    seconds %= 3600                                                                                                                                                              
-    minutes = int(seconds // 60)                                                                                                                                                 
-    parts = []                                                                                                                                                                   
-    if weeks > 0: parts.append(f"{weeks}н")                                                                                                                                      
-    if days > 0: parts.append(f"{days}д")                                                                                                                                        
-    if hours > 0: parts.append(f"{hours}ч")                                                                                                                                      
-    if minutes > 0 or not parts: parts.append(f"{minutes}м")                                                                                                                     
-    return ' '.join(parts)                                                                                                                                                       
-                                                                                                                                                                                 
-def format_connections(value: int) -> str:                                                                                                                                       
-    if value < 1000: return str(value)                                                                                                                                           
-    elif value < 1_000_000: return f"{value/1000:.1f}k" if value % 1000 != 0 else f"{value//1000}k"                                                                              
-    else: return f"{value/1_000_000:.1f}M"                                                                                                                                       
                                                                                                                                                                                  
 def get_server_name() -> str:                                                                                                                                                    
     config_path = Path("/etc/telemt/telemt.toml")                                                                                                                                

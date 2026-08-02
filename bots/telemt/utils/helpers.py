@@ -37,6 +37,29 @@ def format_percent(value: float) -> str:
         return ">99.9%"
     return f"{value:.1f}%"
 
+def format_uptime(seconds: float) -> str:
+    """Аптайм словами: недели-дни-часы-минуты, пустые разряды опускаются."""
+    if not seconds: return "0м"
+    weeks = int(seconds // (7 * 24 * 3600))
+    seconds %= (7 * 24 * 3600)
+    days = int(seconds // (24 * 3600))
+    seconds %= (24 * 3600)
+    hours = int(seconds // 3600)
+    seconds %= 3600
+    minutes = int(seconds // 60)
+    parts = []
+    if weeks > 0: parts.append(f"{weeks}н")
+    if days > 0: parts.append(f"{days}д")
+    if hours > 0: parts.append(f"{hours}ч")
+    if minutes > 0 or not parts: parts.append(f"{minutes}м")
+    return ' '.join(parts)
+
+def format_connections(value: int) -> str:
+    """Счётчик соединений с сокращением до k и M; ровные тысячи без дробной части."""
+    if value < 1000: return str(value)
+    elif value < 1_000_000: return f"{value/1000:.1f}k" if value % 1000 != 0 else f"{value//1000}k"
+    else: return f"{value/1_000_000:.1f}M"
+
 async def send_rich_or_fallback(message: types.Message, html_content: str, fallback_text: str, reply_markup=None):
     """
     Отправляет Rich Message (Bot API 10.1); при любой ошибке API — откатывается
