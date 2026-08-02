@@ -91,6 +91,44 @@ function run_scanner {
 # честно сообщает, что именно не проверено. Ключ RIPE — свой, задаётся здесь же.
 CENSORCHECK_SCRIPT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)/censorcheck.sh"
 
+# Проба RIPE Atlas — источник кредитов для радара ТСПУ. Живёт рядом, потому что
+# без кредитов третий уровень censorcheck просто не запускается, и объяснять
+# это пользователю нужно там же, где он видит отказ.
+ATLAS_SCRIPT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)/atlas-probe.sh"
+
+function run_atlas_probe {
+    if [ ! -f "$ATLAS_SCRIPT" ]; then
+        echo -e "${RED}❌ Не найден $ATLAS_SCRIPT — обновите VSM (install.sh).${NC}"
+        read -p "Нажмите Enter..."; return
+    fi
+    while true; do
+        clear
+        echo -e "${CYAN}======================================================${NC}"
+        echo -e "${CYAN}   📡  ПРОБА RIPE ATLAS  📡                           ${NC}"
+        echo -e "${CYAN}======================================================${NC}"
+        echo -e "    Состояние: [$(bash "$ATLAS_SCRIPT" --line)]"
+        echo -e "${YELLOW}    Радар ТСПУ стоит 200 кредитов за замер. Подключённая"
+        echo -e "    проба приносит около 21 600 кредитов в сутки.${NC}"
+        echo -e "${BLUE}------------------------------------------------------${NC}"
+        echo -e "${GREEN}1) 📊  Состояние и баланс кредитов${NC}"
+        echo -e "${GREEN}2) 📡  Разместить пробу на этом сервере${NC}"
+        echo -e "${CYAN}3) 🔑  Показать ключ для регистрации${NC}"
+        echo -e "${RED}4) 🗑️   Удалить пробу${NC}"
+        echo -e "${RED}X) 🔙  Назад${NC}"
+        echo -e "${BLUE}------------------------------------------------------${NC}"
+        # "|| return" по той же причине, что и в подменю censorcheck ниже.
+        read -p "Выбор: " ap_choice || return
+        case $ap_choice in
+            1) bash "$ATLAS_SCRIPT" --status;  read -p "Нажмите Enter..." ;;
+            2) bash "$ATLAS_SCRIPT" --install; read -p "Нажмите Enter..." ;;
+            3) bash "$ATLAS_SCRIPT" --key;     read -p "Нажмите Enter..." ;;
+            4) bash "$ATLAS_SCRIPT" --remove;  read -p "Нажмите Enter..." ;;
+            [Xx]) return ;;
+            *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
 function run_censorcheck {
     if [ ! -f "$CENSORCHECK_SCRIPT" ]; then
         echo -e "${RED}❌ Не найден $CENSORCHECK_SCRIPT — обновите VSM (install.sh).${NC}"
@@ -106,12 +144,14 @@ function run_censorcheck {
         [ -f /etc/vsm/censorcheck.conf ] && grep -q '^RIPE_API_KEY=.\+' /etc/vsm/censorcheck.conf \
             && key_state="${GREEN}ЗАДАН${NC}"
         echo -e "    Ключ RIPE Atlas: [$key_state]"
+        echo -e "    Проба Atlas:     [$(bash "$ATLAS_SCRIPT" --line 2>/dev/null || echo "?")]"
         echo -e "${YELLOW}    Без ключа работают локальные проверки и датацентровые"
-        echo -e "    узлы; радар ТСПУ в домашних сетях требует ключа.${NC}"
+        echo -e "    узлы; радар ТСПУ в домашних сетях требует ключа и кредитов.${NC}"
         echo -e "${BLUE}------------------------------------------------------${NC}"
         echo -e "${GREEN}1) 🎯  Проверить свой стек (домены и порты из конфига)${NC}"
         echo -e "${GREEN}2) 🌐  Проверить произвольный домен${NC}"
         echo -e "${CYAN}3) 🔑  Задать ключ RIPE Atlas${NC}"
+        echo -e "${CYAN}4) 📡  Проба RIPE Atlas (кредиты для радара)${NC}"
         echo -e "${RED}X) 🔙  Назад${NC}"
         echo -e "${BLUE}------------------------------------------------------${NC}"
         # "|| return" обязателен: при закрытом stdin (пайп, оборванный
@@ -142,6 +182,7 @@ function run_censorcheck {
                 fi
                 ;;
             3) bash "$CENSORCHECK_SCRIPT" --set-key; read -p "Нажмите Enter..." ;;
+            4) run_atlas_probe ;;
             [Xx]) return ;;
             *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
         esac
