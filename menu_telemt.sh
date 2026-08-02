@@ -26,21 +26,41 @@ else
     exit 1
 fi
 
-# Сторонний проект MTproxy-reanimation (лимитер | тюнинг) под Telemt.
-# Пришёл на смену MEKO: один самодостаточный файл вместо девяти докачиваемых,
-# nftables вместо iptables, бэкап конфигов и откат у каждой функции, а также
-# встроенная сверка версий с подтверждением обновления. Лицензия MIT.
-MTPR_REPO="Liafanx/MTproxy-reanimation"
-MTPR_DIR="/opt/mtproxy-reanimation"
+# Сторонний проект MTProxyL (лимитер | тюнинг) под Telemt. Пришёл на смену
+# MTproxy-reanimation: тот заброшен на 1.2.9, разработка переехала в новый
+# репозиторий. Лицензия MIT.
+#
+# Нам подходит ТОЛЬКО режим Reanimator: он применяет фиксы к чужой, уже
+# работающей установке telemt — то есть к нашей. Режим Manager ставит Docker
+# и поднимает СВОЙ telemt в контейнере на том же порту, что несовместимо со
+# стеком VSM. Разница объясняется пользователю на экране пункта меню.
+MTPROXYL_REPO="Liafanx/MTProxyL"
+MTPROXYL_DIR="/opt/mtproxyl"
+MTPROXYL_SETTINGS="$MTPROXYL_DIR/settings.conf"
 
-# Прежний MEKO. Нужен только чтобы заметить его следы и предупредить о
-# конфликте. У MEKO ДВА режима SYN FIX, и оба ограничивают тот же трафик,
-# что и MTproxy-reanimation:
+# Следы прошлых поколений лимитера. Нужны только чтобы их заметить и
+# предупредить о конфликте: правила у всех трёх поколений ограничивают один и
+# тот же трафик, но лежат в разных таблицах и друг друга не вытесняют.
+#
+# MEKO — самое старое. У него ДВА режима SYN FIX:
 #   iptables — цепочка MTPR_SYNFIX,     юнит mtpr-synfix.service
 #   nftables — таблица inet mtpr_synfix, юнит mtpr-nft-synfix.service
 MEKO_DIR="/opt/mtpr-simple"
 MEKO_NFT_TABLE="mtpr_synfix"
 MEKO_UNITS=(mtpr-synfix mtpr-nft-synfix)
+
+# MTproxy-reanimation. Опаснее MEKO: его Zapret2 заворачивает трафик прокси в
+# очередь nfqws, и второй такой же обработчик от MTProxyL встанет рядом — оба
+# будут править одни и те же пакеты, а внешне это лишь необъяснимо плохое
+# соединение. Таблица MTProto — именно zapret2, telemt_limit — SYN-лимитер.
+# Семейство у таблиц разное, и хранится оно прямо в элементе массива: таблица
+# inet не видна через `nft list table ip` и наоборот, поэтому одним семейством
+# на всех не обойтись. Zapret2 (MTProto) автор создаёт в ip, а SYN-лимитер и
+# iOS-фикс — в inet (mtpr.sh: nft add table ip / nft add table inet).
+MTPR_DIR="/opt/mtproxy-reanimation"
+MTPR_NFT_TABLES=(ip:MTProto inet:telemt_limit inet:mtpr_ios2_fix)
+MTPR_UNITS=(mtpr-zapret2 mtpr-syn-limit)
+MTPR_SYSCTL="/etc/sysctl.d/99-mtpr-meko-opt.conf"
 
 function load_stack_conf {
     DOMAIN_PANEL=""; DOMAIN_REALITY=""
@@ -271,97 +291,162 @@ function manage_services {
 # смениться на одинарные кавычки, readonly или отступ. Жёсткий шаблон в таком
 # случае молча вернул бы пустоту, и меню показывало бы «не установлен» рядом с
 # работающим инструментом.
-function mtpr_installed_version {
-    [ -f "$MTPR_DIR/mtpr.sh" ] || return 1
+function mtproxyl_installed_version {
+    [ -f "$MTPROXYL_DIR/mtproxyl.sh" ] || return 1
     grep -m1 -oE '^[[:space:]]*(readonly[[:space:]]+)?VERSION=["'"'"']?[0-9]+(\.[0-9]+)+' \
-        "$MTPR_DIR/mtpr.sh" 2>/dev/null | grep -oE '[0-9]+(\.[0-9]+)+'
+        "$MTPROXYL_DIR/mtproxyl.sh" 2>/dev/null | grep -oE '[0-9]+(\.[0-9]+)+'
 }
 
 # Версия у автора. Отдельный файл version в репозитории — по нему же
-# сверяется и сам mtpr при запуске. Молча пусто, если сети нет.
-function mtpr_latest_version {
-    curl -fsS --max-time 6 "https://raw.githubusercontent.com/$MTPR_REPO/main/version" 2>/dev/null \
+# сверяется и сам mtproxyl при запуске. Молча пусто, если сети нет.
+function mtproxyl_latest_version {
+    curl -fsS --max-time 6 "https://raw.githubusercontent.com/$MTPROXYL_REPO/main/version" 2>/dev/null \
         | tr -d '[:space:]'
 }
 
-# Установлен ли MTproxy-reanimation. Смотрим оба признака: каталог автора и
-# команду в PATH. Файл есть, а команды нет — установка оборвалась на полпути;
-# команда есть, а каталога нет — инструмент поставили в обход нашего пункта.
-# В обоих случаях считаем установленным: предлагать поставить то, что уже
-# стоит, хуже, чем лишний раз показать «установлен».
-function mtpr_is_installed {
-    [ -f "$MTPR_DIR/mtpr.sh" ] || command -v mtpr &> /dev/null
+# Установлен ли MTProxyL. Смотрим оба признака: каталог автора и команду в
+# PATH. Файл есть, а команды нет — установка оборвалась на полпути; команда
+# есть, а каталога нет — инструмент поставили в обход нашего пункта. В обоих
+# случаях считаем установленным: предлагать поставить то, что уже стоит, хуже,
+# чем лишний раз показать «установлен».
+function mtproxyl_is_installed {
+    [ -f "$MTPROXYL_DIR/mtproxyl.sh" ] || command -v mtproxyl &> /dev/null
+}
+
+# Выбранный режим работы: manager или reanimator. Читаем grep'ом, а не source:
+# файл чужой, и исполнять его содержимое в своей оболочке незачем. Пусто, если
+# режим ещё не выбран — например, установку прервали на первом вопросе.
+function mtproxyl_mode {
+    [ -f "$MTPROXYL_SETTINGS" ] || return 1
+    grep -m1 -oE "^[[:space:]]*MTPROXYL_MODE=['\"]?[a-z]+" "$MTPROXYL_SETTINGS" 2>/dev/null \
+        | grep -oE '[a-z]+$'
 }
 
 # Строка состояния для шапки меню. Сеть здесь не трогаем намеренно: шапка
 # перерисовывается при каждом возврате в меню, и сверка версии с GitHub
 # подвешивала бы её на таймаут всякий раз, когда сети нет.
-function mtpr_status_line {
-    local ver
-    if ! mtpr_is_installed; then
+function mtproxyl_status_line {
+    local ver mode
+    if ! mtproxyl_is_installed; then
         echo -e "${RED}НЕ УСТАНОВЛЕН${NC}"
         return
     fi
-    ver=$(mtpr_installed_version 2>/dev/null)
-    echo -e "${GREEN}УСТАНОВЛЕН${ver:+ v$ver}${NC}"
+    ver=$(mtproxyl_installed_version 2>/dev/null)
+    mode=$(mtproxyl_mode 2>/dev/null)
+    # Manager подсвечивается жёлтым: он означает второй, чужой telemt рядом с
+    # нашим — состояние рабочее, но почти наверняка выбранное по ошибке.
+    case "$mode" in
+        reanimator) echo -e "${GREEN}УСТАНОВЛЕН${ver:+ v$ver}${NC} ${GREEN}(Reanimator)${NC}" ;;
+        manager)    echo -e "${GREEN}УСТАНОВЛЕН${ver:+ v$ver}${NC} ${YELLOW}(Manager — см. пункт 7)${NC}" ;;
+        *)          echo -e "${GREEN}УСТАНОВЛЕН${ver:+ v$ver}${NC}" ;;
+    esac
 }
 
-# Следы MEKO. Проверяются оба его режима: правила могут остаться и в
-# iptables, и в nftables, причём даже без самого менеджера — например, если
-# каталог удалили вручную, а служба и таблица уцелели. Именно nftables-вариант
-# опаснее: он ограничивает тот же трафик, что и таблица MTproxy-reanimation,
-# и внешне это выглядит как необъяснимо заниженный лимит подключений.
-function meko_leftovers_warning {
-    local found=""
-    command -v mekopr &>/dev/null && found="команда mekopr"
-    [ -d "$MEKO_DIR" ] && found="${found:+$found, }каталог $MEKO_DIR"
+# Следы прошлых поколений лимитера — MEKO и MTproxy-reanimation. Признаки
+# каждого проверяются независимо и по нескольким сразу: остатки бывают и без
+# самого менеджера, если каталог удалили вручную, а служба и таблица уцелели.
+# Возвращает 1, если что-то найдено, — вызывающий по этому коду не судит,
+# предупреждение носит рекомендательный характер.
+function legacy_leftovers_warning {
+    local meko="" mtpr="" u t
+
+    # --- MEKO: оба его режима SYN FIX ---
+    command -v mekopr &>/dev/null && meko="команда mekopr"
+    [ -d "$MEKO_DIR" ] && meko="${meko:+$meko, }каталог $MEKO_DIR"
     if iptables-save 2>/dev/null | grep -qiE "meko|synfix"; then
-        found="${found:+$found, }цепочка в iptables"
+        meko="${meko:+$meko, }цепочка в iptables"
     fi
     if nft list table inet "$MEKO_NFT_TABLE" &>/dev/null; then
-        found="${found:+$found, }nft-таблица $MEKO_NFT_TABLE"
+        meko="${meko:+$meko, }nft-таблица $MEKO_NFT_TABLE"
     fi
-    local u
     for u in "${MEKO_UNITS[@]}"; do
-        [ -f "/etc/systemd/system/$u.service" ] && found="${found:+$found, }служба $u"
+        [ -f "/etc/systemd/system/$u.service" ] && meko="${meko:+$meko, }служба $u"
     done
-    [ -z "$found" ] && return 0
 
-    echo -e "${RED}⚠️  На сервере найдены следы MEKO ($found).${NC}"
-    echo -e "${YELLOW}   MEKO ставит SYN FIX либо в iptables, либо в nftables — в обоих"
-    echo -e "   случаях он ограничивает тот же трафик, что и MTproxy-reanimation."
-    echo -e "   Сначала снимите его: ${CYAN}mekopr${YELLOW} → «Удалить SYN FIX»,"
-    echo -e "   затем «Удалить MEKO Manager».${NC}\n"
+    # --- MTproxy-reanimation: zapret2, SYN-лимитер, iOS-фикс, sysctl ---
+    command -v mtpr &>/dev/null && mtpr="команда mtpr"
+    [ -d "$MTPR_DIR" ] && mtpr="${mtpr:+$mtpr, }каталог $MTPR_DIR"
+    for t in "${MTPR_NFT_TABLES[@]}"; do
+        nft list table "${t%%:*}" "${t#*:}" &>/dev/null \
+            && mtpr="${mtpr:+$mtpr, }nft-таблица ${t#*:}"
+    done
+    for u in "${MTPR_UNITS[@]}"; do
+        [ -f "/etc/systemd/system/$u.service" ] && mtpr="${mtpr:+$mtpr, }служба $u"
+    done
+    [ -f "$MTPR_SYSCTL" ] && mtpr="${mtpr:+$mtpr, }sysctl $MTPR_SYSCTL"
+
+    [ -z "$meko" ] && [ -z "$mtpr" ] && return 0
+
+    if [ -n "$mtpr" ]; then
+        echo -e "${RED}⚠️  Найдены следы MTproxy-reanimation ($mtpr).${NC}"
+        echo -e "${YELLOW}   Это предыдущее поколение того же инструмента, и оно ограничивает"
+        echo -e "   тот же трафик. Хуже всего с Zapret2: он заворачивает пакеты прокси"
+        echo -e "   в очередь nfqws, а такой же обработчик MTProxyL встанет рядом —"
+        echo -e "   оба будут править одни и те же пакеты."
+        echo -e "   Сначала снимите старый: ${CYAN}mtpr${YELLOW} → пункт «[u] Удалить»."
+        echo -e "   Оно само откатит sysctl и уберёт правила.${NC}\n"
+    fi
+
+    if [ -n "$meko" ]; then
+        echo -e "${RED}⚠️  Найдены следы MEKO ($meko).${NC}"
+        echo -e "${YELLOW}   MEKO ставит SYN FIX либо в iptables, либо в nftables — в обоих"
+        echo -e "   случаях он ограничивает тот же трафик, что и MTProxyL."
+        echo -e "   Сначала снимите его: ${CYAN}mekopr${YELLOW} → «Удалить SYN FIX»,"
+        echo -e "   затем «Удалить MEKO Manager».${NC}\n"
+    fi
     return 1
 }
 
-function run_mtpr {
+function run_mtproxyl {
     clear
     load_stack_conf
     echo -e "${CYAN}======================================================${NC}"
-    echo -e "${CYAN}   🛡️  MTPROXY-REANIMATION — SYN-ЛИМИТЕР И ТЮНИНГ  🛡️  ${NC}"
+    echo -e "${CYAN}      🛡️  MTPROXYL — SYN-ЛИМИТЕР И ТЮНИНГ  🛡️         ${NC}"
     echo -e "${CYAN}======================================================${NC}"
 
     # Пункты чужого меню здесь намеренно не перечисляются: они зависят от
     # состояния сервера и меняются с обновлениями. Любая шпаргалка устареет.
     echo -e "${YELLOW}Сторонний интерактивный менеджер под Telemt: SYN-лимитер на"
-    echo -e "nftables, тюнинг sysctl, фиксы для iOS. Он покажет своё меню.${NC}\n"
+    echo -e "nftables, обход Zapret2, тюнинг sysctl, фиксы для iOS."
+    echo -e "Он покажет своё меню.${NC}\n"
 
-    local inst latest
-    inst=$(mtpr_installed_version)
-    latest=$(mtpr_latest_version)
+    local inst latest mode
+    inst=$(mtproxyl_installed_version)
+    latest=$(mtproxyl_latest_version)
+    mode=$(mtproxyl_mode)
     echo -e "${GREEN}Версии:${NC}"
     echo -e "  установлена:      ${CYAN}${inst:-не установлен}${NC}"
     echo -e "  доступна:         ${CYAN}${latest:-не удалось проверить}${NC}"
     if [ -n "$inst" ] && [ -n "$latest" ] && [ "$inst" != "$latest" ]; then
-        echo -e "  ${YELLOW}↑ Есть обновление. mtpr предложит его при запуске.${NC}"
+        echo -e "  ${YELLOW}↑ Есть обновление. mtproxyl предложит его при запуске.${NC}"
     fi
+    echo -e "  режим:            ${CYAN}${mode:-не выбран}${NC}"
     echo -e "  порт telemt:      ${CYAN}${TELEMT_PORT:-8444}${NC}\n"
+
+    # Главное, что нужно знать до первого запуска: у MTProxyL два режима, и
+    # только один из них совместим со стеком VSM. Спрашивают об этом первым же
+    # вопросом установщика, поэтому предупреждаем заранее.
+    if ! mtproxyl_is_installed; then
+        echo -e "${RED}⚠️  ВАЖНО: на первом вопросе выберите режим [2] Reanimator.${NC}"
+        echo -e "${YELLOW}   Reanimator применяет фиксы к УЖЕ работающему telemt — к тому,"
+        echo -e "   который поставил VSM. Ничего не устанавливает и не перезаписывает."
+        echo -e "   Режим [1] Manager поставит Docker и поднимет ВТОРОЙ telemt в"
+        echo -e "   контейнере на этом же порту — со стеком VSM он несовместим.${NC}\n"
+    fi
+
+    # Своя маскировка у MTProxyL правит те же ключи [censorship], которыми
+    # управляет self-SNI маскировка VSM. Пункт 4 будет возвращать их обратно,
+    # и вдвоём они устроят качели.
+    echo -e "${RED}⚠️  Selfmask в его меню — не включайте.${NC}"
+    echo -e "${YELLOW}   Маскировку в этой сборке держит VSM (пункт 4), а Selfmask"
+    echo -e "   переставит tls_domain, mask_host и mask_port на свой nginx."
+    echo -e "   Постквантовый TLS для маскировки — это пункт 8, ещё один"
+    echo -e "   PQ-nginx рядом не нужен.${NC}\n"
 
     echo -e "${YELLOW}Код скачивается с GitHub автора и выполняется от root."
     echo -e "Репозиторий не наш (лицензия MIT), содержимое может меняться.${NC}\n"
 
-    meko_leftovers_warning
+    legacy_leftovers_warning
 
     if command -v docker &> /dev/null; then
         echo -e "${YELLOW}⚠️  Обнаружен Docker. После применения правил проверьте"
@@ -374,38 +459,47 @@ function run_mtpr {
     # переустанавливает, а просто открывает. Прежняя формулировка «Установить и
     # запустить» этого не показывала, и выглядело так, будто установка идёт по
     # кругу.
-    if mtpr_is_installed; then
-        read -p "$(echo -e "${CYAN}Открыть менеджер mtpr? [y/N]: ${NC}")" go
+    if mtproxyl_is_installed; then
+        read -p "$(echo -e "${CYAN}Открыть менеджер mtproxyl? [y/N]: ${NC}")" go
     else
-        read -p "$(echo -e "${CYAN}Установить и запустить MTproxy-reanimation? [y/N]: ${NC}")" go
+        read -p "$(echo -e "${CYAN}Установить и запустить MTProxyL? [y/N]: ${NC}")" go
     fi
     if [[ ! "$go" =~ ^[Yy]$ ]]; then
         echo -e "${BLUE}Отменено.${NC}"; sleep 1; return
     fi
 
-    # Установщик автора заканчивается exec-ом самого mtpr, то есть меню
+    # Установщик автора заканчивается exec-ом самого mtproxyl, то есть меню
     # открывается уже в ходе установки. Поэтому запускаем инструмент сами
     # только когда он был установлен ЗАРАНЕЕ — иначе показали бы его дважды.
     local was_installed=0
-    command -v mtpr &> /dev/null && was_installed=1
+    command -v mtproxyl &> /dev/null && was_installed=1
 
     if [ "$was_installed" -eq 0 ]; then
-        echo -e "${CYAN}>>> Устанавливаю MTproxy-reanimation...${NC}"
-        run_remote_script "https://raw.githubusercontent.com/$MTPR_REPO/main/install.sh"
+        echo -e "${CYAN}>>> Устанавливаю MTProxyL...${NC}"
+        run_remote_script "https://raw.githubusercontent.com/$MTPROXYL_REPO/main/install.sh"
     else
-        echo -e "${GREEN}>>> Запускаю mtpr (выход из него вернёт сюда)...${NC}"
+        echo -e "${GREEN}>>> Запускаю mtproxyl (выход из него вернёт сюда)...${NC}"
         sleep 1
-        mtpr
+        mtproxyl
     fi
 
-    if command -v mtpr &> /dev/null; then
+    if command -v mtproxyl &> /dev/null; then
         # Проверка нужна и после установки: если автор уберёт exec из своего
         # установщика, инструмент поставится, но не откроется — и без этой
         # подсказки было бы непонятно, произошло ли вообще что-нибудь.
         [ "$was_installed" -eq 0 ] && \
             echo -e "${GREEN}✅ Установлено. Открыть менеджер снова — этот же пункт меню.${NC}"
+        # Режим проверяем после ЛЮБОГО запуска, а не только после установки:
+        # переключить его можно и из чужого меню, уже после нашего экрана.
+        if [ "$(mtproxyl_mode)" = "manager" ]; then
+            echo -e "\n${RED}⚠️  Выбран режим Manager — он несовместим со стеком VSM.${NC}"
+            echo -e "${YELLOW}   Сейчас на сервере два telemt: наш и его контейнер."
+            echo -e "   Переключить: ${CYAN}mtproxyl mode reanimator${YELLOW}"
+            echo -e "   При переходе он предложит остановить и удалить свой контейнер —"
+            echo -e "   соглашайтесь, иначе тот продолжит держать порт.${NC}"
+        fi
     else
-        echo -e "${RED}❌ Команда mtpr не появилась — установка не удалась.${NC}"
+        echo -e "${RED}❌ Команда mtproxyl не появилась — установка не удалась.${NC}"
         echo -e "${YELLOW}   Проверьте доступ к GitHub и повторите.${NC}"
     fi
     read -p "Нажмите Enter для возврата..."
@@ -507,9 +601,9 @@ function run_telemt_menu {
         echo -e "    telemt:         [$(stack_status_line)]"
         echo -e "    telemt_panel:   [$(panel_status_line)]"
         echo -e "    Маскировка:     [$(mask_status_line)]"
-        echo -e "    MTproxy-reanim: [$(mtpr_status_line)]"
-        if mtpr_is_installed; then
-            echo -e "    ${BLUE}Запуск его менеджера — команда${NC} ${CYAN}mtpr${NC}${BLUE}, из любой точки системы.${NC}"
+        echo -e "    MTProxyL:       [$(mtproxyl_status_line)]"
+        if mtproxyl_is_installed; then
+            echo -e "    ${BLUE}Запуск его менеджера — команда${NC} ${CYAN}mtproxyl${NC}${BLUE}, из любой точки системы.${NC}"
         fi
         if [ -n "$DOMAIN_PANEL" ]; then
             echo -e "    Домены:         ${YELLOW}${DOMAIN_PANEL}${NC} / ${YELLOW}${DOMAIN_REALITY}${NC}"
@@ -523,7 +617,7 @@ function run_telemt_menu {
         echo -e "${CYAN}5) 🔑  Показать учётные данные${NC}"
         echo -e "${CYAN}6) ⚙️   Управление службами (старт | стоп | логи)${NC}"
         echo -e "${BLUE}--- ДОПОЛНИТЕЛЬНО ------------------------------------${NC}"
-        echo -e "${YELLOW}7) 🛡️   MTproxy-reanimation (лимитер | тюнинг)${NC}"
+        echo -e "${YELLOW}7) 🛡️   MTProxyL (лимитер | обход | тюнинг)${NC}"
         echo -e "${YELLOW}8) 🔬  Пересборка nginx с OpenSSL 3.5 (PQ TLS)${NC}"
         echo -e "${RED}9) 🗑️   Удалить стек telemt${NC}"
         echo -e "${RED}X) 🔙  Назад в главное меню${NC}"
@@ -537,7 +631,7 @@ function run_telemt_menu {
             4) restore_mask ;;
             5) show_credentials ;;
             6) manage_services ;;
-            7) run_mtpr ;;
+            7) run_mtproxyl ;;
             8) run_rebuild_nginx ;;
             9) uninstall_stack ;;
             [Xx]) return ;;

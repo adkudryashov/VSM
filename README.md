@@ -43,7 +43,7 @@ bash <(curl -sL https://raw.githubusercontent.com/adkudryashov/VSM/main/uninstal
 | Восстановить конфигурацию | Пересоздаёт vhost nginx из сохранённых настроек |
 | Показать учётные данные | Читает `/etc/vsm/telemt-credentials.txt` (права 600) |
 | Управление службами | Статус, старт, стоп, логи telemt и telemt_panel |
-| MTproxy-reanimation | Ставит и запускает [лимитер входящих соединений и тюнинг](https://github.com/Liafanx/MTproxy-reanimation): nftables, sysctl, фиксы для iOS. Показывает установленную и доступную версии |
+| MTProxyL | Ставит и запускает [лимитер, обход и тюнинг](https://github.com/Liafanx/MTProxyL): nftables, Zapret2, sysctl, фиксы для iOS. Нужен его режим **Reanimator** — он применяет фиксы к уже работающему telemt, а не ставит свой. Показывает версии и выбранный режим |
 | Пересборка nginx с OpenSSL 3.5 | Сборка со свежим OpenSSL, 20–40 минут |
 | Удалить стек | Убирает telemt и панель; 3x-ui-pro и сертификаты не трогает |
 
@@ -84,8 +84,9 @@ bash <(curl -sL https://raw.githubusercontent.com/adkudryashov/VSM/main/uninstal
 * **[3x-ui](https://github.com/MHSanaei/3x-ui)** от *MHSanaei* — базовая многофункциональная панель управления, на которой построен 3x-ui-pro.
 * **[telemt](https://github.com/telemt/telemt)** — MTProto-прокси для Telegram на Rust.
 * **[telemt_panel](https://github.com/amirotin/telemt_panel)** от *amirotin* — веб-панель мониторинга и управления telemt.
-* **[MTproxy-reanimation](https://github.com/Liafanx/MTproxy-reanimation)** от *Liafanx* — SYN-лимитер на nftables, тюнинг sysctl и фиксы для iOS под Telemt.
-* **[MTPROTO_FIX_By_MEKO](https://github.com/Mekotofeuka/MTPROTO_FIX_By_MEKO)** от *Mekotofeuka* — iptables SYN-фикс, использовался до перехода на MTproxy-reanimation.
+* **[MTProxyL](https://github.com/Liafanx/MTProxyL)** от *Liafanx* — SYN-лимитер на nftables, обход Zapret2, тюнинг sysctl и фиксы для iOS под Telemt.
+* **[MTproxy-reanimation](https://github.com/Liafanx/MTproxy-reanimation)** от *Liafanx* — предыдущее поколение того же инструмента, заброшено автором на 1.2.9. Меню предупредит, если его следы остались на сервере.
+* **[MTPROTO_FIX_By_MEKO](https://github.com/Mekotofeuka/MTPROTO_FIX_By_MEKO)** от *Mekotofeuka* — iptables SYN-фикс, самое первое поколение.
 
 ### 🕵️‍♂️ Анализ блокировок и сети
 * **Censorcheck** от *Nikola Tesla* ([@tracerlab](https://t.me/tracerlab)) — проверка доступности сервисов. Запускается напрямую с `censorcheck.tlab.pw`.
