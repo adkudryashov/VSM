@@ -59,6 +59,25 @@ wait_until() {
     return 1
 }
 
+# Ожидание освобождения блокировки dpkg. Двойник функции из
+# _config_and_utils.sh: этот скрипт самодостаточен и утилиты меню не
+# подключает, поэтому небольшое повторение здесь дешевле связности.
+#
+# Нужно потому, что стек ставят на только что созданный VPS, где первые минуты
+# работает unattended-upgrades. Без ожидания apt возвращает ошибку, пакет молча
+# не ставится — так на чистой Ubuntu 24.04 не установился acl.
+wait_for_apt() {
+    local waited=0 limit="${1:-300}"
+    while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock \
+                /var/lib/apt/lists/lock &>/dev/null; do
+        [ "$waited" -eq 0 ] && log "жду освобождения apt (идут автообновления)..."
+        sleep 3
+        waited=$((waited + 3))
+        [ "$waited" -ge "$limit" ] && { warn "apt занят дольше ${limit} с, продолжаю."; return 1; }
+    done
+    return 0
+}
+
 [[ "$(id -u)" -eq 0 ]] || die "Запускай под root."
 
 # Генератор self-SNI vhost общий с menu_telemt.sh: раньше он был двумя копиями
@@ -142,6 +161,7 @@ log "Этап 0: предварительные проверки (режим: $M
 
 if ! command -v dig >/dev/null 2>&1; then
     log "  ставлю dnsutils (нужен dig для проверки DNS)..."
+    wait_for_apt
     apt-get update -qq
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq dnsutils >/dev/null 2>&1 || \
         DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bind9-dnsutils >/dev/null 2>&1 || \
@@ -324,17 +344,39 @@ key_file  = "/etc/letsencrypt/live/${DOMAIN_REALITY}/privkey.pem"
 EOF
 fi
 
-# ACL строго на свой сертификат, а не на весь /etc/letsencrypt: панель
-# смотрит наружу, и доступ ко всем приватным ключам сервера ей не нужен.
+# Доступ панели строго к своему сертификату, а не ко всему /etc/letsencrypt:
+# панель смотрит наружу, и приватные ключи остальных доменов ей не нужны.
+#
+# Раньше здесь установка acl шла с заглушённым выводом, а следом сразу setfacl.
+# На свежей Ubuntu блокировку dpkg держит unattended-upgrades, acl не ставился,
+# setfacl не находился, и весь установщик умирал на коде 127 — без сообщения,
+# с панелью в вечном цикле перезапуска и без сохранённых учётных данных.
 if id telemt-panel &>/dev/null; then
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq acl >/dev/null 2>&1
     REAL_DIR="$(readlink -f "/etc/letsencrypt/live/${DOMAIN_REALITY}/privkey.pem" | xargs dirname)"
-    setfacl -m u:telemt-panel:x /etc/letsencrypt/live /etc/letsencrypt/archive
-    setfacl -m u:telemt-panel:rx "/etc/letsencrypt/live/${DOMAIN_REALITY}"
-    setfacl -R -m u:telemt-panel:rX "$REAL_DIR"
-    setfacl -d -m u:telemt-panel:rX "$REAL_DIR"
+
+    if ! command -v setfacl >/dev/null 2>&1; then
+        wait_for_apt
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq acl >/dev/null 2>&1 || true
+    fi
+
+    if command -v setfacl >/dev/null 2>&1; then
+        setfacl -m u:telemt-panel:x /etc/letsencrypt/live /etc/letsencrypt/archive
+        setfacl -m u:telemt-panel:rx "/etc/letsencrypt/live/${DOMAIN_REALITY}"
+        setfacl -R -m u:telemt-panel:rX "$REAL_DIR"
+        setfacl -d -m u:telemt-panel:rX "$REAL_DIR"
+    else
+        # Запасной путь вместо смерти: доступ через группу панели. Шире, чем
+        # ACL (группа получает право войти в каталоги live и archive), но
+        # ключи остальных доменов по-прежнему закрыты правами самих файлов,
+        # а панель работает — это лучше, чем бесконечный перезапуск.
+        warn "setfacl недоступен — выдаю доступ к сертификату через группу telemt-panel."
+        chgrp telemt-panel /etc/letsencrypt/live /etc/letsencrypt/archive
+        chmod g+x /etc/letsencrypt/live /etc/letsencrypt/archive
+        chgrp -R telemt-panel "/etc/letsencrypt/live/${DOMAIN_REALITY}" "$REAL_DIR"
+        chmod -R g+rX "/etc/letsencrypt/live/${DOMAIN_REALITY}" "$REAL_DIR"
+    fi
 else
-    warn "Пользователь telemt-panel не найден — ACL на сертификат не выставлен."
+    warn "Пользователь telemt-panel не найден — доступ к сертификату не выдан."
 fi
 
 systemctl restart telemt-panel

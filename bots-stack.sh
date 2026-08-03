@@ -122,6 +122,15 @@ python3 -c 'import venv' 2>/dev/null || NEED+=(python3-venv)
 command -v wget >/dev/null || NEED+=(wget)
 if [[ ${#NEED[@]} -gt 0 ]]; then
     log "Ставлю: ${NEED[*]}"
+    # На свежем VPS блокировку dpkg держит unattended-upgrades, и без ожидания
+    # пакеты молча не ставятся — а без python3-venv бот просто не соберётся.
+    _waited=0
+    while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock \
+                /var/lib/apt/lists/lock &>/dev/null; do
+        [[ $_waited -eq 0 ]] && log "жду освобождения apt (идут автообновления)..."
+        sleep 3; _waited=$((_waited + 3))
+        [[ $_waited -ge 300 ]] && { log "apt занят дольше 300 с, продолжаю."; break; }
+    done
     apt-get update -qq
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${NEED[@]}" >/dev/null
 fi

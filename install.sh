@@ -24,6 +24,16 @@ echo -e "${YELLOW}>>> Начало установки VSM...${NC}"
 # Здесь свои проверки, а не ensure_packages из _config_and_utils.sh: этот
 # скрипт запускают через curl до того, как репозиторий склонирован.
 echo -e "${YELLOW}>>> Установка необходимых пакетов...${NC}"
+# На только что созданном VPS первые минуты работает unattended-upgrades и
+# держит блокировку dpkg. Без ожидания apt возвращает ошибку и пакеты молча не
+# ставятся — а это самая первая команда, которую пользователь вообще запускает.
+_waited=0
+while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock \
+            /var/lib/apt/lists/lock &>/dev/null; do
+    [ "$_waited" -eq 0 ] && echo -e "${YELLOW}    ожидаю освобождения apt (идут автообновления)...${NC}"
+    sleep 3; _waited=$((_waited + 3))
+    [ "$_waited" -ge 300 ] && { echo -e "${RED}    apt занят дольше 300 с — продолжаю.${NC}"; break; }
+done
 apt-get update -qq 2>/dev/null || \
     echo -e "${YELLOW}    (списки пакетов обновились с ошибками, продолжаю)${NC}"
 DEBIAN_FRONTEND=noninteractive apt-get install -y curl git bc jq ufw qrencode || true
