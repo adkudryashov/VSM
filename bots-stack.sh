@@ -118,7 +118,12 @@ migrate_old_layout
 log "Проверяю системные пакеты"
 NEED=()
 command -v python3 >/dev/null || NEED+=(python3)
-python3 -c 'import venv' 2>/dev/null || NEED+=(python3-venv)
+# Проверяем ensurepip, а не venv: модуль venv лежит в стандартной библиотеке и
+# импортируется даже там, где пакета python3-venv нет. Создать окружение при
+# этом нельзя — ensurepip приходит именно с этим пакетом. Из-за проверки не по
+# тому модулю python3-venv никогда не попадал в список к установке, и на чистой
+# Ubuntu установка ботов падала на создании venv.
+python3 -c 'import ensurepip' 2>/dev/null || NEED+=(python3-venv)
 command -v wget >/dev/null || NEED+=(wget)
 if [[ ${#NEED[@]} -gt 0 ]]; then
     log "Ставлю: ${NEED[*]}"
