@@ -141,8 +141,17 @@ fi
     
     # СТАТУС ПРИЛОЖЕНИЙ
     echo -e "${BLUE}--- СТАТУС ПРИЛОЖЕНИЙ --------------------------------${NC}"
-    # Проверка X-UI
-    if systemctl is-active --quiet x-ui; then status_xui="${GREEN}РАБОТАЕТ${NC}"; else status_xui="${RED}ОСТАНОВЛЕН${NC}"; fi
+    # Проверка X-UI. Отсутствие каталога и остановленная служба — разные вещи:
+    # на чистом сервере «ОСТАНОВЛЕН» отправлял пользователя запускать службу
+    # вместо установки. Признак установки тот же, что у telemt ниже, — свой
+    # каталог конфигурации.
+    if [ ! -d /etc/x-ui ]; then
+        status_xui="${RED}НЕ УСТАНОВЛЕН${NC}"
+    elif systemctl is-active --quiet x-ui; then
+        status_xui="${GREEN}РАБОТАЕТ${NC}"
+    else
+        status_xui="${RED}ОСТАНОВЛЕН${NC}"
+    fi
 
     # Проверка telemt (MTProto-прокси)
     if [ ! -f /etc/telemt/telemt.toml ]; then

@@ -209,9 +209,25 @@ fi
 nginx_mask_apply "$DOMAIN_PANEL" "$TELEMT_MASK_PORT" || \
     die "Не удалось установить vhost self-SNI маскировки (см. сообщение выше)."
 
-MASK_CODE="$(curl -sk --resolve "${DOMAIN_PANEL}:${TELEMT_MASK_PORT}:127.0.0.1" \
-    "https://${DOMAIN_PANEL}:${TELEMT_MASK_PORT}/" -o /dev/null -w '%{http_code}')"
-[[ "$MASK_CODE" == "200" ]] || die "self-SNI vhost вернул $MASK_CODE вместо 200."
+# Та же гонка, что у telemt и панели ниже: systemctl reload возвращается по
+# факту доставки сигнала, а слушателя на маскировочном порту nginx поднимает
+# чуть позже. Проверка без ожидания успевала раньше и получала «соединение
+# отклонено» — на установке с нуля это обрывало весь стек на этапе 2.
+#
+# Второе: curl тут в подстановке команды, а в файле set -e. Ненулевой код
+# curl ронял скрипт РАНЬШЕ строки с die, поэтому обрыв выглядел как молчание —
+# ни причины, ни этапа. Отсюда "|| true", как уже сделано для панели.
+mask_responds() {
+    local code
+    code="$(curl -sk --max-time 5 --resolve "${DOMAIN_PANEL}:${TELEMT_MASK_PORT}:127.0.0.1" \
+        "https://${DOMAIN_PANEL}:${TELEMT_MASK_PORT}/" -o /dev/null -w '%{http_code}' 2>/dev/null)" || return 1
+    [[ "$code" == "200" ]]
+}
+if ! wait_until 30 mask_responds; then
+    MASK_CODE="$(curl -sk --max-time 5 --resolve "${DOMAIN_PANEL}:${TELEMT_MASK_PORT}:127.0.0.1" \
+        "https://${DOMAIN_PANEL}:${TELEMT_MASK_PORT}/" -o /dev/null -w '%{http_code}' 2>/dev/null)" || MASK_CODE=000
+    die "self-SNI vhost вернул $MASK_CODE вместо 200 (ждали 30 с)."
+fi
 log "self-SNI vhost отвечает 200."
 
 # ---------------------------------------------------------------------------
