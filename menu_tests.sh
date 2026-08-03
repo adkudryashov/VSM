@@ -80,113 +80,28 @@ function run_scanner {
     echo -e "\n${GREEN}Scaner завершил работу.${NC}"
 }
 # ----------------------------------------------------------------------
-# CENSORCHECK (своя реализация, censorcheck.sh в этом же репозитории)
+# CENSORCHECK (запуск скрипта автора)
 # ----------------------------------------------------------------------
-# Раньше здесь скачивался и выполнялся от root скрипт с чужого домена, а его
-# радар ТСПУ работал на ключе RIPE Atlas автора — при явной просьбе автора
-# этот ключ в сторонних проектах не использовать. Мы расходовали чужую квоту,
-# и отвалиться проверка могла в любой момент не по нашей воле.
-#
-# Своя реализация: три уровня наблюдения, каждый деградирует по отдельности и
-# честно сообщает, что именно не проверено. Ключ RIPE — свой, задаётся здесь же.
-CENSORCHECK_SCRIPT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)/censorcheck.sh"
-
-# Проба RIPE Atlas — источник кредитов для радара ТСПУ. Живёт рядом, потому что
-# без кредитов третий уровень censorcheck просто не запускается, и объяснять
-# это пользователю нужно там же, где он видит отказ.
-ATLAS_SCRIPT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)/atlas-probe.sh"
-
-function run_atlas_probe {
-    if [ ! -f "$ATLAS_SCRIPT" ]; then
-        echo -e "${RED}❌ Не найден $ATLAS_SCRIPT — обновите VSM (install.sh).${NC}"
-        read -p "Нажмите Enter..."; return
-    fi
-    while true; do
-        clear
-        echo -e "${CYAN}======================================================${NC}"
-        echo -e "${CYAN}   📡  ПРОБА RIPE ATLAS  📡                           ${NC}"
-        echo -e "${CYAN}======================================================${NC}"
-        echo -e "    Состояние: [$(bash "$ATLAS_SCRIPT" --line)]"
-        echo -e "${YELLOW}    Радар ТСПУ стоит 200 кредитов за замер. Подключённая"
-        echo -e "    проба приносит около 21 600 кредитов в сутки.${NC}"
-        echo -e "${BLUE}------------------------------------------------------${NC}"
-        echo -e "${GREEN}1) 📊  Состояние и баланс кредитов${NC}"
-        echo -e "${GREEN}2) 📡  Разместить пробу на этом сервере${NC}"
-        echo -e "${CYAN}3) 🔑  Показать ключ для регистрации${NC}"
-        echo -e "${RED}4) 🗑️   Удалить пробу${NC}"
-        echo -e "${RED}X) 🔙  Назад${NC}"
-        echo -e "${BLUE}------------------------------------------------------${NC}"
-        # "|| return" по той же причине, что и в подменю censorcheck ниже.
-        read -p "Выбор: " ap_choice || return
-        case $ap_choice in
-            1) bash "$ATLAS_SCRIPT" --status;  read -p "Нажмите Enter..." ;;
-            2) bash "$ATLAS_SCRIPT" --install; read -p "Нажмите Enter..." ;;
-            3) bash "$ATLAS_SCRIPT" --key;     read -p "Нажмите Enter..." ;;
-            4) bash "$ATLAS_SCRIPT" --remove;  read -p "Нажмите Enter..." ;;
-            [Xx]) return ;;
-            *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
-        esac
-    done
-}
+# Censorcheck запускается напрямую с сайта автора одной командой: DNS,
+# датацентры и радар ТСПУ в домашних сетях РФ.
+CENSORCHECK_URL="censorcheck.tlab.pw"
 
 function run_censorcheck {
-    if [ ! -f "$CENSORCHECK_SCRIPT" ]; then
-        echo -e "${RED}❌ Не найден $CENSORCHECK_SCRIPT — обновите VSM (install.sh).${NC}"
-        read -p "Нажмите Enter..."; return
+    echo -e "${CYAN}>>> Запуск Censorcheck (геоблок + радар ТСПУ)...${NC}"
+    echo -e "${YELLOW}Скрипт скачивается с $CENSORCHECK_URL и выполняется локально.${NC}\n"
+
+    # Скачиваем отдельным шагом, а не конвейером в bash: в `wget | bash` код
+    # возврата берётся от bash, и при недоступном адресе он получает пустой
+    # ввод и выходит с нулём — сбой выглядел бы как успешная проверка.
+    local tmp; tmp=$(mktemp /tmp/censorcheck.XXXXXX.sh) || return
+    if ! wget -qO "$tmp" --timeout=20 "$CENSORCHECK_URL" || [ ! -s "$tmp" ]; then
+        rm -f "$tmp"
+        echo -e "${RED}❌ Не удалось скачать скрипт проверки.${NC}"
+        echo -e "${YELLOW}   Проверьте доступ к $CENSORCHECK_URL и повторите.${NC}"
+        return
     fi
-
-    while true; do
-        clear
-        echo -e "${CYAN}======================================================${NC}"
-        echo -e "${CYAN}   🧪  ПРОВЕРКА ДОСТУПНОСТИ ИЗ РОССИИ  🧪             ${NC}"
-        echo -e "${CYAN}======================================================${NC}"
-        local key_state="${RED}НЕ ЗАДАН${NC}"
-        [ -f /etc/vsm/censorcheck.conf ] && grep -q '^RIPE_API_KEY=.\+' /etc/vsm/censorcheck.conf \
-            && key_state="${GREEN}ЗАДАН${NC}"
-        echo -e "    Ключ RIPE Atlas: [$key_state]"
-        echo -e "    Проба Atlas:     [$(bash "$ATLAS_SCRIPT" --line 2>/dev/null || echo "?")]"
-        echo -e "${YELLOW}    Без ключа работают локальные проверки и датацентровые"
-        echo -e "    узлы; радар ТСПУ в домашних сетях требует ключа и кредитов.${NC}"
-        echo -e "${BLUE}------------------------------------------------------${NC}"
-        echo -e "${GREEN}1) 🎯  Проверить свой стек (домены и порты из конфига)${NC}"
-        echo -e "${GREEN}2) 🌐  Проверить произвольный домен${NC}"
-        echo -e "${CYAN}3) 🔑  Задать ключ RIPE Atlas${NC}"
-        echo -e "${CYAN}4) 📡  Проба RIPE Atlas (кредиты для радара)${NC}"
-        echo -e "${RED}X) 🔙  Назад${NC}"
-        echo -e "${BLUE}------------------------------------------------------${NC}"
-        # "|| return" обязателен: при закрытом stdin (пайп, оборванный
-        # терминал, запуск не из tty) read возвращается мгновенно и с пустым
-        # значением. Без этой проверки цикл уходит в раскрутку вхолостую и
-        # занимает ядро целиком — поймано при прогоне меню через пайп.
-        read -p "Выбор: " cc_choice || return
-
-        local tg="no"
-        case $cc_choice in
-            1|2)
-                read -p "$(echo -e "${CYAN}Отправить отчёт в Telegram-бота? [y/N]: ${NC}")" cc_tg
-                [[ "$cc_tg" =~ ^[Yy]$ ]] && tg="yes"
-                ;;
-        esac
-
-        case $cc_choice in
-            1) bash "$CENSORCHECK_SCRIPT" --stack "$tg"; read -p "Нажмите Enter..." ;;
-            2)
-                # -e (readline) — чтобы вставленный домен не приезжал
-                # обёрнутым в escape-последовательности bracketed paste.
-                read -e -p "Домен для проверки: " cc_dom
-                if [ -z "$cc_dom" ]; then
-                    echo -e "${RED}Домен не задан.${NC}"; sleep 1
-                else
-                    bash "$CENSORCHECK_SCRIPT" --domain "$cc_dom" "$tg"
-                    read -p "Нажмите Enter..."
-                fi
-                ;;
-            3) bash "$CENSORCHECK_SCRIPT" --set-key; read -p "Нажмите Enter..." ;;
-            4) run_atlas_probe ;;
-            [Xx]) return ;;
-            *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
-        esac
-    done
+    bash "$tmp"
+    rm -f "$tmp"
 }
 
 # ----------------------------------------------------------------------
@@ -289,8 +204,10 @@ function run_tests_menu {
         echo -e "${RED}X) 🔙  Назад в главное меню${NC}"
         echo -e "${BLUE}------------------------------------------------------${NC}"
         
-        # См. комментарий в подменю censorcheck: без "|| return" закрытый stdin
-        # превращает цикл меню в раскрутку вхолостую на полном CPU.
+        # "|| return" обязателен: при закрытом stdin (пайп, оборванный терминал,
+        # запуск не из tty) read возвращается мгновенно и с пустым значением.
+        # Без этой проверки цикл уходит в раскрутку вхолостую и занимает ядро
+        # целиком — поймано при прогоне меню через пайп.
         read -p "Ваш выбор [1-10, X]: " choice || return
         echo ""
 

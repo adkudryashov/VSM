@@ -89,8 +89,7 @@ bash <(curl -sL https://raw.githubusercontent.com/adkudryashov/VSM/main/uninstal
 * **[MTPROTO_FIX_By_MEKO](https://github.com/Mekotofeuka/MTPROTO_FIX_By_MEKO)** от *Mekotofeuka* — iptables SYN-фикс, самое первое поколение.
 
 ### 🕵️‍♂️ Анализ блокировок и сети
-* **Censorcheck** — своя проверка доступности стека из РФ в три уровня: локальное здоровье, датацентровые узлы check-host.net и радар ТСПУ на пробах RIPE Atlas в домашних сетях. Идея взята у *Nikola Tesla* ([@tracerlab](https://t.me/tracerlab)), реализация своя — чужой ключ RIPE не используется.
-* **[RIPE Atlas](https://atlas.ripe.net/)** — сеть измерительных проб. Радару ТСПУ нужны её кредиты, поэтому в меню есть размещение программной пробы: она приносит около 21 600 кредитов в сутки при цене замера в 200. Пакеты ставятся с проверкой подписи по ключу, зашитому в VSM. **Адрес сервера с пробой становится публичным** — меню предупреждает об этом до установки.
+* **[Censorcheck](https://github.com/Nokola-Tesla/censorcheck)** от *Nikola Tesla* ([@tracerlab](https://t.me/tracerlab)) — проверка доступности из РФ: DNS, датацентры и радар ТСПУ в домашних сетях. Запускается напрямую с `censorcheck.tlab.pw`.
 * **[IP Region](https://github.com/vernette/ipregion)** от *vernette* — определение принадлежности IP.
 * **[RealiTLScanner](https://github.com/XTLS/RealiTLScanner)** от *XTLS* и база **[GeoIP](https://github.com/Loyalsoldier/geoip)** от *Loyalsoldier* — продвинутый сканер для поиска SNI.
 * **[DPI Detector](https://github.com/Runnin4ik/dpi-detector)** от *Runnin4ik* — утилита для глубокого анализа цензуры трафика в РФ.

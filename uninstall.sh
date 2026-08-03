@@ -32,14 +32,6 @@ for link in /usr/local/bin/*; do
 done
 [ "$removed" -eq 0 ] && echo -e "${YELLOW}! Ссылок меню не найдено${NC}"
 
-if [ -d /root/.vps-menu ]; then
-    read -p "Удалить сохранённый RIPE Atlas API-ключ (/root/.vps-menu)? (y/n): " confirm_key
-    if [[ $confirm_key == [yY] ]]; then
-        rm -rf /root/.vps-menu
-        echo -e "${GREEN}✓ /root/.vps-menu удалён${NC}"
-    fi
-fi
-
 # 2.1 Telegram-боты живут внутри репозитория — их надо снять до его удаления
 if [ -f /etc/systemd/system/3xui-telemt-bot.service ] \
    || [ -f /etc/systemd/system/telemt-bot.service ] \
