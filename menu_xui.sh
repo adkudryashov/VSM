@@ -182,6 +182,11 @@ function manage_xui_service {
         STATUS_XUI=$(get_service_status $SERVICE_NAME)
         STATUS_DISPLAY=$(if [ "$STATUS_XUI" == "active" ]; then echo -e "${GREEN}РАБОТАЕТ${NC}"; else echo -e "${RED}ОСТАНОВЛЕН${NC}"; fi)
         echo -e "${BLUE}Текущий статус: [${STATUS_DISPLAY}]${NC}"
+        # Путь панели у 3x-ui случайный, и держать его в голове невозможно.
+        # Строки нет, если адрес собрать не удалось: панель не установлена или
+        # домен ещё не известен.
+        PANEL_URL=$(xui_panel_url)
+        [ -n "$PANEL_URL" ] && echo -e "${BLUE}Панель:         ${NC}${CYAN}${PANEL_URL}${NC}"
         echo -e "${BLUE}------------------------------------------------------${NC}"
 
         echo -e "${GREEN}1) 📥  Установить X-UI Pro (nginx | SSL | Clash | диагностика)${NC}"

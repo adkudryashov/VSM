@@ -186,6 +186,34 @@ fi
     echo -e "    ✈️   telemt:      [$status_telemt]"
     echo -e "    🤖  TG-боты:     [$status_bots]"
 
+    # АДРЕСА. Здесь намеренно НЕТ паролей и секрета telemt: это меню
+    # открывается при каждом входе по SSH, а его скриншот лежит в публичном
+    # README. Секреты остаются за пунктом «Показать учётные данные».
+    #
+    # Блок целиком пропускается, если показывать нечего — на чистом сервере он
+    # не должен занимать экран пустыми строками.
+    local addr_panel addr_tp tg_login tg_port
+    addr_panel=$(xui_panel_url)
+    addr_tp=$(telemt_panel_url)
+    tg_login=""; tg_port=""
+    if [ -f /etc/vsm/telemt.conf ]; then
+        # Значения из конфига уходят в echo -e, поэтому чистим их так же, как
+        # адреса: логин — от управляющих символов, порт — до одних цифр.
+        tg_login=$(_addr_clean "$(grep -m1 -oP '^PANEL_ADMIN_USER=\K.*' /etc/vsm/telemt.conf 2>/dev/null | tr -d "\"'")")
+        tg_port=$(grep -m1 -oP '^TELEMT_PORT=\K.*' /etc/vsm/telemt.conf 2>/dev/null | tr -dc '0-9')
+    fi
+    if [ -n "$addr_panel" ] || [ -n "$addr_tp" ] || [ -n "$tg_port" ]; then
+        echo -e "${BLUE}--- АДРЕСА -------------------------------------------${NC}"
+        [ -n "$addr_panel" ] && echo -e "    Панель 3x-ui:   ${CYAN}${addr_panel}${NC}"
+        [ -n "$addr_tp" ] && \
+            echo -e "    telemt_panel:   ${CYAN}${addr_tp}${NC}${tg_login:+   логин: ${YELLOW}${tg_login}${NC}}"
+        [ -n "$tg_port" ] && echo -e "    telemt:         порт ${YELLOW}${tg_port}${NC}"
+        # Подсказка только когда за ней действительно что-то есть: без конфига
+        # стека экран учётных данных пуст, и посылать туда незачем.
+        [ -f /etc/vsm/telemt.conf ] && \
+            echo -e "    ${BLUE}Пароли — «Стек telemt» → «Показать учётные данные»${NC}"
+    fi
+
     echo -e "${BLUE}--- ДЕЙСТВИЯ ---------------------------------------${NC}"
     echo -e "${YELLOW}1) 🎛️   Управление X-UI (установка | запуск | статус)${NC}"
     # Подпись описывает действия, а не механизмы: скриншот главного меню

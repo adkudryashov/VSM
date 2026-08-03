@@ -598,15 +598,30 @@ function run_telemt_menu {
         echo -e "${CYAN}======================================================${NC}"
         echo -e "${CYAN}        ✈️   СТЕК TELEMT / MTPROTO  ✈️                ${NC}"
         echo -e "${CYAN}======================================================${NC}"
+        local tp_url; tp_url=$(telemt_panel_url)
         echo -e "    telemt:         [$(stack_status_line)]"
-        echo -e "    telemt_panel:   [$(panel_status_line)]"
+        echo -e "    telemt_panel:   [$(panel_status_line)]${tp_url:+  ${CYAN}${tp_url}${NC}}"
         echo -e "    Маскировка:     [$(mask_status_line)]"
         echo -e "    MTProxyL:       [$(mtproxyl_status_line)]"
         if mtproxyl_is_installed; then
             echo -e "    ${BLUE}Запуск его менеджера — команда${NC} ${CYAN}mtproxyl${NC}${BLUE}, из любой точки системы.${NC}"
         fi
+        # Раньше домены печатались через слэш, и по строке было не понять, какой
+        # из них за что отвечает. Формулировки те же, что в ask_domains, чтобы
+        # назначение домена описывалось везде одинаково.
         if [ -n "$DOMAIN_PANEL" ]; then
-            echo -e "    Домены:         ${YELLOW}${DOMAIN_PANEL}${NC} / ${YELLOW}${DOMAIN_REALITY}${NC}"
+            # Ширина по длинному из двух: домены разной длины, и без
+            # выравнивания пояснения разъезжаются. Имена доменов — латиница,
+            # поэтому printf с шириной здесь считает ровно то, что видно.
+            # Домены вводит человек, а печатаются они при каждой отрисовке —
+            # чистим от управляющих символов, как и остальные адреса.
+            local dp dr
+            dp=$(_addr_clean "$DOMAIN_PANEL"); dr=$(_addr_clean "$DOMAIN_REALITY")
+            local dw=${#dp}
+            [ ${#dr} -gt "$dw" ] && dw=${#dr}
+            echo -e "    Домены:"
+            printf "      ${YELLOW}%-${dw}s${NC}  панель 3x-ui, она же цель self-SNI маскировки\n" "$dp"
+            printf "      ${YELLOW}%-${dw}s${NC}  SNI-роутинг REALITY, он же адрес telemt_panel\n" "$dr"
         fi
         echo -e "${BLUE}--- УСТАНОВКА ----------------------------------------${NC}"
         echo -e "${RED}1) 📦  Установить весь стек с нуля (СТИРАЕТ 3x-ui!)${NC}"
