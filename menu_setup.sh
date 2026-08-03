@@ -350,10 +350,21 @@ function manage_ssl_menu {
                     echo -e "${RED}Домены не введены. Отмена.${NC}"; sleep 1; continue
                 fi
 
-                # Автоматически освобождаем 80 порт перед запросом
+                # Автоматически освобождаем 80 порт перед запросом.
+                #
+                # Запоминаем, что именно остановили: раньше службы глушились и
+                # не запускались НИКОГДА — ни на успехе, ни на ошибке. Пункт
+                # печатал «Сертификаты успешно выпущены», а сервер в этот
+                # момент уже лежал: nginx выключен, панель недоступна, а следом
+                # systemd уносил и telemt — у него Requires=nginx.service.
+                STOPPED_SERVICES=""
                 if ss -tlpn | grep -q ":80 "; then
                     echo -e "${YELLOW}Порт 80 занят! Временно останавливаем службы (nginx/apache)...${NC}"
-                    sudo systemctl stop nginx apache2 2>/dev/null
+                    for svc in nginx apache2; do
+                        systemctl is-active --quiet "$svc" 2>/dev/null || continue
+                        sudo systemctl stop "$svc" 2>/dev/null && \
+                            STOPPED_SERVICES="$STOPPED_SERVICES $svc"
+                    done
                 fi
 
                 echo -e "${CYAN}Запрашиваем сертификат...${NC}"
@@ -370,8 +381,29 @@ function manage_ssl_menu {
                 echo -e "${CYAN}Запрашиваем сертификат...${NC}"
                 # Запрашиваем через standalone сервер
                 sudo certbot certonly --standalone $DOMAINS_ARGS --non-interactive --agree-tos $EMAIL_ARG
-                
-                if [ $? -eq 0 ]; then
+                CERT_RC=$?
+
+                # Возвращаем всё, что останавливали, ДО разбора результата и
+                # независимо от исхода: неудачный выпуск — не повод оставить
+                # сервер лежать.
+                if [ -n "$STOPPED_SERVICES" ]; then
+                    echo -e "${CYAN}Возвращаю остановленные службы:${STOPPED_SERVICES}${NC}"
+                    for svc in $STOPPED_SERVICES; do
+                        sudo systemctl start "$svc" 2>/dev/null
+                    done
+                    # telemt держится за nginx и мог уйти следом — поднимаем,
+                    # если он установлен и не поднялся сам.
+                    if [ -f /etc/telemt/telemt.toml ] && ! systemctl is-active --quiet telemt; then
+                        sudo systemctl start telemt 2>/dev/null
+                    fi
+                    for svc in $STOPPED_SERVICES; do
+                        systemctl is-active --quiet "$svc" && \
+                            echo -e "${GREEN}    $svc работает${NC}" || \
+                            echo -e "${RED}    $svc НЕ поднялся — проверьте journalctl -u $svc${NC}"
+                    done
+                fi
+
+                if [ "$CERT_RC" -eq 0 ]; then
                     # Копируем ключи в пользовательскую папку
                     mkdir -p "$SSL_SAVE_DIR/$FIRST_DOMAIN"
                     cp /etc/letsencrypt/live/$FIRST_DOMAIN/fullchain.pem "$SSL_SAVE_DIR/$FIRST_DOMAIN/fullchain.pem"
