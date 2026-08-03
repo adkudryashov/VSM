@@ -44,6 +44,49 @@ function get_timezone_status {
 # НОВЫЕ ПУНКТЫ (UFW И TIMEZONE)
 # ----------------------------------------------------------------------
 
+# Включение фаервола со страховкой доступа.
+#
+# Раньше пункт «Включить» делал голый `ufw --force enable`. В Ubuntu
+# DEFAULT_INPUT_POLICY="DROP", поэтому на сервере, где правил ещё нет,
+# включение немедленно обрывало SSH — пункт меню отрезал администратора от
+# машины, с которой он это меню и запустил, без единого предупреждения.
+#
+# Порт SSH берём из живого конфига sshd, а не хардкодом 22: у кого он перенесён,
+# хардкод не спас бы. Порты стека добавляем, если стек установлен, — иначе
+# включение фаервола роняет прокси и панель.
+function ufw_enable_safely {
+    local ports="" p
+    ports="$(sshd -T 2>/dev/null | awk '/^port /{print $2}')"
+    [ -z "$ports" ] && ports="$(grep -oP '^\s*Port\s+\K[0-9]+' /etc/ssh/sshd_config 2>/dev/null)"
+    [ -z "$ports" ] && ports=22
+
+    echo -e "${YELLOW}>>> Разрешаю доступ ДО включения, чтобы не потерять управление:${NC}"
+    for p in $ports; do
+        echo -e "    SSH        ${CYAN}${p}/tcp${NC}"
+        sudo ufw allow "${p}/tcp" >/dev/null 2>&1
+    done
+
+    if [ -f /etc/vsm/telemt.conf ]; then
+        local TELEMT_PORT="" PANEL_PORT=""
+        # shellcheck disable=SC1091
+        . /etc/vsm/telemt.conf 2>/dev/null
+        for p in "$TELEMT_PORT" "$PANEL_PORT"; do
+            [ -n "$p" ] || continue
+            echo -e "    стек       ${CYAN}${p}/tcp${NC}"
+            sudo ufw allow "${p}/tcp" >/dev/null 2>&1
+        done
+    fi
+
+    if [ -d /etc/x-ui ]; then
+        echo -e "    панель     ${CYAN}80/tcp, 443/tcp${NC}"
+        sudo ufw allow 80/tcp >/dev/null 2>&1
+        sudo ufw allow 443/tcp >/dev/null 2>&1
+    fi
+
+    echo ""
+    sudo ufw --force enable
+}
+
 function show_ufw_menu {
     while true; do
         clear
@@ -62,7 +105,7 @@ function show_ufw_menu {
         read -p "Выбор: " u_choice
 
         case $u_choice in
-            1) sudo ufw --force enable ;;
+            1) ufw_enable_safely ;;
             2) sudo ufw disable ;;
             3|4) 
                 [ "$u_choice" == "3" ] && action="allow" || action="deny"
