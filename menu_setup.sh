@@ -308,6 +308,39 @@ function show_ping_menu {
 # Глобальная переменная директории для сертификатов
 SSL_SAVE_DIR="/root/cert"
 
+# Возврат служб, остановленных ради certbot --standalone.
+#
+# Вынесено в функцию и идемпотентно, потому что вызывается из двух мест: штатно
+# после certbot и из trap по сигналу. Прежде восстановление было только в
+# штатном пути, а trap не стоял нигде — Ctrl+C во время выпуска (certbot умеет
+# висеть на проверке DNS, и соблазн прервать максимальный) или обрыв SSH
+# оставляли nginx выключенным. Следом systemd уносил telemt по
+# Requires=nginx.service, и прокси лежал молча: на экране ничего, служба
+# enabled, после ребута всё поднимется — то есть причину потом не найти.
+function restore_stopped_services {
+    [ -n "$STOPPED_SERVICES" ] || return 0
+    echo -e "\n${CYAN}Возвращаю остановленные службы:${STOPPED_SERVICES}${NC}"
+    for svc in $STOPPED_SERVICES; do
+        sudo systemctl start "$svc" 2>/dev/null
+    done
+    # telemt держится за nginx и мог уйти следом — поднимаем, если он
+    # установлен и не поднялся сам.
+    if [ -f /etc/telemt/telemt.toml ] && ! systemctl is-active --quiet telemt; then
+        sudo systemctl start telemt 2>/dev/null
+    fi
+    for svc in $STOPPED_SERVICES; do
+        systemctl is-active --quiet "$svc" && \
+            echo -e "${GREEN}    $svc работает${NC}" || \
+            echo -e "${RED}    $svc НЕ поднялся — проверьте journalctl -u $svc${NC}"
+    done
+    if [ -f /etc/telemt/telemt.toml ]; then
+        systemctl is-active --quiet telemt && \
+            echo -e "${GREEN}    telemt работает${NC}" || \
+            echo -e "${RED}    telemt НЕ поднялся — проверьте journalctl -u telemt${NC}"
+    fi
+    STOPPED_SERVICES=""
+}
+
 function manage_ssl_menu {
     # Проверяем и ставим certbot, если его нет
     if ! ensure_packages certbot; then
@@ -350,6 +383,19 @@ function manage_ssl_menu {
                     echo -e "${RED}Домены не введены. Отмена.${NC}"; sleep 1; continue
                 fi
 
+                # Весь ввод собираем ДО того, как что-то останавливать. Раньше
+                # вопрос про email задавался уже при выключенном nginx: пока
+                # человек искал почту или отходил от терминала, панель и прокси
+                # лежали. Окно простоя не должно зависеть от скорости чтения.
+                echo -e "${YELLOW}Email нужен Let's Encrypt только для уведомлений об истечении сертификата.${NC}"
+                IFS= read -r -p "Введите email (или нажмите Enter, чтобы выпустить без почты): " acme_email
+
+                if [ -z "$acme_email" ]; then
+                    EMAIL_ARG="--register-unsafely-without-email"
+                else
+                    EMAIL_ARG="-m $acme_email"
+                fi
+
                 # Автоматически освобождаем 80 порт перед запросом.
                 #
                 # Запоминаем, что именно остановили: раньше службы глушились и
@@ -367,16 +413,10 @@ function manage_ssl_menu {
                     done
                 fi
 
-                echo -e "${CYAN}Запрашиваем сертификат...${NC}"
-                # Запрашиваем email для уведомлений
-                echo -e "${YELLOW}Email нужен Let's Encrypt только для уведомлений об истечении сертификата.${NC}"
-                read -p "Введите email (или нажмите Enter, чтобы выпустить без почты): " acme_email
-
-                if [ -z "$acme_email" ]; then
-                    EMAIL_ARG="--register-unsafely-without-email"
-                else
-                    EMAIL_ARG="-m $acme_email"
-                fi
+                # Ловушка ставится сразу после остановки и снимается сразу
+                # после возврата: между этими точками прерывание или обрыв
+                # связи не должны оставить сервер без nginx и telemt.
+                trap 'restore_stopped_services; trap - INT TERM HUP; echo -e "\n${RED}Прервано пользователем.${NC}"; return 130' INT TERM HUP
 
                 echo -e "${CYAN}Запрашиваем сертификат...${NC}"
                 # Запрашиваем через standalone сервер
@@ -386,22 +426,8 @@ function manage_ssl_menu {
                 # Возвращаем всё, что останавливали, ДО разбора результата и
                 # независимо от исхода: неудачный выпуск — не повод оставить
                 # сервер лежать.
-                if [ -n "$STOPPED_SERVICES" ]; then
-                    echo -e "${CYAN}Возвращаю остановленные службы:${STOPPED_SERVICES}${NC}"
-                    for svc in $STOPPED_SERVICES; do
-                        sudo systemctl start "$svc" 2>/dev/null
-                    done
-                    # telemt держится за nginx и мог уйти следом — поднимаем,
-                    # если он установлен и не поднялся сам.
-                    if [ -f /etc/telemt/telemt.toml ] && ! systemctl is-active --quiet telemt; then
-                        sudo systemctl start telemt 2>/dev/null
-                    fi
-                    for svc in $STOPPED_SERVICES; do
-                        systemctl is-active --quiet "$svc" && \
-                            echo -e "${GREEN}    $svc работает${NC}" || \
-                            echo -e "${RED}    $svc НЕ поднялся — проверьте journalctl -u $svc${NC}"
-                    done
-                fi
+                restore_stopped_services
+                trap - INT TERM HUP
 
                 if [ "$CERT_RC" -eq 0 ]; then
                     # Копируем ключи в пользовательскую папку
