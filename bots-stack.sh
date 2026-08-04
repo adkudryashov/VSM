@@ -189,11 +189,21 @@ fetch_geoip() {
         return 0
     fi
     log "Качаю базы GeoIP (~90 МБ, это займёт минуту)"
-    if ! bash "$BOTS_DIR/telemt/scripts/update_geoip.sh" >/dev/null 2>&1; then
+    # Каталог передаём явно, а вывод НЕ глушим. Раньше было
+    # `... >/dev/null 2>&1`, и это скрывало сразу две вещи: причину отказа и
+    # то, что скрипт качал базы в другой каталог. Плюс сам скрипт всегда
+    # возвращал 0, так что ветка warn была недостижима.
+    if ! bash "$BOTS_DIR/telemt/scripts/update_geoip.sh" "$DATA_DIR/geoip"; then
         warn "не удалось скачать базы GeoIP — карта и определение стран работать не будут."
         warn "повторить позже: bash $BOTS_DIR/telemt/scripts/update_geoip.sh"
-    else
+        return 0
+    fi
+    # Успех подтверждаем фактом, а не кодом возврата: это тот же критерий, по
+    # которому выше решалось «базы уже на месте».
+    if [[ -f "$DATA_DIR/geoip/GeoLite2-City.mmdb" && -f "$DATA_DIR/geoip/GeoLite2-ASN.mmdb" ]]; then
         log "Базы GeoIP получены"
+    else
+        warn "скрипт GeoIP отработал, но баз в $DATA_DIR/geoip нет — карта работать не будет."
     fi
 }
 
