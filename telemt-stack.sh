@@ -212,6 +212,23 @@ verify_or_die systemctl is-active --quiet x-ui
 
 PANEL_WEBPATH="$(/usr/local/x-ui/x-ui setting -show true 2>&1 | grep -oP 'webBasePath:\s*\K\S+' || true)"
 
+# Приводим к виду /путь/ ПРЯМО ЗДЕСЬ, а не в местах вывода. Панель отдаёт путь
+# и без крайних слэшей, а ниже к нему дописывается panel/: из "/abc" вышло бы
+# склеенное "/abcpanel/" — адрес выглядит достоверно и ведёт в 404. Ту же
+# нормализацию делает xui_panel_url в _config_and_utils.sh.
+#
+# Полная форма if/fi, а не "[[ ... ]] && присваивание": под set -e ложное
+# условие в таком виде возвращает 1 и роняет установщик молча — ровно тот
+# класс дефекта, что уже дважды ловили в этом файле.
+if [[ -n "$PANEL_WEBPATH" ]]; then
+    if [[ "${PANEL_WEBPATH#/}" == "$PANEL_WEBPATH" ]]; then
+        PANEL_WEBPATH="/$PANEL_WEBPATH"
+    fi
+    if [[ "${PANEL_WEBPATH%/}" == "$PANEL_WEBPATH" ]]; then
+        PANEL_WEBPATH="$PANEL_WEBPATH/"
+    fi
+fi
+
 # ---------------------------------------------------------------------------
 # ЭТАП 2 — self-SNI vhost для telemt (БЕЗ proxy_protocol)
 # ---------------------------------------------------------------------------
@@ -410,7 +427,10 @@ chmod 600 "$STACK_CONF"
 
 {
     echo "Стек telemt — учётные данные (создано $(date '+%Y-%m-%d %H:%M:%S'))"
-    echo "Панель 3x-ui-pro:   https://${DOMAIN_PANEL}${PANEL_WEBPATH:-/}"
+    # Адрес в длинной форме, с panel/ на конце: это и есть форма входа, и ровно
+    # так его собирает xui_panel_url для шапок меню. Короткая форма работала,
+    # но расходилась с шапками, и было не понять, какая из двух правильная.
+    echo "Панель 3x-ui-pro:   https://${DOMAIN_PANEL}${PANEL_WEBPATH:-/}panel/"
     echo "telemt порт:        ${TELEMT_PORT}"
     echo "telemt secret:      ${TELEMT_SECRET}"
     echo "telemt_panel:       https://${DOMAIN_REALITY}:${PANEL_PORT}"
@@ -424,7 +444,7 @@ cat << SUMMARY
 ════════════════════════════════════════════════════════════════
 УСТАНОВКА ЗАВЕРШЕНА (режим: ${MODE})
 
-  Панель 3x-ui-pro:    https://${DOMAIN_PANEL}${PANEL_WEBPATH:-/<путь из вывода установщика>}
+  Панель 3x-ui-pro:    https://${DOMAIN_PANEL}${PANEL_WEBPATH:-/<путь из вывода установщика>/}panel/
   REALITY SNI-ключ:    ${DOMAIN_REALITY}
   telemt порт:         ${TELEMT_PORT}  (self-SNI цель: ${DOMAIN_PANEL})
   telemt_panel:        https://${DOMAIN_REALITY}:${PANEL_PORT}
