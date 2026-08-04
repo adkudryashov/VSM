@@ -65,6 +65,10 @@ MTPR_SYSCTL="/etc/sysctl.d/99-mtpr-meko-opt.conf"
 function load_stack_conf {
     DOMAIN_PANEL=""; DOMAIN_REALITY=""
     TELEMT_PORT=""; TELEMT_MASK_PORT=""; PANEL_PORT=""
+    # Учётки тоже обнуляем перед чтением: «Удалить стек» умеет снести конфиг
+    # прямо внутри цикла меню, и без сброса шапка продолжила бы показывать
+    # логин и пароль от только что удалённой панели.
+    PANEL_ADMIN_USER=""; PANEL_ADMIN_PASS=""
     if [ -f "$STACK_CONF" ]; then
         # shellcheck disable=SC1090
         source "$STACK_CONF"
@@ -601,6 +605,14 @@ function run_telemt_menu {
         local tp_url; tp_url=$(telemt_panel_url)
         echo -e "    telemt:         [$(stack_status_line)]"
         echo -e "    telemt_panel:   [$(panel_status_line)]${tp_url:+  ${CYAN}${tp_url}${NC}}"
+        # Учётки telemt_panel печатаются здесь, а не в главном меню: то
+        # открывается при каждом входе по SSH, и его скриншот лежит в публичном
+        # README. printf, а не echo -e: пароль приходит аргументом и не
+        # разбирается на escape-последовательности.
+        if [ -n "$PANEL_ADMIN_USER" ] || [ -n "$PANEL_ADMIN_PASS" ]; then
+            printf "      ${BLUE}логин${NC} ${YELLOW}%s${NC}   ${BLUE}пароль${NC} ${YELLOW}%s${NC}\n" \
+                "$(_secret_clean "$PANEL_ADMIN_USER")" "$(_secret_clean "$PANEL_ADMIN_PASS")"
+        fi
         echo -e "    Маскировка:     [$(mask_status_line)]"
         echo -e "    MTProxyL:       [$(mtproxyl_status_line)]"
         if mtproxyl_is_installed; then
