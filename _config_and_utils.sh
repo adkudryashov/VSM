@@ -236,17 +236,32 @@ function xui_credentials_save {
         echo "нужны непустые логин и пароль" >&2
         return 1
     fi
-    mkdir -p "$(dirname "$XUI_CONF_FILE")" || return 1
-    chmod 700 "$(dirname "$XUI_CONF_FILE")"
-    # umask до создания файла, а не chmod после: между открытием и chmod файл
-    # существует с правами по умолчанию, и пароль в этот промежуток читается
-    # кем угодно. chmod ниже оставлен для случая, когда файл уже был.
-    ( umask 077; printf '# Создано VSM, не редактируй вручную.\n' > "$XUI_CONF_FILE" ) || return 1
+    local dir tmp
+    dir="$(dirname "$XUI_CONF_FILE")"
+    mkdir -p "$dir" || return 1
+    chmod 700 "$dir"
+
+    # Пишем во временный файл и подменяем переименованием, а не правим целевой
+    # на месте. Две причины, обе стоили бы пароля:
+    #
+    # 1. Прежняя версия начинала с "> $XUI_CONF_FILE", то есть УСЕКАЛА файл
+    #    первой же командой. Если дозапись значений потом не проходила (диск
+    #    полон, ФС только на чтение), функция возвращала 1, меню честно писало
+    #    «не удалось записать» — а прежний пароль был уже уничтожен. Взять его
+    #    заново неоткуда: панель хранит bcrypt-хэш.
+    # 2. umask защищает только СОЗДАНИЕ файла. Если xui.conf уже существовал с
+    #    правами 644, "> файл" усекал его, сохраняя режим, и пароль лежал
+    #    доступным всем до chmod в конце.
+    #
+    # Тот же приём и по той же причине применён в nginx_mask_install.
+    tmp="$(mktemp "$dir/.xui.XXXXXX")" || return 1
+    chmod 600 "$tmp" || { rm -f "$tmp"; return 1; }
     {
+        printf '# Создано VSM, не редактируй вручную.\n'
         printf 'XUI_ADMIN_USER=%q\n' "$user"
         printf 'XUI_ADMIN_PASS=%q\n' "$pass"
-    } >> "$XUI_CONF_FILE" || return 1
-    chmod 600 "$XUI_CONF_FILE"
+    } > "$tmp" || { rm -f "$tmp"; return 1; }
+    mv -f "$tmp" "$XUI_CONF_FILE" || { rm -f "$tmp"; return 1; }
     return 0
 }
 
