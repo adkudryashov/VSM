@@ -22,7 +22,7 @@ bash <(curl -sL https://raw.githubusercontent.com/adkudryashov/VSM/main/uninstal
 
 | # | Раздел | Что умеет |
 |---|---|---|
-| **1** | **X-UI Pro** | Установка [3x-ui-pro](https://github.com/mozaroc/3x-ui-pro) — VLESS/Reality/Trojan через nginx с автоSSL и Clash-подпиской. Патч без потери БД, AdGuard Home, бэкап и восстановление |
+| **1** | **X-UI Pro** | Установка [3x-ui-pro](https://github.com/mozaroc/3x-ui-pro) — VLESS/Reality/Trojan через nginx с автоSSL и Clash-подпиской. Патч без потери БД, AdGuard Home, бэкап и восстановление, записная книжка учётных данных панели |
 | **2** | **Стек telemt / MTProto** | MTProto-прокси для Telegram, веб-панель telemt_panel, лимитер входящих соединений, современный TLS |
 | **3** | **Telegram-боты** | Боты мониторинга Telemt и панелей 3x-ui — вместе или по отдельности |
 | **4** | **Диагностика** | Проверка доступности сервисов, замеры скорости, YABS, IPQuality, сетевые сканеры |
