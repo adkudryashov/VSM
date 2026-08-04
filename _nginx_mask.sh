@@ -51,17 +51,86 @@ nginx_mask_panel_vhost() {
 # ДО проверки ниже — вместо внятной ошибки пользователь получал молчаливый
 # выход с пустым выводом.
 # ----------------------------------------------------------------------
-nginx_mask_scrape() {
+# Текст TLS-блока панели: комментарии убраны, взят ТОЛЬКО тот server{}, где
+# есть ssl_certificate.
+#
+# Раньше значения искались по всему файлу через head -1, и в типовом vhost вида
+# «80 → редирект на 443» первым сверху лежит блок порта 80 со своим
+# root /var/www/acme. Маска получала ACME-каталог вместо корня сайта, то есть
+# отдавала не то содержимое, что панель, — при формально исправной проверке
+# «отвечает 200». Поймано собственным тестом на certbot-подобном конфиге.
+nginx_mask_tls_block() {
     local vhost="$1"
-    MASK_WEBROOT="$(grep -oP '^\s*root\s+\K[^;]+' "$vhost" | head -1 || true)"
-    MASK_CERT="$(grep -oP 'ssl_certificate\s+\K[^;]+' "$vhost" | head -1 || true)"
-    MASK_KEY="$(grep -oP 'ssl_certificate_key\s+\K[^;]+' "$vhost" | head -1 || true)"
+    grep -vE '^[[:space:]]*#' "$vhost" 2>/dev/null | awk '
+        /^[[:space:]]*server[[:space:]]*\{/ && depth==0 { depth=1; buf=$0 "\n"; found=0; next }
+        depth>0 {
+            buf = buf $0 "\n"
+            if ($0 ~ /ssl_certificate[[:space:]]/) found=1
+            depth += gsub(/\{/,"{")
+            depth -= gsub(/\}/,"}")
+            if (depth<=0) { if (found) { printf "%s", buf; exit } ; buf=""; depth=0 }
+        }
+    ' || true
+}
+
+nginx_mask_scrape() {
+    local vhost="$1" block
+    block="$(nginx_mask_tls_block "$vhost")"
+    # Запасной путь: если server{} с сертификатом не нашёлся (нестандартное
+    # оформление, вложенный include), разбираем файл целиком без комментариев —
+    # прежнее поведение, но хотя бы без закомментированных строк.
+    if [ -z "$block" ]; then
+        block="$(grep -vE '^[[:space:]]*#' "$vhost" 2>/dev/null || true)"
+    fi
+
+    MASK_WEBROOT="$(printf '%s\n' "$block" | grep -oP '^\s*root\s+\K[^;]+' | head -1 || true)"
+    MASK_CERT="$(printf '%s\n' "$block" | grep -oP '^\s*ssl_certificate\s+\K[^;]+' | head -1 || true)"
+    MASK_KEY="$(printf '%s\n' "$block" | grep -oP '^\s*ssl_certificate_key\s+\K[^;]+' | head -1 || true)"
 
     if [ -z "$MASK_WEBROOT" ] || [ -z "$MASK_CERT" ] || [ -z "$MASK_KEY" ]; then
         echo "не удалось извлечь root/ssl_certificate/ssl_certificate_key из $vhost" >&2
         return 1
     fi
+
+    MASK_TLS="$(printf '%s\n' "$block" | nginx_mask_scrape_tls)"
     return 0
+}
+
+# ----------------------------------------------------------------------
+# TLS-директивы панели, которые маска обязана повторить дословно.
+#
+# Раньше здесь стояли захардкоженные ssl_protocols и ssl_ciphers. Это ломало
+# ровно то, ради чего написан весь файл: директива в server-блоке ПЕРЕКРЫВАЕТ
+# унаследованное из http{}, поэтому на маске становился эффективным наш широкий
+# набор (HIGH:...), а на 443 — узкий список панели. Активному проберу хватало
+# одного соединения: ClientHello с TLS 1.2 и только не-PFS суитами маска
+# принимала, а панель отвечала handshake_failure. Такого расхождения у одного
+# сайта на одном сервере быть не может — это готовая сигнатура.
+#
+# Правило простое: в маске присутствует ровно то, что присутствует у панели, и
+# ничего больше. Директиву, которую панель не задаёт, мы не пишем тоже — оба
+# server-блока живут в одном nginx и унаследуют из http{} одно и то же.
+#
+# include копируем только «ssl-шный» (типовой vhost под certbot подключает
+# options-ssl-nginx.conf, где и лежат настоящие протоколы и шифры). Копировать
+# include без разбора нельзя: туда затянет location-блоки панели.
+# ----------------------------------------------------------------------
+# Читает текст блока со стандартного ввода, печатает готовые строки для vhost.
+nginx_mask_scrape_tls() {
+    local line out=""
+    local keys='ssl_protocols|ssl_ciphers|ssl_prefer_server_ciphers|ssl_ecdh_curve'
+    keys="$keys|ssl_conf_command|ssl_session_cache|ssl_session_timeout|ssl_session_tickets"
+    keys="$keys|ssl_stapling|ssl_stapling_verify|ssl_trusted_certificate|ssl_early_data"
+    keys="$keys|ssl_buffer_size|ssl_dhparam"
+
+    while IFS= read -r line; do
+        case "$line" in '#'*|'') continue ;; esac
+        if [[ "$line" =~ ^($keys)[[:space:]] ]] || [[ "$line" =~ ^include[[:space:]]+[^\;]*ssl[^\;]*\; ]]; then
+            out="${out}    ${line}"$'\n'
+        fi
+    done < <(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
+    printf '%s' "$out"
 }
 
 # ----------------------------------------------------------------------
@@ -90,7 +159,7 @@ nginx_mask_http2_wanted() {
 # Текст vhost в stdout.
 # ----------------------------------------------------------------------
 nginx_mask_render() {
-    local port="$1" domain="$2" webroot="$3" cert="$4" key="$5" http2_flag="$6"
+    local port="$1" domain="$2" webroot="$3" cert="$4" key="$5" http2_flag="$6" tls="$7"
 
     cat << EOF
 # self-SNI цель для telemt. Файл создан VSM, правки затрутся при следующем
@@ -115,10 +184,13 @@ server {
 
     ssl_certificate     ${cert};
     ssl_certificate_key ${key};
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!eNULL:!MD5:!DES:!RC4:!ADH:!SSLv3:!EXP:!PSK:!DSS;
-
-    index index.html index.htm index.php;
+${tls}
+    # index.php убран: обработчика PHP в маске нет, и при появлении в webroot
+    # любого .php панель на 443 отдала бы отрендеренную страницу, а маска — тот
+    # же файл ИСХОДНИКОМ. Это и раскрытие, и различитель портов за один запрос.
+    # Если в webroot панели когда-нибудь появится PHP, сюда нужно переносить и
+    # location ~ \.php$ с тем же fastcgi_pass, что у панели.
+    index index.html index.htm;
 }
 EOF
 }
@@ -216,5 +288,5 @@ nginx_mask_apply() {
     fi
 
     nginx_mask_install "$(nginx_mask_render \
-        "$port" "$domain" "$MASK_WEBROOT" "$MASK_CERT" "$MASK_KEY" "$http2_flag")"
+        "$port" "$domain" "$MASK_WEBROOT" "$MASK_CERT" "$MASK_KEY" "$http2_flag" "$MASK_TLS")"
 }
