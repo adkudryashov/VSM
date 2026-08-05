@@ -66,6 +66,19 @@ XUI_BOT_TOKEN="${XUI_BOT_TOKEN:-$(conf_get XUI_BOT_TOKEN)}"
 ADMIN_IDS="${ADMIN_IDS:-$(conf_get ADMIN_IDS)}"
 MAP_DOMAIN="${MAP_DOMAIN:-$(conf_get MAP_DOMAIN)}"
 
+# Секретный префикс пути к карте. Переиспользуется между запусками: смена
+# ломает ссылку, уже сохранённую в Telegram у администратора.
+MAP_PATH="${MAP_PATH:-$(conf_get MAP_PATH)}"
+MAP_PATH="${MAP_PATH:-telemt-map-$(openssl rand -hex 12)}"
+
+# Домен панели из конфига стека — нужен, чтобы отказаться вешать карту на цель
+# self-SNI маскировки. Читаем в подоболочке и только одно значение.
+conf_get_stack() {
+    [[ -r /etc/vsm/telemt.conf ]] || return 0
+    # shellcheck disable=SC1091
+    ( . /etc/vsm/telemt.conf 2>/dev/null; printf '%s' "${!1:-}" )
+}
+
 want_combined() { [[ "$MODE" == "combined" ]]; }
 want_telemt()   { [[ "$MODE" == "both" || "$MODE" == "telemt" ]]; }
 want_xui()      { [[ "$MODE" == "both" || "$MODE" == "3xui"   ]]; }
@@ -177,7 +190,7 @@ PROMETHEUS_METRICS_URL=http://127.0.0.1:9090/metrics
 COLLECT_INTERVAL_MINUTES=1
 ACTIVITY_RETENTION_HOURS=0
 MAP_HTML_PATH=$MAP_FILE
-WEB_URL=${MAP_DOMAIN:+https://$MAP_DOMAIN/telemt-map}
+WEB_URL=${MAP_DOMAIN:+https://$MAP_DOMAIN/$MAP_PATH/}
 EOF
 chmod 600 "$ENV_FILE"
 
@@ -213,15 +226,24 @@ setup_nginx_map() {
     [[ -n "$MAP_DOMAIN" ]] || { log "Домен карты не задан — nginx не трогаю"; return 0; }
     command -v nginx >/dev/null || { warn "nginx не установлен — карту отдавать некому"; return 0; }
 
-    mkdir -p "$MAP_DIR"; chmod 755 "$MAP_DIR"
-    log "nginx: настраиваю отдачу карты на $MAP_DOMAIN/telemt-map"
+    # Карта содержит список ВСЕХ различных IP пользователей прокси с городом и
+    # провайдером. Права каталога 750 и группа www-data вместо 755: локальным
+    # пользователям её читать незачем.
+    mkdir -p "$MAP_DIR"; chmod 750 "$MAP_DIR"
+    chgrp www-data "$MAP_DIR" 2>/dev/null || true
+
+    log "nginx: настраиваю отдачу карты на $MAP_DOMAIN/$MAP_PATH"
     local out
+    # --mask-domain: скрипт откажется вешать карту на домен маскировки. Маска
+    # копирует root панели, но не location-блоки, поэтому тот же URL на 443
+    # отдавал бы 200, а через порт telemt — 404. Один запрос, и порт опознан.
     if ! out=$(python3 "$BOTS_DIR/telemt/scripts/nginx_map_location.py" \
-                 --domain "$MAP_DOMAIN" --map-dir "$MAP_DIR" 2>&1); then
+                 --domain "$MAP_DOMAIN" --map-dir "$MAP_DIR" --path "$MAP_PATH" \
+                 --mask-domain "$(conf_get_stack DOMAIN_PANEL)" 2>&1); then
         warn "не удалось изменить конфиг nginx:"
         echo "$out" | sed 's/^/       /'
         warn "подключить вручную, добавив в нужный server-блок:"
-        echo "       location /telemt-map { alias $MAP_DIR/; try_files map.html =404; }"
+        echo "       location /$MAP_PATH/ { alias $MAP_DIR/; try_files map.html =404; }"
         return 0
     fi
     echo "$out" | sed 's/^/       /'
@@ -332,6 +354,7 @@ umask 077
     echo "XUI_BOT_TOKEN=$XUI_BOT_TOKEN"
     echo "ADMIN_IDS=$ADMIN_IDS"
     echo "MAP_DOMAIN=$MAP_DOMAIN"
+    printf 'MAP_PATH=%q\n' "$MAP_PATH"
     echo "BOTS_MODE=$MODE"
 } > "$CONF"
 chmod 600 "$CONF"
@@ -344,7 +367,7 @@ if [[ $FAILED -eq 0 ]]; then
     if want_telemt;   then echo "  telemt-bot      — systemctl status telemt-bot";      fi
     if want_xui;      then echo "  3xui-bot        — systemctl status 3xui-monitor";    fi
     if uses_telemt && [[ -n "$MAP_DOMAIN" ]]; then
-        echo "  карта           — https://$MAP_DOMAIN/telemt-map"
+        echo "  карта           — https://$MAP_DOMAIN/$MAP_PATH/"
     fi
     echo "  данные          — $DATA_DIR"
     echo "  настройки       — $CONF (права 600)"

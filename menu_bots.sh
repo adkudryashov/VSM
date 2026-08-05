@@ -261,6 +261,7 @@ function run_remove {
     echo -e "${RED}            🗑️  УДАЛЕНИЕ БОТОВ  🗑️                    ${NC}"
     echo -e "${RED}======================================================${NC}"
     echo -e "Будут остановлены и удалены службы, окружение и настройки."
+    echo -e "Также снимается публичная отдача карты: файл и блок в конфиге nginx."
     echo -e "${YELLOW}Данные (история IP, список панелей, GeoIP) сохраняются"
     echo -e "в $DATA_DIR.${NC}"
     echo ""
@@ -275,8 +276,30 @@ function run_remove {
         fi
     done
     systemctl daemon-reload
+
+    # Карта — единственное, что бот отдавал В ИНТЕРНЕТ, и раньше она удаление
+    # переживала: файл со списком IP всех пользователей и location в nginx
+    # оставались на месте. Владелец сворачивал ботов (нередко именно из
+    # соображений приватности), видел зелёные галочки — а снимок продолжал
+    # отдаваться по HTTPS бессрочно и незаметно, потому что в меню его больше
+    # ничто не показывало.
+    # Домен не передаём: блок ищется по маркеру во всех конфигах nginx. Иначе
+    # при смене домена карты прежний блок остался бы работать навсегда.
+    if command -v nginx >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+        local out
+        if out=$(python3 "$BOTS_DIR/telemt/scripts/nginx_map_location.py" \
+                   --remove 2>&1); then
+            nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1
+            echo -e "${GREEN}✓ Отдача карты снята из nginx${NC}"
+        else
+            echo -e "${RED}✗ Блок карты снять не удалось:${NC}"
+            echo "$out" | sed 's/^/    /'
+            echo -e "${YELLOW}  Проверьте вручную: grep -rn telemt-map /etc/nginx${NC}"
+        fi
+    fi
+    rm -rf /var/www/telemt-map
     rm -rf "$BOTS_DIR/venv"; rm -f "$ENV_FILE" "$CONF"
-    echo -e "${GREEN}✓ Службы, окружение и настройки удалены${NC}"
+    echo -e "${GREEN}✓ Службы, окружение, карта и настройки удалены${NC}"
     echo -e "${YELLOW}! Данные оставлены в $DATA_DIR${NC}"
     echo ""
     read -p "Нажмите Enter..."
