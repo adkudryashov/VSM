@@ -328,17 +328,28 @@ function restore_mask {
 # openssl 3.5+: наш /opt/openssl-3.5 после пересборки nginx либо сборка
 # MTProxyL, если он установлен.
 # ----------------------------------------------------------------------
-function _tls_probe {
-    local port="$1" domain="$2" field="$3"
-    local out
-    out=$(echo | timeout 10 openssl s_client -connect "127.0.0.1:${port}" \
-            -servername "$domain" -alpn h2,http/1.1 2>/dev/null)
+# Снимок рукопожатия во ВРЕМЕННЫЙ ФАЙЛ, а не в переменную.
+#
+# Вывод s_client содержит нулевые байты, и подстановка команды их выбрасывает с
+# предупреждением bash. Попытка убрать их через `tr -d '\0'` делает хуже:
+# проверено на стенде — после неё перестают находиться и Protocol, и Cipher,
+# то есть поля молча оказываются пустыми. Файл снимает вопрос целиком, а заодно
+# сокращает число вызовов openssl с десяти до двух: один снимок на порт.
+function _tls_dump {
+    local port="$1" domain="$2" out="$3"
+    echo | timeout 10 openssl s_client -connect "127.0.0.1:${port}" \
+        -servername "$domain" -alpn h2,http/1.1 > "$out" 2>/dev/null
+}
+
+function _tls_field {
+    local file="$1" field="$2"
+    [ -s "$file" ] || return 0
     case "$field" in
-        fp)    printf '%s' "$out" | openssl x509 -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2 ;;
-        proto) printf '%s' "$out" | grep -a -m1 -oP '^\s*Protocol\s*:\s*\K.*' | tr -d ' ' ;;
-        cipher)printf '%s' "$out" | grep -a -m1 -oP '^\s*Cipher\s*:\s*\K.*' | tr -d ' ' ;;
-        group) printf '%s' "$out" | grep -a -m1 -oP 'Server Temp Key:\s*\K.*' ;;
-        alpn)  printf '%s' "$out" | grep -a -m1 -oP 'ALPN protocol:\s*\K.*' ;;
+        fp)     openssl x509 -noout -fingerprint -sha256 -in "$file" 2>/dev/null | cut -d= -f2 ;;
+        proto)  grep -a -m1 -oP '^\s*Protocol\s*:\s*\K.*' "$file" | tr -d ' ' ;;
+        cipher) grep -a -m1 -oP '^\s*Cipher\s*:\s*\K.*' "$file" | tr -d ' ' ;;
+        group)  grep -a -m1 -oP 'Server Temp Key:\s*\K.*' "$file" ;;
+        alpn)   grep -a -m1 -oP 'ALPN protocol:\s*\K.*' "$file" ;;
     esac
 }
 
@@ -366,11 +377,17 @@ function check_tls_parity {
     echo -e "  Домен: ${YELLOW}$(_addr_clean "$DOMAIN_PANEL")${NC}"
     echo -e "  Маска: ${YELLOW}127.0.0.1:${mp}${NC}   Панель: ${YELLOW}127.0.0.1:443${NC}\n"
 
+    local dm dp
+    dm=$(mktemp /tmp/vsm-tls-mask.XXXXXX); dp=$(mktemp /tmp/vsm-tls-panel.XXXXXX)
+    trap 'rm -f "$dm" "$dp"' RETURN
+    _tls_dump "$mp" "$DOMAIN_PANEL" "$dm"
+    _tls_dump 443    "$DOMAIN_PANEL" "$dp"
+
     local diff=0 f
     for f in fp proto cipher group alpn; do
         local a b label
-        a=$(_tls_probe "$mp" "$DOMAIN_PANEL" "$f")
-        b=$(_tls_probe 443  "$DOMAIN_PANEL" "$f")
+        a=$(_tls_field "$dm" "$f")
+        b=$(_tls_field "$dp" "$f")
         case "$f" in
             fp)     label="Отпечаток" ;;
             proto)  label="Протокол" ;;
