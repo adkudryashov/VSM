@@ -243,14 +243,28 @@ panel_proxy_localize() {
 # Печатает полученный HTTP-код в stdout. 0 — панель отвечает осмысленно.
 # ----------------------------------------------------------------------
 panel_proxy_verify() {
-    local domain="$1" prefix="$2" code
-    code="$(curl -sk --max-time 10 --resolve "${domain}:443:127.0.0.1" \
-        "https://${domain}/${prefix}/" -o /dev/null -w '%{http_code}' 2>/dev/null)" || code=000
+    local domain="$1" prefix="$2" waited=0 limit="${3:-30}" code=000
+
+    # Ждём готовности, а не спрашиваем один раз сразу после restart.
+    #
+    # На чистой установке проверка стабильно получала 404: systemd возвращает
+    # управление сразу после форка, панель к этому моменту ещё не слушала, и
+    # nginx отдавал свой 404 (vhost 3x-ui-pro переписывает в 404 любую ошибку
+    # апстрима). Через несколько секунд тот же адрес отвечал 200 — то есть
+    # предупреждение было ложным и отправляло чинить исправное.
+    #
+    # Ровно та же гонка, что у nginx reload и у telemt, и лечится так же.
+    while [ "$waited" -lt "$limit" ]; do
+        code="$(curl -sk --max-time 5 --resolve "${domain}:443:127.0.0.1" \
+            "https://${domain}/${prefix}/" -o /dev/null -w '%{http_code}' 2>/dev/null)" || code=000
+        case "$code" in
+            200|301|302|307|308) printf '%s' "$code"; return 0 ;;
+        esac
+        sleep 2
+        waited=$((waited + 2))
+    done
     printf '%s' "$code"
-    case "$code" in
-        200|301|302|307|308) return 0 ;;
-        *) return 1 ;;
-    esac
+    return 1
 }
 
 # ----------------------------------------------------------------------
