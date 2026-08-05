@@ -56,9 +56,26 @@ function get_timezone_status {
 # включение фаервола роняет прокси и панель.
 function ufw_enable_safely {
     local ports="" p
-    ports="$(sshd -T 2>/dev/null | awk '/^port /{print $2}')"
-    [ -z "$ports" ] && ports="$(grep -oP '^\s*Port\s+\K[0-9]+' /etc/ssh/sshd_config 2>/dev/null)"
-    [ -z "$ports" ] && ports=22
+    # Источники ОБЪЕДИНЯЕМ, а не берём первый непустой. Лишний разрешённый
+    # порт безвреден, отсутствующий стоит доступа к серверу.
+    #
+    # $SSH_CONNECTION — самый достоверный: это порт, через который админ
+    # прямо сейчас сидит. Его не хватало, и вот почему это важно: на
+    # Ubuntu 22.10+ ssh активируется сокетом, порт задаётся ListenStream в
+    # дроп-ине ssh.socket.d, а sshd -T в этом случае печатает 22 — то есть
+    # НЕ тот порт, на котором вы работаете. Дальше ufw --force enable при
+    # политике DROP отрезает доступ, и чинить приходится через консоль
+    # хостера. На стенде это не воспроизводится только потому, что порт там
+    # стандартный.
+    #
+    # ss показывает фактических слушателей sshd — закрывает случай, когда
+    # портов несколько.
+    ports="$(awk '{print $4}' <<<"${SSH_CONNECTION:-}" 2>/dev/null)"
+    ports="$ports $(sshd -T 2>/dev/null | awk '/^port /{print $2}')"
+    ports="$ports $(grep -rhoP '^\s*Port\s+\K[0-9]+' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/ 2>/dev/null)"
+    ports="$ports $(ss -ltnpH 2>/dev/null | grep -i sshd | awk '{print $4}' | sed 's/.*://')"
+    ports="$(tr ' ' '\n' <<<"$ports" | grep -E '^[0-9]+$' | sort -un | tr '\n' ' ')"
+    [ -z "${ports// /}" ] && ports=22
 
     echo -e "${YELLOW}>>> Разрешаю доступ ДО включения, чтобы не потерять управление:${NC}"
     for p in $ports; do
@@ -67,14 +84,22 @@ function ufw_enable_safely {
     done
 
     if [ -f /etc/vsm/telemt.conf ]; then
-        local TELEMT_PORT="" PANEL_PORT=""
-        # shellcheck disable=SC1091
-        . /etc/vsm/telemt.conf 2>/dev/null
-        for p in "$TELEMT_PORT" "$PANEL_PORT"; do
-            [ -n "$p" ] || continue
-            echo -e "    стек       ${CYAN}${p}/tcp${NC}"
-            sudo ufw allow "${p}/tcp" >/dev/null 2>&1
-        done
+        # Только TELEMT_PORT. PANEL_PORT наружу НЕ открываем: telemt_panel
+        # слушает 127.0.0.1, а снаружи её отдаёт nginx на 443 по секретному
+        # префиксу. Раньше здесь открывались оба порта, и включение фаервола
+        # возвращало наружу правило для 9444 — то самое, которое переезд
+        # панели специально снимает. Слушателя там нет, но правило врёт о
+        # состоянии системы и выстрелит, если порт кто-нибудь займёт.
+        local TELEMT_PORT=""
+        TELEMT_PORT=$(grep -m1 -oP '^TELEMT_PORT=\K.*' /etc/vsm/telemt.conf 2>/dev/null | tr -dc '0-9')
+        if [ -n "$TELEMT_PORT" ]; then
+            echo -e "    стек       ${CYAN}${TELEMT_PORT}/tcp${NC}"
+            sudo ufw allow "${TELEMT_PORT}/tcp" >/dev/null 2>&1
+        fi
+        # Заодно снимаем правило прежней схемы, если оно осталось.
+        local OLD_PANEL_PORT
+        OLD_PANEL_PORT=$(grep -m1 -oP '^PANEL_PORT=\K.*' /etc/vsm/telemt.conf 2>/dev/null | tr -dc '0-9')
+        [ -n "$OLD_PANEL_PORT" ] && sudo ufw delete allow "${OLD_PANEL_PORT}/tcp" >/dev/null 2>&1
     fi
 
     if [ -d /etc/x-ui ]; then
