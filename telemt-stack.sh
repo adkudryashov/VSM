@@ -97,6 +97,11 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/_nginx_mask.sh"
 
+[[ -f "$SCRIPT_DIR/_nginx_panel_proxy.sh" ]] || \
+    die "Не найден $SCRIPT_DIR/_nginx_panel_proxy.sh — обнови VSM (install.sh) и повтори."
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/_nginx_panel_proxy.sh"
+
 : "${DOMAIN_PANEL:?Не задан DOMAIN_PANEL}"
 : "${DOMAIN_REALITY:?Не задан DOMAIN_REALITY}"
 
@@ -126,6 +131,17 @@ if [[ -z "${PANEL_ADMIN_PASS:-}" ]]; then
         PANEL_ADMIN_PASS="$(. "$STACK_CONF"; echo "${PANEL_ADMIN_PASS:-}")"
     fi
     PANEL_ADMIN_PASS="${PANEL_ADMIN_PASS:-$(openssl rand -base64 20)}"
+fi
+
+# Префикс пути, по которому telemt_panel доступна на 443 домена панели.
+# Переиспользуется между запусками по той же причине, что секрет и пароль:
+# смена префикса ломает сохранённую владельцем ссылку.
+if [[ -z "${PANEL_PREFIX:-}" ]]; then
+    if [[ -f "$STACK_CONF" ]] && grep -q '^PANEL_PREFIX=' "$STACK_CONF"; then
+        # shellcheck disable=SC1090
+        PANEL_PREFIX="$(. "$STACK_CONF"; echo "${PANEL_PREFIX:-}")"
+    fi
+    PANEL_PREFIX="${PANEL_PREFIX:-$(panel_proxy_gen_prefix)}"
 fi
 
 # ---------------------------------------------------------------------------
@@ -358,62 +374,71 @@ curl -fsSL https://raw.githubusercontent.com/amirotin/telemt_panel/main/install.
 PANEL_TOML=/etc/telemt-panel/config.toml
 [[ -f "$PANEL_TOML" ]] || die "telemt_panel не создал $PANEL_TOML."
 
-sed -i "s|^listen = .*|listen = \"0.0.0.0:${PANEL_PORT}\"|" "$PANEL_TOML"
-if ! grep -q '^\[tls\]' "$PANEL_TOML"; then
-    cat >> "$PANEL_TOML" << EOF
+# Панель слушает ТОЛЬКО loopback и без своего TLS.
+#
+# Раньше было 0.0.0.0 плюс собственный сертификат домена REALITY, и снаружи это
+# выглядело как админ-форма с валидным сертификатом на нестандартном порту —
+# самый громкий объект на сервере. Сканеру хватало одного соединения, чтобы
+# классифицировать IP, и работа по маскировке порта telemt после этого теряла
+# смысл. Теперь TLS терминирует nginx на 443 домена панели, а попасть внутрь
+# можно по случайному префиксу пути (см. ниже).
+sed -i "s|^listen = .*|listen = \"127.0.0.1:${PANEL_PORT}\"|" "$PANEL_TOML"
+grep -q "^listen = \"127.0.0.1:${PANEL_PORT}\"" "$PANEL_TOML" || \
+    die "не удалось задать listen в $PANEL_TOML — проверь формат файла у автора панели."
 
-[tls]
-cert_file = "/etc/letsencrypt/live/${DOMAIN_REALITY}/fullchain.pem"
-key_file  = "/etc/letsencrypt/live/${DOMAIN_REALITY}/privkey.pem"
-EOF
+# Секцию [tls] снимаем, если она осталась от прежней установки: панели больше
+# не нужен сертификат, а вместе с ним отпадает и доступ к приватному ключу
+# Let's Encrypt, который ей раньше выдавался через ACL. Процесс, смотрящий в
+# интернет, ключ читать не должен — теперь он его и не видит.
+if grep -q '^\[tls\]' "$PANEL_TOML"; then
+    log "  убираю секцию [tls] — TLS теперь терминирует nginx"
+    sed -i '/^\[tls\]/,/^$/d' "$PANEL_TOML"
 fi
 
-# Доступ панели строго к своему сертификату, а не ко всему /etc/letsencrypt:
-# панель смотрит наружу, и приватные ключи остальных доменов ей не нужны.
-#
-# Раньше здесь установка acl шла с заглушённым выводом, а следом сразу setfacl.
-# На свежей Ubuntu блокировку dpkg держит unattended-upgrades, acl не ставился,
-# setfacl не находился, и весь установщик умирал на коде 127 — без сообщения,
-# с панелью в вечном цикле перезапуска и без сохранённых учётных данных.
-if id telemt-panel &>/dev/null; then
-    REAL_DIR="$(readlink -f "/etc/letsencrypt/live/${DOMAIN_REALITY}/privkey.pem" | xargs dirname)"
-
-    if ! command -v setfacl >/dev/null 2>&1; then
-        wait_for_apt
-        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq acl >/dev/null 2>&1 || true
-    fi
-
-    if command -v setfacl >/dev/null 2>&1; then
-        setfacl -m u:telemt-panel:x /etc/letsencrypt/live /etc/letsencrypt/archive
-        setfacl -m u:telemt-panel:rx "/etc/letsencrypt/live/${DOMAIN_REALITY}"
-        setfacl -R -m u:telemt-panel:rX "$REAL_DIR"
-        setfacl -d -m u:telemt-panel:rX "$REAL_DIR"
-    else
-        # Запасной путь вместо смерти: доступ через группу панели. Шире, чем
-        # ACL (группа получает право войти в каталоги live и archive), но
-        # ключи остальных доменов по-прежнему закрыты правами самих файлов,
-        # а панель работает — это лучше, чем бесконечный перезапуск.
-        warn "setfacl недоступен — выдаю доступ к сертификату через группу telemt-panel."
-        chgrp telemt-panel /etc/letsencrypt/live /etc/letsencrypt/archive
-        chmod g+x /etc/letsencrypt/live /etc/letsencrypt/archive
-        chgrp -R telemt-panel "/etc/letsencrypt/live/${DOMAIN_REALITY}" "$REAL_DIR"
-        chmod -R g+rX "/etc/letsencrypt/live/${DOMAIN_REALITY}" "$REAL_DIR"
-    fi
-else
-    warn "Пользователь telemt-panel не найден — доступ к сертификату не выдан."
+# И снимаем сам доступ к ключу, если он был выдан прежней версией VSM.
+if id telemt-panel &>/dev/null && command -v setfacl >/dev/null 2>&1; then
+    setfacl -x u:telemt-panel /etc/letsencrypt/live /etc/letsencrypt/archive 2>/dev/null || true
+    setfacl -R -x u:telemt-panel "/etc/letsencrypt/archive/${DOMAIN_REALITY}" 2>/dev/null || true
 fi
 
 systemctl restart telemt-panel
 verify_or_die systemctl is-active --quiet telemt-panel
 
-command -v ufw >/dev/null 2>&1 && ufw allow "${PANEL_PORT}/tcp" >/dev/null 2>&1 || true
+# Порт наружу НЕ открываем: панель на loopback, снаружи её отдаёт nginx.
+# Прежнее правило снимаем — оно могло остаться от старой установки.
+command -v ufw >/dev/null 2>&1 && ufw delete allow "${PANEL_PORT}/tcp" >/dev/null 2>&1 || true
 
-# Та же гонка, что и у telemt: ждём готовности, а не спим наугад.
-if ! wait_until 20 curl -sk --max-time 5 "https://127.0.0.1:${PANEL_PORT}/" -o /dev/null; then
-    warn "telemt_panel не отвечает на https://127.0.0.1:${PANEL_PORT}/ — смотри journalctl -u telemt-panel"
+# Та же гонка, что и у telemt: ждём готовности, а не спим наугад. Обращаемся по
+# http — TLS у панели больше нет.
+if ! wait_until 20 curl -s --max-time 5 "http://127.0.0.1:${PANEL_PORT}/" -o /dev/null; then
+    warn "telemt_panel не отвечает на http://127.0.0.1:${PANEL_PORT}/ — смотри journalctl -u telemt-panel"
 fi
-PCODE="$(curl -sk --max-time 10 "https://127.0.0.1:${PANEL_PORT}/" -o /dev/null -w '%{http_code}')" || PCODE=000
+PCODE="$(curl -s --max-time 10 "http://127.0.0.1:${PANEL_PORT}/" -o /dev/null -w '%{http_code}')" || PCODE=000
 [[ "$PCODE" == "200" ]] || warn "telemt_panel вернул $PCODE вместо 200 — смотри journalctl -u telemt-panel"
+
+# Подключаем панель к 443 домена панели по случайному префиксу пути.
+#
+# Блок вписывается в vhost панели, а тот лежит в sites-enabled — каталоге,
+# который установщик и патч 3x-ui-pro вычищают целиком. Пережить это он, в
+# отличие от маски, не может: nginx не умеет добавлять location в чужой
+# server{} из отдельного файла. Поэтому блок помечен маркерами и
+# переприменяется пунктом меню «Восстановить конфигурацию nginx» — тем же, что
+# чинит маску после патча панели.
+log "Этап 5: доступ к telemt_panel через 443 домена панели"
+PANEL_VHOST="$(nginx_mask_panel_vhost "$DOMAIN_PANEL")" || \
+    die "не найден vhost домена $DOMAIN_PANEL — панель некуда подключить."
+panel_proxy_apply "$PANEL_VHOST" "$PANEL_PREFIX" "$PANEL_PORT" || \
+    die "не удалось подключить telemt_panel к nginx (причина выше)."
+
+PANEL_URL_CHECK="$(curl -sk --max-time 10 --resolve "${DOMAIN_PANEL}:443:127.0.0.1" \
+    "https://${DOMAIN_PANEL}/${PANEL_PREFIX}/" -o /dev/null -w '%{http_code}')" || PANEL_URL_CHECK=000
+if [[ "$PANEL_URL_CHECK" == "200" || "$PANEL_URL_CHECK" == "302" || "$PANEL_URL_CHECK" == "307" ]]; then
+    log "  панель отвечает по своему адресу ($PANEL_URL_CHECK)"
+else
+    warn "панель по адресу через nginx вернула $PANEL_URL_CHECK — проверь вручную."
+    warn "если вёрстка поедет, панель не умеет работать из подкаталога: тогда"
+    warn "оставь её на loopback и ходи через ssh -L ${PANEL_PORT}:127.0.0.1:${PANEL_PORT}"
+fi
 
 # ---------------------------------------------------------------------------
 # СОХРАНЕНИЕ СОСТОЯНИЯ
@@ -426,6 +451,7 @@ PCODE="$(curl -sk --max-time 10 "https://127.0.0.1:${PANEL_PORT}/" -o /dev/null 
     printf 'TELEMT_PORT=%q\n'      "$TELEMT_PORT"
     printf 'TELEMT_MASK_PORT=%q\n' "$TELEMT_MASK_PORT"
     printf 'PANEL_PORT=%q\n'       "$PANEL_PORT"
+    printf 'PANEL_PREFIX=%q\n'     "$PANEL_PREFIX"
     printf 'TELEMT_SECRET=%q\n'    "$TELEMT_SECRET"
     printf 'PANEL_ADMIN_USER=%q\n' "$PANEL_ADMIN_USER"
     printf 'PANEL_ADMIN_PASS=%q\n' "$PANEL_ADMIN_PASS"
@@ -440,7 +466,7 @@ chmod 600 "$STACK_CONF"
     echo "Панель 3x-ui-pro:   https://${DOMAIN_PANEL}${PANEL_WEBPATH:-/}panel/"
     echo "telemt порт:        ${TELEMT_PORT}"
     echo "telemt secret:      ${TELEMT_SECRET}"
-    echo "telemt_panel:       https://${DOMAIN_REALITY}:${PANEL_PORT}"
+    echo "telemt_panel:       https://${DOMAIN_PANEL}/${PANEL_PREFIX}/"
     echo "telemt_panel логин: ${PANEL_ADMIN_USER}"
     echo "telemt_panel пароль: ${PANEL_ADMIN_PASS}"
 } > "$STACK_CREDS"
@@ -454,7 +480,8 @@ cat << SUMMARY
   Панель 3x-ui-pro:    https://${DOMAIN_PANEL}${PANEL_WEBPATH:-/<путь из вывода установщика>/}panel/
   REALITY SNI-ключ:    ${DOMAIN_REALITY}
   telemt порт:         ${TELEMT_PORT}  (self-SNI цель: ${DOMAIN_PANEL})
-  telemt_panel:        https://${DOMAIN_REALITY}:${PANEL_PORT}
+  telemt_panel:        https://${DOMAIN_PANEL}/${PANEL_PREFIX}/
+                       (порт ${PANEL_PORT} только на 127.0.0.1, наружу не открыт)
   Логин панели telemt: ${PANEL_ADMIN_USER}
 
   Секрет и пароль НЕ печатаются здесь намеренно — они сохранены в

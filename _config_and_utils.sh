@@ -182,10 +182,27 @@ function xui_panel_url {
     printf 'https://%s%spanel/' "$domain" "$path"
 }
 
-# Адрес telemt_panel. Живёт на домене REALITY и своём порту.
+# Адрес telemt_panel: 443 домена ПАНЕЛИ плюс случайный префикс пути.
+#
+# Раньше это был домен REALITY и отдельный порт 9444, открытый наружу. Снаружи
+# такой порт выглядел как админ-форма с валидным сертификатом на нестандартном
+# месте — сканеру хватало одного соединения, чтобы классифицировать сервер, и
+# маскировка порта telemt после этого не имела значения. Теперь панель слушает
+# только loopback, а наружу её отдаёт nginx на обычном 443.
+#
+# Запасной путь по PANEL_PORT нужен для конфигов прежних установок, где
+# PANEL_PREFIX ещё нет: адрес в шапке лучше показать старый, чем никакой, — а
+# переезд сделает пункт «Восстановить конфигурацию nginx».
 function telemt_panel_url {
-    local d p
+    local d prefix p
     [ -f "$STACK_CONF_FILE" ] || return 0
+    prefix=$(grep -m1 -oP '^PANEL_PREFIX=\K.*' "$STACK_CONF_FILE" 2>/dev/null | tr -dc 'A-Za-z0-9_-')
+    if [ -n "$prefix" ]; then
+        d=$(_addr_clean "$(grep -m1 -oP '^DOMAIN_PANEL=\K.*' "$STACK_CONF_FILE" 2>/dev/null | tr -d "\"'")")
+        [ -n "$d" ] || return 0
+        printf 'https://%s/%s/' "$d" "$prefix"
+        return 0
+    fi
     d=$(_addr_clean "$(grep -m1 -oP '^DOMAIN_REALITY=\K.*' "$STACK_CONF_FILE" 2>/dev/null | tr -d "\"'")")
     # Порт — только цифры: он идёт в адрес, и мусору там взяться неоткуда.
     p=$(grep -m1 -oP '^PANEL_PORT=\K.*' "$STACK_CONF_FILE" 2>/dev/null | tr -dc '0-9')

@@ -26,6 +26,16 @@ else
     exit 1
 fi
 
+# Генератор блока доступа к telemt_panel через 443 домена панели — тоже общий
+# с установщиком.
+if [ -f "$REPO_DIR/_nginx_panel_proxy.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$REPO_DIR/_nginx_panel_proxy.sh"
+else
+    echo -e "${RED}❌ Не найден $REPO_DIR/_nginx_panel_proxy.sh — обнови VSM (install.sh).${NC}"
+    exit 1
+fi
+
 # Сторонний проект MTProxyL (лимитер | тюнинг) под Telemt. Пришёл на смену
 # MTproxy-reanimation: тот заброшен на 1.2.9, разработка переехала в новый
 # репозиторий. Лицензия MIT.
@@ -64,7 +74,7 @@ MTPR_SYSCTL="/etc/sysctl.d/99-mtpr-meko-opt.conf"
 
 function load_stack_conf {
     DOMAIN_PANEL=""; DOMAIN_REALITY=""
-    TELEMT_PORT=""; TELEMT_MASK_PORT=""; PANEL_PORT=""
+    TELEMT_PORT=""; TELEMT_MASK_PORT=""; PANEL_PORT=""; PANEL_PREFIX=""
     # Учётки тоже обнуляем перед чтением: «Удалить стек» умеет снести конфиг
     # прямо внутри цикла меню, и без сброса шапка продолжила бы показывать
     # логин и пароль от только что удалённой панели.
@@ -108,7 +118,7 @@ function ask_domains {
     load_stack_conf
     echo -e "\n${CYAN}Стеку нужны ДВА разных поддомена, оба указывают на IP этого сервера:${NC}"
     echo -e "  • ${YELLOW}Домен панели${NC} — панель 3x-ui-pro, он же цель self-SNI маскировки"
-    echo -e "  • ${YELLOW}Домен REALITY${NC} — ключ SNI-роутинга, он же адрес telemt_panel"
+    echo -e "  • ${YELLOW}Домен REALITY${NC} — ключ SNI-роутинга для REALITY"
     echo -e "${YELLOW}Домены обязаны отличаться, иначе nginx не примет конфиг.${NC}\n"
 
     read -p "Домен панели${DOMAIN_PANEL:+ [$DOMAIN_PANEL]}: " in_panel
@@ -202,7 +212,7 @@ function run_diagnostics {
         echo -e "${RED}⚠️  Файл маскировки отсутствует!${NC}"
         echo -e "${YELLOW}    Скорее всего его стёрла переустановка или патч 3x-ui-pro."
         echo -e "    Без него telemt при DPI-пробе не отдаёт настоящий сайт."
-        echo -e "    Почини пунктом 'Восстановить маскировку'.${NC}"
+        echo -e "    Почини пунктом 'Восстановить конфиги nginx'.${NC}"
     else
         echo -e "\n${CYAN}>>> Проверка локального vhost маскировки...${NC}"
         mask_code=$(curl -sk --max-time 5 --resolve "${DOMAIN_PANEL}:${TELEMT_MASK_PORT}:127.0.0.1" \
@@ -246,11 +256,39 @@ function restore_mask {
 
     # Сборка, проверка nginx -t и откат при неудаче — в _nginx_mask.sh,
     # общем с установщиком.
+    local mask_ok=0 proxy_ok=0
     if nginx_mask_apply "$DOMAIN_PANEL" "$TELEMT_MASK_PORT"; then
         echo -e "${GREEN}✅ Маскировка восстановлена и nginx перезагружен.${NC}"
+        mask_ok=1
     else
         echo -e "${RED}❌ Маскировка не восстановлена (причина выше).${NC}"
     fi
+
+    # Блок доступа к telemt_panel восстанавливаем здесь же и по той же причине:
+    # он живёт в vhost панели, а установщик и патч 3x-ui-pro вычищают
+    # sites-enabled целиком. Маска это переживает (она в conf.d), а этот блок —
+    # нет, и после каждого патча панель становилась бы недоступна снаружи.
+    echo -e "\n${CYAN}>>> Восстановление доступа к telemt_panel...${NC}"
+    if [ -z "$PANEL_PREFIX" ]; then
+        # Конфиг от прежней версии, где панель висела на 0.0.0.0:9444. Префикс
+        # генерируем сейчас и дописываем в конфиг — это и есть переезд.
+        PANEL_PREFIX="$(panel_proxy_gen_prefix)"
+        printf 'PANEL_PREFIX=%q\n' "$PANEL_PREFIX" >> "$STACK_CONF"
+        echo -e "${YELLOW}    Префикс пути создан впервые — панель переезжает с порта ${PANEL_PORT} на 443.${NC}"
+    fi
+    local pv
+    if pv="$(nginx_mask_panel_vhost "$DOMAIN_PANEL")" && \
+       panel_proxy_apply "$pv" "$PANEL_PREFIX" "${PANEL_PORT:-9444}"; then
+        echo -e "${GREEN}✅ Панель доступна: ${CYAN}https://${DOMAIN_PANEL}/${PANEL_PREFIX}/${NC}"
+        proxy_ok=1
+    else
+        echo -e "${RED}❌ Доступ к telemt_panel не восстановлен (причина выше).${NC}"
+        echo -e "${YELLOW}   Пока не починится — панель доступна через SSH-туннель:${NC}"
+        echo -e "${YELLOW}   ssh -L ${PANEL_PORT:-9444}:127.0.0.1:${PANEL_PORT:-9444} root@<сервер>${NC}"
+    fi
+
+    [ "$mask_ok" = 1 ] && [ "$proxy_ok" = 1 ] || \
+        echo -e "\n${YELLOW}Не всё восстановлено — прогони «Статус и диагностика».${NC}"
     read -p "Нажмите Enter..."
 }
 
@@ -598,6 +636,23 @@ function uninstall_stack {
         echo -e "${RED}⚠️  nginx -t не проходит — проверь конфиг вручную.${NC}"
     fi
 
+    # Блок доступа к панели вписан в vhost 3x-ui, а сам vhost мы не трогаем —
+    # значит, снять блок обязаны здесь, иначе в конфиге останется proxy_pass на
+    # порт, который больше никто не слушает.
+    if [ -n "$DOMAIN_PANEL" ]; then
+        local pv
+        if pv="$(nginx_mask_panel_vhost "$DOMAIN_PANEL" 2>/dev/null)" && panel_proxy_remove "$pv"; then
+            echo -e "${GREEN}✓ Блок доступа к telemt_panel снят из vhost панели.${NC}"
+        fi
+    fi
+    # И доступ панели к приватному ключу, если он остался от прежних версий.
+    if id telemt-panel &>/dev/null && command -v setfacl >/dev/null 2>&1; then
+        setfacl -x u:telemt-panel /etc/letsencrypt/live /etc/letsencrypt/archive 2>/dev/null
+        [ -n "$DOMAIN_REALITY" ] && \
+            setfacl -R -x u:telemt-panel "/etc/letsencrypt/archive/${DOMAIN_REALITY}" 2>/dev/null
+        echo -e "${GREEN}✓ Доступ панели к сертификату отозван.${NC}"
+    fi
+
     read -p "$(echo -e "${YELLOW}Удалить также сохранённые учётные данные и конфиг стека? [y/N]: ${NC}")" del_conf
     if [[ "$del_conf" =~ ^[Yy]$ ]]; then
         rm -f "$STACK_CONF" "$STACK_CREDS"
@@ -651,14 +706,14 @@ function run_telemt_menu {
             [ ${#dr} -gt "$dw" ] && dw=${#dr}
             echo -e "    Домены:"
             printf "      ${YELLOW}%-${dw}s${NC}  панель 3x-ui, она же цель self-SNI маскировки\n" "$dp"
-            printf "      ${YELLOW}%-${dw}s${NC}  SNI-роутинг REALITY, он же адрес telemt_panel\n" "$dr"
+            printf "      ${YELLOW}%-${dw}s${NC}  SNI-роутинг REALITY\n" "$dr"
         fi
         echo -e "${BLUE}--- УСТАНОВКА ----------------------------------------${NC}"
         echo -e "${RED}1) 📦  Установить весь стек с нуля (СТИРАЕТ 3x-ui!)${NC}"
         echo -e "${GREEN}2) ➕  Добавить telemt к существующей 3x-ui-pro${NC}"
         echo -e "${BLUE}--- ЭКСПЛУАТАЦИЯ -------------------------------------${NC}"
         echo -e "${CYAN}3) 🩺  Статус и диагностика (проверка маскировки)${NC}"
-        echo -e "${CYAN}4) 🔧  Восстановить маскировку (после патча панели)${NC}"
+        echo -e "${CYAN}4) 🔧  Восстановить конфиги nginx (маска + доступ к панели)${NC}"
         echo -e "${CYAN}5) 🔑  Показать учётные данные${NC}"
         echo -e "${CYAN}6) ⚙️   Управление службами (старт | стоп | логи)${NC}"
         echo -e "${BLUE}--- ДОПОЛНИТЕЛЬНО ------------------------------------${NC}"
