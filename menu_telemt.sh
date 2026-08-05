@@ -309,6 +309,125 @@ function restore_mask {
     read -p "Нажмите Enter..."
 }
 
+# ----------------------------------------------------------------------
+# Сверка TLS-параметров маски и панели + проверка постквантового обмена.
+#
+# Зачем отдельный пункт. «Статус и диагностика» судит по HTTP-коду 200, а это
+# слабый признак: маска может отвечать 200, отдавая при этом другой сертификат,
+# другой набор шифров или другую группу обмена ключами. Для активного пробера
+# достаточно одного расхождения — он сравнивает два порта одного IP и видит,
+# что за ними разные TLS-стеки, чего у одного сайта быть не может.
+#
+# Идея проверки на PQ взята из MTProxyL (пункт «Проверить текущий SNI-домен на
+# PQ»), но там она сводится к одному вопросу «поддерживается ли X25519MLKEM768».
+# Нам важнее паритет: PQ, включённый на панели и не включённый на маске, хуже,
+# чем отсутствие PQ на обеих.
+#
+# Системный openssl на Ubuntu 24.04 — 3.0, он группу X25519MLKEM768 даже
+# запросить не может. Поэтому PQ-часть выполняется только при наличии
+# openssl 3.5+: наш /opt/openssl-3.5 после пересборки nginx либо сборка
+# MTProxyL, если он установлен.
+# ----------------------------------------------------------------------
+function _tls_probe {
+    local port="$1" domain="$2" field="$3"
+    local out
+    out=$(echo | timeout 10 openssl s_client -connect "127.0.0.1:${port}" \
+            -servername "$domain" -alpn h2,http/1.1 2>/dev/null)
+    case "$field" in
+        fp)    printf '%s' "$out" | openssl x509 -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2 ;;
+        proto) printf '%s' "$out" | grep -a -m1 -oP '^\s*Protocol\s*:\s*\K.*' | tr -d ' ' ;;
+        cipher)printf '%s' "$out" | grep -a -m1 -oP '^\s*Cipher\s*:\s*\K.*' | tr -d ' ' ;;
+        group) printf '%s' "$out" | grep -a -m1 -oP 'Server Temp Key:\s*\K.*' ;;
+        alpn)  printf '%s' "$out" | grep -a -m1 -oP 'ALPN protocol:\s*\K.*' ;;
+    esac
+}
+
+function _pq_openssl_bin {
+    local c
+    for c in /opt/openssl-3.5/bin/openssl /opt/mtproxyl-nginx/bin/openssl \
+             /opt/mtproxyl-nginx/sbin/openssl; do
+        [ -x "$c" ] && { printf '%s' "$c"; return 0; }
+    done
+    return 1
+}
+
+function check_tls_parity {
+    clear
+    load_stack_conf
+    echo -e "${CYAN}======================================================${NC}"
+    echo -e "${CYAN}       🔬  СВЕРКА TLS: МАСКА ПРОТИВ ПАНЕЛИ  🔬        ${NC}"
+    echo -e "${CYAN}======================================================${NC}"
+
+    if [ -z "$DOMAIN_PANEL" ]; then
+        echo -e "${RED}❌ Конфиг стека не найден — сверять нечего.${NC}"
+        read -p "Нажмите Enter..."; return
+    fi
+    local mp="${TELEMT_MASK_PORT:-7444}"
+    echo -e "  Домен: ${YELLOW}$(_addr_clean "$DOMAIN_PANEL")${NC}"
+    echo -e "  Маска: ${YELLOW}127.0.0.1:${mp}${NC}   Панель: ${YELLOW}127.0.0.1:443${NC}\n"
+
+    local diff=0 f
+    for f in fp proto cipher group alpn; do
+        local a b label
+        a=$(_tls_probe "$mp" "$DOMAIN_PANEL" "$f")
+        b=$(_tls_probe 443  "$DOMAIN_PANEL" "$f")
+        case "$f" in
+            fp)     label="Отпечаток" ;;
+            proto)  label="Протокол" ;;
+            cipher) label="Шифр" ;;
+            group)  label="Группа обмена" ;;
+            alpn)   label="ALPN" ;;
+        esac
+        if [ -z "$a" ] && [ -z "$b" ]; then
+            printf "  %-16s ${YELLOW}%s${NC}\n" "$label" "нет данных с обоих портов"
+        elif [ "$a" = "$b" ]; then
+            printf "  %-16s ${GREEN}совпадает${NC}  %s\n" "$label" "$a"
+        else
+            printf "  %-16s ${RED}РАСХОЖДЕНИЕ${NC}\n" "$label"
+            printf "  %-16s   маска : %s\n" "" "${a:-нет ответа}"
+            printf "  %-16s   панель: %s\n" "" "${b:-нет ответа}"
+            diff=$((diff + 1))
+        fi
+    done
+
+    echo
+    echo -e "${BLUE}--- Постквантовый обмен (X25519MLKEM768) -------------${NC}"
+    local pq
+    if pq=$(_pq_openssl_bin); then
+        echo -e "  Проверяю через ${CYAN}${pq}${NC}"
+        local p ok_pq=0
+        for p in "$mp" 443; do
+            local r
+            r=$(echo | timeout 10 "$pq" s_client -tls1_3 -groups X25519MLKEM768 \
+                  -connect "127.0.0.1:${p}" -servername "$DOMAIN_PANEL" 2>&1)
+            if printf '%s' "$r" | grep -q 'X25519MLKEM768'; then
+                printf "  порт %-5s ${GREEN}PQ активен${NC}\n" "$p"; ok_pq=$((ok_pq + 1))
+            else
+                printf "  порт %-5s ${YELLOW}PQ не согласован${NC}\n" "$p"
+            fi
+        done
+        # Паритет важнее самого PQ: включённый на одном порту и выключенный на
+        # другом — это признак, которого без PQ вовсе не было бы.
+        if [ "$ok_pq" = 1 ]; then
+            echo -e "  ${RED}⚠️  PQ работает только на ОДНОМ порту — это расхождение.${NC}"
+            diff=$((diff + 1))
+        fi
+    else
+        echo -e "  ${YELLOW}Пропущено: нужен openssl 3.5+.${NC}"
+        echo -e "  ${BLUE}Системный $(openssl version 2>/dev/null | awk '{print $2}') группу X25519MLKEM768 не поддерживает.${NC}"
+        echo -e "  ${BLUE}Появится после пункта «Пересборка nginx с OpenSSL 3.5».${NC}"
+    fi
+
+    echo
+    if [ "$diff" -eq 0 ]; then
+        echo -e "${GREEN}✅ Расхождений нет — маска неотличима от панели по этим признакам.${NC}"
+    else
+        echo -e "${RED}❌ Расхождений: ${diff}. Каждое — признак для активного пробера.${NC}"
+        echo -e "${YELLOW}   Почини пунктом «Восстановить конфиги nginx».${NC}"
+    fi
+    read -p "Нажмите Enter..."
+}
+
 function show_credentials {
     clear
     if [ ! -f "$STACK_CREDS" ]; then
@@ -731,26 +850,28 @@ function run_telemt_menu {
         echo -e "${BLUE}--- ЭКСПЛУАТАЦИЯ -------------------------------------${NC}"
         echo -e "${CYAN}3) 🩺  Статус и диагностика (проверка маскировки)${NC}"
         echo -e "${CYAN}4) 🔧  Восстановить конфиги nginx (маска + доступ к панели)${NC}"
-        echo -e "${CYAN}5) 🔑  Показать учётные данные${NC}"
-        echo -e "${CYAN}6) ⚙️   Управление службами (старт | стоп | логи)${NC}"
+        echo -e "${CYAN}5) 🔬  Сверить TLS маски и панели (+ PQ)${NC}"
+        echo -e "${CYAN}6) 🔑  Показать учётные данные${NC}"
+        echo -e "${CYAN}7) ⚙️   Управление службами (старт | стоп | логи)${NC}"
         echo -e "${BLUE}--- ДОПОЛНИТЕЛЬНО ------------------------------------${NC}"
-        echo -e "${YELLOW}7) 🛡️   MTProxyL (лимитер | обход | тюнинг)${NC}"
-        echo -e "${YELLOW}8) 🔬  Пересборка nginx с OpenSSL 3.5 (PQ TLS)${NC}"
-        echo -e "${RED}9) 🗑️   Удалить стек telemt${NC}"
+        echo -e "${YELLOW}8) 🛡️   MTProxyL (лимитер | обход | тюнинг)${NC}"
+        echo -e "${YELLOW}9) 🔬  Пересборка nginx с OpenSSL 3.5 (PQ TLS)${NC}"
+        echo -e "${RED}10) 🗑️   Удалить стек telemt${NC}"
         echo -e "${RED}X) 🔙  Назад в главное меню${NC}"
         echo -e "${BLUE}------------------------------------------------------${NC}"
 
-        read -p "Ваш выбор [1-9, X]: " choice
+        read -p "Ваш выбор [1-10, X]: " choice
         case $choice in
             1) run_install full ;;
             2) run_install addon ;;
             3) run_diagnostics ;;
             4) restore_mask ;;
-            5) show_credentials ;;
-            6) manage_services ;;
-            7) run_mtproxyl ;;
-            8) run_rebuild_nginx ;;
-            9) uninstall_stack ;;
+            5) check_tls_parity ;;
+            6) show_credentials ;;
+            7) manage_services ;;
+            8) run_mtproxyl ;;
+            9) run_rebuild_nginx ;;
+            10) uninstall_stack ;;
             [Xx]) return ;;
             *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
         esac
