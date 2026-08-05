@@ -61,6 +61,26 @@ ${PANEL_PROXY_BEGIN}
     location /${prefix}/ {
         proxy_pass http://127.0.0.1:${port}/;
         proxy_http_version 1.1;
+
+        # Панель собрана под работу от корня: в её HTML зашиты
+        # <base href="/"> и window.__BASE_PATH__="". Ресурсы указаны
+        # относительно (./assets/...), но base разворачивает их от корня
+        # сайта, где их нет, — страница открывалась белым экраном.
+        #
+        # Переписываем оба значения на лету. Поддержка префикса в самом
+        # приложении есть: бандл трижды обращается к __BASE_PATH__, ему
+        # достаточно сообщить непустое значение. Так вся панель остаётся
+        # под секретным префиксом, и ничего не приходится выносить в
+        # корень сайта, который зеркалит маска.
+        #
+        # Accept-Encoding пустой обязателен: sub_filter не умеет править
+        # сжатый ответ и молча пропустил бы его как есть. Канал до панели
+        # локальный, потеря сжатия ничего не стоит.
+        proxy_set_header Accept-Encoding "";
+        sub_filter_once off;
+        sub_filter_types text/html;
+        sub_filter '<base href="/">' '<base href="/${prefix}/">';
+        sub_filter 'window.__BASE_PATH__=""' 'window.__BASE_PATH__="/${prefix}"';
         proxy_set_header Host              \$host;
         proxy_set_header X-Real-IP         \$remote_addr;
         proxy_set_header X-Forwarded-For   \$proxy_add_x_forwarded_for;
