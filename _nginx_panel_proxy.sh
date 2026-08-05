@@ -181,6 +181,79 @@ panel_proxy_apply() {
 }
 
 # ----------------------------------------------------------------------
+# Серверная половина переезда: панель на loopback, свой TLS снят, порт закрыт,
+# доступ к приватному ключу отозван.
+#
+# Вынесено сюда, а не оставлено в установщике, потому что переезжать должны и
+# уже установленные серверы — через пункт «Восстановить конфиги nginx». Пока
+# этого не было, пункт применял только блок nginx: панель продолжала слушать
+# 0.0.0.0 и говорить по HTTPS, а nginx шёл к ней по http:// и получал 400.
+# На стенде это выглядело как 404, потому что vhost 3x-ui-pro переписывает
+# любую ошибку апстрима в 404 (error_page ... =404 + proxy_intercept_errors).
+#
+# 0 — панель переведена; 1 — не удалось (причина в stderr).
+# ----------------------------------------------------------------------
+panel_proxy_localize() {
+    local toml="$1" port="$2" domain_reality="$3"
+
+    if [ ! -f "$toml" ]; then
+        echo "не найден конфиг панели: $toml" >&2
+        return 1
+    fi
+    if ! printf '%s' "$port" | grep -qE '^[0-9]+$'; then
+        echo "нужен числовой порт панели (получено '$port')" >&2
+        return 1
+    fi
+
+    sed -i "s|^listen = .*|listen = \"127.0.0.1:${port}\"|" "$toml"
+    if ! grep -q "^listen = \"127.0.0.1:${port}\"" "$toml"; then
+        echo "не удалось задать listen в $toml — проверь формат файла у автора панели" >&2
+        return 1
+    fi
+
+    # Секция [tls] больше не нужна: TLS терминирует nginx. Удаляем от строки
+    # [tls] до следующей секции или конца файла.
+    if grep -q '^\[tls\]' "$toml"; then
+        sed -i '/^\[tls\]/,/^\[/{ /^\[tls\]/d; /^cert_file/d; /^key_file/d; }' "$toml"
+    fi
+
+    systemctl restart telemt-panel 2>/dev/null || true
+
+    # Доступ к приватному ключу Let's Encrypt панели больше не нужен.
+    if id telemt-panel >/dev/null 2>&1 && command -v setfacl >/dev/null 2>&1; then
+        setfacl -x u:telemt-panel /etc/letsencrypt/live /etc/letsencrypt/archive 2>/dev/null || true
+        if [ -n "$domain_reality" ]; then
+            setfacl -R -x u:telemt-panel "/etc/letsencrypt/archive/${domain_reality}" 2>/dev/null || true
+        fi
+    fi
+
+    # Порт наружу закрываем: панель теперь только на loopback.
+    if command -v ufw >/dev/null 2>&1; then
+        ufw delete allow "${port}/tcp" >/dev/null 2>&1 || true
+    fi
+    return 0
+}
+
+# ----------------------------------------------------------------------
+# Проверка ФАКТОМ, а не кодом возврата применения конфига.
+#
+# nginx принял конфиг — это ещё не значит, что панель отвечает. Прежняя версия
+# печатала «Панель доступна» сразу после panel_proxy_apply и врала.
+#
+# Печатает полученный HTTP-код в stdout. 0 — панель отвечает осмысленно.
+# ----------------------------------------------------------------------
+panel_proxy_verify() {
+    local domain="$1" prefix="$2" code
+    code="$(curl -sk --max-time 10 --resolve "${domain}:443:127.0.0.1" \
+        "https://${domain}/${prefix}/" -o /dev/null -w '%{http_code}' 2>/dev/null)" || code=000
+    printf '%s' "$code"
+    case "$code" in
+        200|301|302|307|308) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# ----------------------------------------------------------------------
 # Снятие блока: при удалении стека. Молчит, если блока и не было.
 # ----------------------------------------------------------------------
 panel_proxy_remove() {

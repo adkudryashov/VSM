@@ -276,13 +276,30 @@ function restore_mask {
         printf 'PANEL_PREFIX=%q\n' "$PANEL_PREFIX" >> "$STACK_CONF"
         echo -e "${YELLOW}    Префикс пути создан впервые — панель переезжает с порта ${PANEL_PORT} на 443.${NC}"
     fi
-    local pv
+    # Серверная половина переезда обязательна и идёт ПЕРВОЙ: пока панель
+    # слушает 0.0.0.0 и говорит по HTTPS, nginx ходит к ней по http:// и
+    # получает 400, а vhost 3x-ui-pro переписывает это в 404.
+    if ! panel_proxy_localize /etc/telemt-panel/config.toml \
+            "${PANEL_PORT:-9444}" "$DOMAIN_REALITY"; then
+        echo -e "${RED}❌ Не удалось перевести панель на loopback (причина выше).${NC}"
+    fi
+
+    local pv code
     if pv="$(nginx_mask_panel_vhost "$DOMAIN_PANEL")" && \
        panel_proxy_apply "$pv" "$PANEL_PREFIX" "${PANEL_PORT:-9444}"; then
-        echo -e "${GREEN}✅ Панель доступна: ${CYAN}https://${DOMAIN_PANEL}/${PANEL_PREFIX}/${NC}"
-        proxy_ok=1
+        # Успех печатаем только по факту ответа, а не по коду применения
+        # конфига. nginx принял файл — это ещё ничего не значит.
+        code="$(panel_proxy_verify "$DOMAIN_PANEL" "$PANEL_PREFIX")" && proxy_ok=1
+        if [ "$proxy_ok" = 1 ]; then
+            echo -e "${GREEN}✅ Панель отвечает ($code): ${CYAN}https://${DOMAIN_PANEL}/${PANEL_PREFIX}/${NC}"
+        else
+            echo -e "${RED}❌ Блок в nginx применён, но панель по адресу вернула $code.${NC}"
+            echo -e "${YELLOW}   Смотри journalctl -u telemt-panel и /var/log/nginx/error.log${NC}"
+        fi
     else
         echo -e "${RED}❌ Доступ к telemt_panel не восстановлен (причина выше).${NC}"
+    fi
+    if [ "$proxy_ok" != 1 ]; then
         echo -e "${YELLOW}   Пока не починится — панель доступна через SSH-туннель:${NC}"
         echo -e "${YELLOW}   ssh -L ${PANEL_PORT:-9444}:127.0.0.1:${PANEL_PORT:-9444} root@<сервер>${NC}"
     fi

@@ -382,31 +382,13 @@ PANEL_TOML=/etc/telemt-panel/config.toml
 # классифицировать IP, и работа по маскировке порта telemt после этого теряла
 # смысл. Теперь TLS терминирует nginx на 443 домена панели, а попасть внутрь
 # можно по случайному префиксу пути (см. ниже).
-sed -i "s|^listen = .*|listen = \"127.0.0.1:${PANEL_PORT}\"|" "$PANEL_TOML"
-grep -q "^listen = \"127.0.0.1:${PANEL_PORT}\"" "$PANEL_TOML" || \
-    die "не удалось задать listen в $PANEL_TOML — проверь формат файла у автора панели."
-
-# Секцию [tls] снимаем, если она осталась от прежней установки: панели больше
-# не нужен сертификат, а вместе с ним отпадает и доступ к приватному ключу
-# Let's Encrypt, который ей раньше выдавался через ACL. Процесс, смотрящий в
-# интернет, ключ читать не должен — теперь он его и не видит.
-if grep -q '^\[tls\]' "$PANEL_TOML"; then
-    log "  убираю секцию [tls] — TLS теперь терминирует nginx"
-    sed -i '/^\[tls\]/,/^$/d' "$PANEL_TOML"
-fi
-
-# И снимаем сам доступ к ключу, если он был выдан прежней версией VSM.
-if id telemt-panel &>/dev/null && command -v setfacl >/dev/null 2>&1; then
-    setfacl -x u:telemt-panel /etc/letsencrypt/live /etc/letsencrypt/archive 2>/dev/null || true
-    setfacl -R -x u:telemt-panel "/etc/letsencrypt/archive/${DOMAIN_REALITY}" 2>/dev/null || true
-fi
-
-systemctl restart telemt-panel
+# Перевод панели на loopback, снятие её TLS, отзыв доступа к приватному ключу и
+# закрытие порта — всё в panel_proxy_localize, общей с меню. Держать здесь
+# отдельную копию нельзя: ровно так разошлись две копии wait_for_apt, и
+# разошлись в опасную сторону.
+panel_proxy_localize "$PANEL_TOML" "$PANEL_PORT" "$DOMAIN_REALITY" || \
+    die "не удалось перевести telemt_panel на loopback (причина выше)."
 verify_or_die systemctl is-active --quiet telemt-panel
-
-# Порт наружу НЕ открываем: панель на loopback, снаружи её отдаёт nginx.
-# Прежнее правило снимаем — оно могло остаться от старой установки.
-command -v ufw >/dev/null 2>&1 && ufw delete allow "${PANEL_PORT}/tcp" >/dev/null 2>&1 || true
 
 # Та же гонка, что и у telemt: ждём готовности, а не спим наугад. Обращаемся по
 # http — TLS у панели больше нет.
@@ -430,9 +412,7 @@ PANEL_VHOST="$(nginx_mask_panel_vhost "$DOMAIN_PANEL")" || \
 panel_proxy_apply "$PANEL_VHOST" "$PANEL_PREFIX" "$PANEL_PORT" || \
     die "не удалось подключить telemt_panel к nginx (причина выше)."
 
-PANEL_URL_CHECK="$(curl -sk --max-time 10 --resolve "${DOMAIN_PANEL}:443:127.0.0.1" \
-    "https://${DOMAIN_PANEL}/${PANEL_PREFIX}/" -o /dev/null -w '%{http_code}')" || PANEL_URL_CHECK=000
-if [[ "$PANEL_URL_CHECK" == "200" || "$PANEL_URL_CHECK" == "302" || "$PANEL_URL_CHECK" == "307" ]]; then
+if PANEL_URL_CHECK="$(panel_proxy_verify "$DOMAIN_PANEL" "$PANEL_PREFIX")"; then
     log "  панель отвечает по своему адресу ($PANEL_URL_CHECK)"
 else
     warn "панель по адресу через nginx вернула $PANEL_URL_CHECK — проверь вручную."
