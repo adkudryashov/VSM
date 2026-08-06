@@ -745,7 +745,40 @@ function run_rebuild_nginx {
         echo -e "${BLUE}Отменено.${NC}"; sleep 1; return
     fi
 
-    bash "$REBUILD_SCRIPT"
+    # Код возврата читаем. Прежде результат скрипта не смотрели вовсе: после
+    # 20-40 минут сборки экран выглядел одинаково и при успехе, и при откате.
+    # Цена ошибки здесь — лежащий прокси: остановка nginx внутри скрипта
+    # уносит telemt по Requires=nginx.service (инвариант 2).
+    local rc=0
+    bash "$REBUILD_SCRIPT" || rc=$?
+
+    echo
+    if [ "$rc" -eq 0 ]; then
+        echo -e "${GREEN}✅ Скрипт завершился успешно (код 0).${NC}"
+    else
+        echo -e "${RED}❌ Скрипт завершился с кодом ${rc}.${NC}"
+        echo -e "${YELLOW}   Откат он делает сам, но проверьте состояние ниже:"
+        echo -e "   стек мог остаться без telemt.${NC}"
+    fi
+
+    # Показываем факт, а не пересказ вывода скрипта. Именно здесь исторически
+    # печаталось зелёное «Готово» над остановленным прокси.
+    local nginx_line
+    if systemctl is-active --quiet nginx; then
+        nginx_line="${GREEN}РАБОТАЕТ${NC}"
+    else
+        nginx_line="${RED}ОСТАНОВЛЕН${NC}"
+    fi
+    echo -e "\n${CYAN}Состояние стека:${NC}"
+    echo -e "  nginx:        ${nginx_line}"
+    echo -e "  telemt:       $(stack_status_line)"
+    echo -e "  telemt-panel: $(panel_status_line)"
+
+    if [ "$rc" -eq 0 ]; then
+        echo -e "\n${BLUE}Дальше — пункт 5 «Сверить TLS маски и панели»: после удачной"
+        echo -e "пересборки он начинает проверять и постквантовый обмен, и требует,"
+        echo -e "чтобы PQ был согласован на ОБОИХ портах.${NC}"
+    fi
     read -p "Нажмите Enter для возврата..."
 }
 
