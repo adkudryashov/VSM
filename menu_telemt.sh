@@ -337,7 +337,18 @@ function restore_mask {
 # сокращает число вызовов openssl с десяти до двух: один снимок на порт.
 function _tls_dump {
     local port="$1" domain="$2" out="$3"
-    echo | timeout 10 openssl s_client -connect "127.0.0.1:${port}" \
+    # Пауза перед EOF обязательна. Блок SSL-Session, где лежат Protocol и
+    # Cipher, печатается при закрытии соединения, а голый `echo |` закрывает
+    # stdin мгновенно — s_client успевает выйти раньше, чем блок появится.
+    # Замер на стенде, по 8 попыток на порт: с голым echo полными оказались
+    # 5 дампов из 8 на КАЖДОМ порту, с паузой — 8 из 8.
+    #
+    # Цена дефекта была не в пустых полях, а в выводе: пустое значение на
+    # одном порту против заполненного на другом читается ниже как
+    # РАСХОЖДЕНИЕ. При независимых 5/8 ровно один порт обрезается почти в
+    # половине запусков — то есть пункт регулярно поднимал ложную тревогу
+    # сразу по двум полям и предлагал чинить исправную маскировку.
+    { echo; sleep 1; } | timeout 10 openssl s_client -connect "127.0.0.1:${port}" \
         -servername "$domain" -alpn h2,http/1.1 > "$out" 2>/dev/null
 }
 
@@ -415,7 +426,9 @@ function check_tls_parity {
         local p ok_pq=0
         for p in "$mp" 443; do
             local r
-            r=$(echo | timeout 10 "$pq" s_client -tls1_3 -groups X25519MLKEM768 \
+            # Пауза перед EOF по той же причине, что и в _tls_dump: дамп не
+            # должен обрываться раньше, чем допечатаются поля о соединении.
+            r=$({ echo; sleep 1; } | timeout 10 "$pq" s_client -tls1_3 -groups X25519MLKEM768 \
                   -connect "127.0.0.1:${p}" -servername "$DOMAIN_PANEL" 2>&1)
             if printf '%s' "$r" | grep -q 'X25519MLKEM768'; then
                 printf "  порт %-5s ${GREEN}PQ активен${NC}\n" "$p"; ok_pq=$((ok_pq + 1))
