@@ -420,15 +420,66 @@ cp /etc/nginx/nginx.conf "$CONF_BACKUP"
 systemctl stop nginx
 cp ./objs/nginx /usr/sbin/nginx
 
-# Модули теперь встроены статически. Ubuntu подключает их через отдельные
-# файлы в /etc/nginx/modules-enabled/ (относительным путём), а не строкой
-# load_module в nginx.conf — иначе nginx падает с "module already loaded".
+# ---------------------------------------------------------------------------
+# Приведение modules-enabled в согласие с новым бинарником.
+#
+# Прежняя версия вычищала каталог ЦЕЛИКОМ. На стенде там лежало восемь файлов,
+# и семь из них — сторонние модули из nginx-extras: echo, subs_filter, geoip2
+# (http и stream), auth_pam, dav_ext, upstream_fair. В `nginx -V` их нет вовсе:
+# Debian собирает их отдельными пакетами против ABI nginx, а не флагами
+# configure. Пересборка убивала их молча — ровно то, от чего предостерегает
+# комментарий в начале файла, где сказано, что модули берутся из реальной
+# установки, чтобы «geoip2, nginx-extras... не потерялись».
+#
+# Терять их не нужно: `--with-compat` сохраняется в флагах, и проверено на
+# стенде — все семь загружаются в пересобранный nginx без единой жалобы.
+# Конфликтует только тот модуль, который мы САМИ встроили статически: nginx
+# отвергает его с «module ... is already loaded».
+#
+# Поэтому снимаем ровно конфликтующие, и находим их ПО ФАКТУ — по жалобе
+# nginx -t, а не по имени файла. Набор =dynamic зависит от дистрибутива и
+# версии, список имён разошёлся бы с реальностью при первом же обновлении.
+# ---------------------------------------------------------------------------
 if [[ -d /etc/nginx/modules-enabled ]] && compgen -G "/etc/nginx/modules-enabled/*" >/dev/null; then
-    cp -a /etc/nginx/modules-enabled "$MODS_BACKUP"
-    rm -f /etc/nginx/modules-enabled/*
-    log "  директивы load_module убраны (бэкап: $MODS_BACKUP)"
+    if [[ -d "$MODS_BACKUP" ]]; then
+        # Не перезаписываем по той же причине, что и бэкап бинарника: он
+        # обязан описывать состояние ДО первой пересборки, иначе откат
+        # вернёт пакетный бинарник с уже подрезанным набором модулей.
+        log "  бэкап modules-enabled уже есть, прежний сохраняю"
+    else
+        cp -a /etc/nginx/modules-enabled "$MODS_BACKUP"
+        log "  бэкап modules-enabled: $MODS_BACKUP"
+    fi
 fi
+
+# Строка load_module в самом nginx.conf — отдельный путь подключения, его
+# использует не Ubuntu, а сторонние установщики. Обрабатываем так же.
 sed -i '/^\s*load_module.*ngx_stream_module\.so;/d' /etc/nginx/nginx.conf
+
+prune_conflicting_modules() {
+    local i out mod file
+    for i in $(seq 10); do
+        if out="$(nginx -t 2>&1)"; then
+            return 0
+        fi
+        mod="$(grep -oP 'module "\K[^"]+(?=" is already loaded)' <<< "$out" | head -1)" || mod=""
+        # Жалоба не про повторную загрузку — это уже не наш случай, пусть
+        # разбирается проверка nginx -t ниже и, если надо, откат.
+        [[ -n "$mod" ]] || return 1
+        file="$(grep -rl "${mod}\.so" /etc/nginx/modules-enabled/ 2>/dev/null | head -1)" || file=""
+        [[ -n "$file" ]] || return 1
+        rm -f "$file"
+        log "  снят $(basename "$file"): ${mod} теперь встроен статически"
+    done
+    return 1
+}
+
+if prune_conflicting_modules; then
+    kept="$(ls -A /etc/nginx/modules-enabled/ 2>/dev/null | wc -l)"
+    log "  сторонних модулей сохранено: ${kept}"
+else
+    warn "  modules-enabled согласовать не удалось — решит проверка nginx -t ниже"
+fi
 
 rollback() {
     warn "Откатываюсь на прежний бинарник..."
