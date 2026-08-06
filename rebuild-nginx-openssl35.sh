@@ -258,7 +258,21 @@ if [[ ! -d "openssl-${OPENSSL_VER}" ]]; then
     tar xzf "openssl-${OPENSSL_VER}.tar.gz"
 fi
 cd "openssl-${OPENSSL_VER}"
-./Configure --prefix="$OPENSSL_PREFIX" --openssldir="${OPENSSL_PREFIX}/ssl" shared
+# -Wl,-rpath обязателен. Без него бинарник в ${OPENSSL_PREFIX}/bin ищет
+# libssl/libcrypto по стандартным путям и находит СИСТЕМНЫЕ 3.0.13, в которых
+# нет символов версий 3.2-3.5. Проверено на стенде: собранный без rpath
+# openssl падал с "version `OPENSSL_3.5.0' not found", а с LD_LIBRARY_PATH
+# тот же бинарник печатал 3.5.6.
+#
+# Почему не LD_LIBRARY_PATH: _pq_openssl_bin в menu_telemt.sh вызывает
+# бинарник голым, без окружения. Переменная в SUMMARY этого не изменила бы —
+# PQ-часть пункта 5 просто молча не работала бы, то есть мы вернулись бы к
+# тому же дефекту, ради которого добавлен make install_sw.
+#
+# Два пути: OpenSSL кладёт библиотеки в lib64 на x86_64 и в lib на других
+# архитектурах. Лишний rpath на несуществующий каталог безвреден.
+./Configure --prefix="$OPENSSL_PREFIX" --openssldir="${OPENSSL_PREFIX}/ssl" shared \
+    "-Wl,-rpath,${OPENSSL_PREFIX}/lib64" "-Wl,-rpath,${OPENSSL_PREFIX}/lib"
 make -j"$(nproc)"
 
 # install_sw, а не install: последний тянет ещё и man-страницы, а нужен софт.
@@ -275,10 +289,12 @@ make -j"$(nproc)"
 # пересборки, то есть проверить главное следствие работы было нечем.
 make install_sw
 
-# Проверяем фактом, а не кодом возврата make: нужен запускаемый бинарник
-# нужной версии. shared-сборка проставляет себе rpath на lib64, поэтому
-# LD_LIBRARY_PATH не нужен — а он и не может быть нужен: _pq_openssl_bin
-# вызывает openssl голым, без окружения.
+# Проверяем фактом, а не кодом возврата make. Запускаем ГОЛЫМ, без
+# LD_LIBRARY_PATH, — ровно так, как это делает _pq_openssl_bin в
+# menu_telemt.sh. Именно эта проверка и поймала отсутствие rpath: make
+# отработал успешно, файл лежал на месте и был исполняемым, а запуск падал
+# на несовместимых системных библиотеках. По коду возврата make всё
+# выглядело сделанным.
 PQ_OPENSSL="${OPENSSL_PREFIX}/bin/openssl"
 [[ -x "$PQ_OPENSSL" ]] || die "${PQ_OPENSSL} не появился после make install_sw."
 PQ_VER="$("$PQ_OPENSSL" version 2>/dev/null | awk '{print $2}')" || PQ_VER=""
