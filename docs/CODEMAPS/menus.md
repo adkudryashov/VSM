@@ -50,7 +50,8 @@
 
 ДОПОЛНИТЕЛЬНО
 8  run_mtproxyl        сторонний лимитер, режим Reanimator
-9  run_rebuild_nginx   rebuild-nginx-openssl35.sh, 20–40 минут
+9  run_rebuild_nginx   rebuild-nginx-openssl35.sh, 20–40 минут; читает rc и
+                       печатает фактическое состояние nginx/telemt/telemt-panel
 10 uninstall_stack     УДАЛИТЬ; снимает блок панели и ACL на ключ LE
 ```
 
