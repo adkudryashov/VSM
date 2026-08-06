@@ -375,13 +375,26 @@ restore_stack_services() {
     # Проверяем фактом. Для Type=simple `systemctl start` возвращает 0 сразу
     # после форка и о работоспособности службы не говорит ничего, а telemt
     # ждёт nginx — отсюда wait_until, а не голая проверка следом за стартом.
+    # Пауза перед перепроверкой — не критерий, а окно наблюдения. Служба,
+    # которая стартует и тут же падает, в первую секунду неотличима от
+    # здоровой: systemd успевает отдать active, а Restart= ещё не сработал.
+    # Ревью проекта отдельно отмечает этот дефект: служба в цикле перезапуска
+    # показывается как РАБОТАЕТ, потому что смотрят на is-active без NRestarts.
+    sleep 3
     # shellcheck disable=SC2086
     for svc in $STOPPED_SERVICES; do
-        if wait_until 10 systemctl is-active --quiet "$svc"; then
-            log "    ${svc} работает"
-        else
+        local nr
+        if ! wait_until 10 systemctl is-active --quiet "$svc"; then
             warn "    ${svc} НЕ поднялся — смотри journalctl -u ${svc} -n 50"
             RESTORE_FAILED=1
+            continue
+        fi
+        nr="$(systemctl show -p NRestarts --value "$svc" 2>/dev/null)" || nr=0
+        if [[ "${nr:-0}" -gt 0 ]]; then
+            warn "    ${svc} active, но перезапускался ${nr} раз — смотри journalctl -u ${svc} -n 50"
+            RESTORE_FAILED=1
+        else
+            log "    ${svc} работает"
         fi
     done
     STOPPED_SERVICES=""
