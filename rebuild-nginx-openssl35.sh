@@ -138,8 +138,26 @@ OPTIONAL_MODULES=(
     "--with-http_image_filter_module%(^|[[:space:];{])image_filter%libgd-dev"
     "--with-http_perl_module%(^|[[:space:];{])perl[_[:space:]]%libperl-dev"
     "--with-http_geoip_module%(^|[[:space:];{])geoip_%libgeoip-dev"
+    "--with-stream_geoip_module%(^|[[:space:];{])geoip_%libgeoip-dev"
     "--with-mail%(^|[[:space:];{])mail[[:space:]]*\{%"
 )
+
+# Про stream_geoip отдельно. Ubuntu собирает geoip ДВАЖДЫ — как http-модуль и
+# как stream-модуль, и оба динамические. Первая редакция таблицы знала только
+# http-версию: сухой прогон на стенде показал --with-stream_geoip_module в
+# итоговых флагах без libgeoip-dev, то есть ./configure упал бы так же, как на
+# xslt, только на несколько минут позже. Директивы у stream-версии те же
+# (geoip_country / geoip_city / geoip_org), поэтому регулярка общая: обе
+# версии всегда вырезаются и остаются вместе, рассинхрона быть не может.
+#
+# Вырезать stream_geoip безопасно, несмотря на приставку stream: обязательны
+# только --with-stream, --with-stream_ssl_module и --with-stream_ssl_preread_module,
+# и они проверяются ниже отдельно. geoip к разбору SNI отношения не имеет.
+#
+# После этой строки таблица покрывает ВСЕ модули штатного nginx, которым нужны
+# внешние библиотеки сборки: xslt (libxml2/libxslt), image_filter (libgd),
+# perl (libperl), geoip обеих версий (libgeoip). Остальным хватает openssl,
+# pcre2 и zlib, которые ставятся всегда.
 
 # Сравнение через дополненную пробелами строку, а не `... | grep -qx`: grep -q
 # выходит на первом совпадении, tr может получить SIGPIPE, и под pipefail
