@@ -325,7 +325,13 @@ eval ./configure $BUILD_ARGS \
 make -j"$(nproc)"
 log "nginx собран."
 
-./objs/nginx -V 2>&1 | grep -q "OpenSSL ${OPENSSL_VER}" \
+# Снимок в переменную, а не конвейер в grep -q. Под pipefail grep -q выходит
+# на первом совпадении, а `nginx -V` печатает следом длинную строку флагов —
+# producer получил бы SIGPIPE, конвейер вернул бы 141, и die сработал бы на
+# успешной сборке. На стенде не выстрелило (вывод целиком помещается в буфер
+# трубы), но это ровно та ловушка, что уже дважды находилась в этом файле.
+NEW_NGINX_V="$(./objs/nginx -V 2>&1)" || NEW_NGINX_V=""
+grep -q "OpenSSL ${OPENSSL_VER}" <<< "$NEW_NGINX_V" \
     || die "Собранный бинарник не показывает OpenSSL ${OPENSSL_VER} — установка отменена, система не тронута."
 
 # ---------------------------------------------------------------------------
@@ -475,7 +481,12 @@ prune_conflicting_modules() {
         if out="$(nginx -t 2>&1)"; then
             return 0
         fi
-        mod="$(grep -oP 'module "\K[^"]+(?=" is already loaded)' <<< "$out" | head -1)" || mod=""
+        # Без `| head -1`: под pipefail head выходит после первой строки,
+        # grep получает SIGPIPE, конвейер возвращает 141 — и `|| mod=""`
+        # затирает УСПЕШНО найденное имя. Первую строку берём разворачиванием
+        # параметра, конвейера тут нет вовсе.
+        mod="$(grep -oP 'module "\K[^"]+(?=" is already loaded)' <<< "$out")" || mod=""
+        mod="${mod%%$'\n'*}"
         # Жалоба не про повторную загрузку — это уже не наш случай, пусть
         # разбирается проверка nginx -t ниже и, если надо, откат.
         [[ -n "$mod" ]] || return 1
@@ -486,7 +497,8 @@ prune_conflicting_modules() {
         # функция сдавалась, не сняв ничего, — поймано прогоном на стенде.
         # Симлинк, названный в аргументах, grep разыменовывает, и возвращает
         # путь именно в modules-enabled — тот, который и надо удалить.
-        file="$(grep -ls "${mod}\.so" /etc/nginx/modules-enabled/* 2>/dev/null | head -1)" || file=""
+        file="$(grep -ls "${mod}\.so" /etc/nginx/modules-enabled/* 2>/dev/null)" || file=""
+        file="${file%%$'\n'*}"
         [[ -n "$file" ]] || return 1
         rm -f "$file"
         log "  снят $(basename "$file"): ${mod} теперь встроен статически"
