@@ -479,7 +479,14 @@ prune_conflicting_modules() {
         # Жалоба не про повторную загрузку — это уже не наш случай, пусть
         # разбирается проверка nginx -t ниже и, если надо, откат.
         [[ -n "$mod" ]] || return 1
-        file="$(grep -rl "${mod}\.so" /etc/nginx/modules-enabled/ 2>/dev/null | head -1)" || file=""
+        # Перечисляем файлы глобом, а НЕ через grep -r по каталогу: в Ubuntu
+        # /etc/nginx/modules-enabled/ состоит из симлинков на
+        # /usr/share/nginx/modules-available/, а рекурсивный grep по симлинкам
+        # не ходит. С -r имя модуля разбиралось верно, файл не находился, и
+        # функция сдавалась, не сняв ничего, — поймано прогоном на стенде.
+        # Симлинк, названный в аргументах, grep разыменовывает, и возвращает
+        # путь именно в modules-enabled — тот, который и надо удалить.
+        file="$(grep -ls "${mod}\.so" /etc/nginx/modules-enabled/* 2>/dev/null | head -1)" || file=""
         [[ -n "$file" ]] || return 1
         rm -f "$file"
         log "  снят $(basename "$file"): ${mod} теперь встроен статически"
