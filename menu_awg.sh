@@ -63,13 +63,11 @@ function awg_forward_line {
 function awg_install {
     clear
     echo -e "${CYAN}======================================================${NC}"
-    echo -e "${CYAN}        🔐  УСТАНОВКА AMNEZIAWG (2.0 / 3.0)  🔐       ${NC}"
+    echo -e "${CYAN}              🔐  УСТАНОВКА AMNEZIAWG  🔐             ${NC}"
     echo -e "${CYAN}======================================================${NC}"
-    echo -e "Ставит AmneziaWG в контейнере рядом со стеком: свой UDP-порт,"
-    echo -e "nginx и сертификаты не затрагиваются."
+    echo -e "Ставит AmneziaWG в контейнере рядом со стеком: занимает один UDP-порт,"
+    echo -e "nginx, сертификаты и порты панели с telemt не затрагиваются."
     echo ""
-    echo -e "${GREEN}Стек не затрагивается:${NC} nginx, сертификаты и порты панели"
-    echo -e "и telemt остаются как есть. Занимается только один UDP-порт.\n"
     echo -e "${YELLOW}Требуется Docker — будет установлен, если его нет.${NC}\n"
 
     if awg_installed; then

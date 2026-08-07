@@ -392,7 +392,7 @@ fi
     echo ""
     echo -e "${BLUE}  ── СЕРВИСЫ ──────────────────────────────────────────────────────────────${NC}"
     echo -e "   ${YELLOW}1${NC}  🎛️   Панель X-UI          ${BLUE}3x-ui-pro: VLESS, Reality, Trojan, SSL${NC}"
-    echo -e "   ${YELLOW}2${NC}  🔐  AmneziaWG 3.0        ${BLUE}Обфусцированный WireGuard, свой UDP-порт${NC}"
+    echo -e "   ${YELLOW}2${NC}  🔐  AmneziaWG            ${BLUE}Обфусцированный WireGuard, свой UDP-порт${NC}"
     echo -e "   ${YELLOW}3${NC}  ✈️   Стек telemt          ${BLUE}MTProto-прокси, веб-панель, маскировка${NC}"
     echo -e "   ${YELLOW}4${NC}  🤖  Telegram-боты        ${BLUE}Мониторинг telemt и панелей 3x-ui${NC}"
     echo ""

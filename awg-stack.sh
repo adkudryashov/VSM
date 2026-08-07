@@ -173,9 +173,14 @@ wait_until 15 docker info >/dev/null 2>&1 || die "Docker установлен, �
 # ---------------------------------------------------------------------------
 log "Этап 2: порт"
 port_busy() {
+    # Локальный адрес у ss — поле 4, и для UDP тоже. Первая редакция читала
+    # для UDP поле 5, а там peer-адрес вида 0.0.0.0:*, поэтому проверка не
+    # ловила НИ ОДНОГО занятого UDP-порта: автоподбор мог выдать занятый, а
+    # явно указанный занятый порт проходил без слова. Поймано тестом, который
+    # скармливал порт работающего же сервера.
     local p="$1"
-    if ss -lun 2>/dev/null | awk '{print $5}' | grep -qE "[:.]${p}\$"; then return 0; fi
-    if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${p}\$"; then return 0; fi
+    if ss -lun 2>/dev/null | awk 'NR>1{print $4}' | grep -qE "[:.]${p}\$"; then return 0; fi
+    if ss -ltn 2>/dev/null | awk 'NR>1{print $4}' | grep -qE "[:.]${p}\$"; then return 0; fi
     return 1
 }
 if [[ -z "$AWG_PORT" ]]; then
@@ -185,11 +190,25 @@ if [[ -z "$AWG_PORT" ]]; then
     done
 fi
 [[ -n "$AWG_PORT" ]] || die "Не удалось подобрать свободный UDP-порт."
-[[ "$AWG_PORT" =~ ^[0-9]+$ ]] && [[ "$AWG_PORT" -ge 1024 ]] && [[ "$AWG_PORT" -le 65535 ]] \
-    || die "Порт '${AWG_PORT}' невалиден."
-# 443/UDP отдельно запрещаем: с 443/TCP он сегодня не конфликтует, но занимает
-# порт, на котором панели однажды понадобится HTTP/3.
-[[ "$AWG_PORT" != "443" ]] || die "443/UDP занимать нельзя — это порт под HTTP/3 панели."
+
+# Каждый отказ объясняет СЕБЯ. Прежде все три случая сливались в одно
+# «Порт невалиден», и человек, указавший 443, видел ровно тот же текст, что и
+# опечатавшийся, — причину приходилось искать в коде.
+if ! [[ "$AWG_PORT" =~ ^[0-9]+$ ]]; then
+    die "Порт '${AWG_PORT}' — не число."
+fi
+# 443/UDP отдельно: с 443/TCP он сегодня не конфликтует, но занимает порт, на
+# котором панели однажды понадобится HTTP/3. Проверяем ДО диапазона, иначе
+# отказ пришёл бы с невнятной формулировкой про 1024.
+if [[ "$AWG_PORT" == "443" ]]; then
+    die "443/UDP занимать нельзя — это порт под HTTP/3 панели."
+fi
+if [[ "$AWG_PORT" -lt 1024 ]]; then
+    die "Порт ${AWG_PORT} ниже 1024: этот диапазон занят системными службами. Возьми 1024-65535."
+fi
+if [[ "$AWG_PORT" -gt 65535 ]]; then
+    die "Порт ${AWG_PORT} больше 65535."
+fi
 if port_busy "$AWG_PORT"; then die "Порт ${AWG_PORT} уже занят. Выбери другой."; fi
 log "  порт ${AWG_PORT}/udp свободен"
 
@@ -342,11 +361,39 @@ fi
 log "Этап 10: проверка"
 awg_running()  { [[ "$(docker inspect -f '{{.State.Running}}' awg-server 2>/dev/null)" == "true" ]]; }
 awg_listens()  { ss -lunp 2>/dev/null | grep -q ":${AWG_PORT}\b"; }
-wait_until 30 awg_running || die "Контейнер сервера не поднялся. Смотри: docker logs awg-server"
-wait_until 30 awg_listens || die "Порт ${AWG_PORT}/udp никто не слушает. Смотри: docker logs awg-server"
+# Приёмка не прошла — узел при этом остаётся поднятым, а /etc/vsm/awg.conf
+# пишется ниже и потому НЕ появляется. Меню в таком состоянии показало бы
+# «НЕ УСТАНОВЛЕН» при живых контейнерах, и это надо сказать вслух, а не
+# оставлять человека выяснять самому. Контейнеры не убираем: без них нечего
+# будет смотреть в журнале.
+die_unaccepted() {
+    warn "Контейнеры остались подняты для разбора, но VSM их своими не считает:"
+    warn "  конфигурация ${AWG_CONF} не записана."
+    warn "  Убрать: bash awg-stack.sh --mode uninstall"
+    die "$1"
+}
 
-if ! docker logs awg-server 2>&1 | grep -q 'config-applied'; then
-    die "Демон не принял конфигурацию ${AWG_VERSION}. Смотри: docker logs awg-server"
+wait_until 30 awg_running || die_unaccepted "Контейнер сервера не поднялся. Смотри: docker logs awg-server"
+wait_until 30 awg_listens || die_unaccepted "Порт ${AWG_PORT}/udp никто не слушает. Смотри: docker logs awg-server"
+
+# Отказ и «ещё не успел» — разные вещи, и различать их обязательно.
+#
+# Прежняя проверка была одноразовым грепом по журналу сразу после того, как
+# порт начал слушаться. Это гонка по построению: демон биндит сокет и пишет
+# config-applied почти одновременно, и при неудачном порядке установка
+# объявлялась провалившейся на полностью рабочем узле. Владелец поймал это на
+# переустановке 3.0 → 2.0 — установка отработала, а приёмка соврала.
+#
+# Отказ ищем первым и отдельно: он окончателен и ждать его незачем. Успех —
+# через wait_until, потому что он появляется с задержкой.
+awg_applied()  { docker logs awg-server 2>&1 | grep -q 'config-applied'; }
+awg_rejected() { docker logs awg-server 2>&1 | grep -q 'config-rejected'; }
+if awg_rejected; then
+    docker logs awg-server 2>&1 | grep -aE 'invalid UAPI|errno=' | tail -3 | sed 's/^/    /' >&2
+    die_unaccepted "Демон ОТВЕРГ конфигурацию ${AWG_VERSION} (причина выше)."
+fi
+if ! wait_until 20 awg_applied; then
+    die_unaccepted "Демон не подтвердил конфигурацию ${AWG_VERSION} за 20 с. Смотри: docker logs awg-server"
 fi
 RESTARTS="$(docker inspect -f '{{.RestartCount}}' awg-server 2>/dev/null)" || RESTARTS=0
 if [[ "${RESTARTS:-0}" -gt 0 ]]; then
