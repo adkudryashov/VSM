@@ -214,6 +214,21 @@ function run_tests_menu {
         case $choice in
             1)
                 echo -e "${CYAN}>>> Запуск IP region...${NC}"
+                # vernette/ipregion — оригинал проекта, vrnt.xyz его домен.
+                # Форк Davoyan/ipregion рассматривался как замена и отклонён:
+                # он отстаёт от оригинала (меньше звёзд, push на месяц старее,
+                # нет флагов --json/--proxy/--group). Менять оригинал на
+                # отставший форк смысла нет.
+                #
+                # Отпечаток — потому что скрипт тянется с адреса без пиннинга и
+                # выполняется от root, как и остальное стороннее.
+                ipregion_probe=$(mktemp /tmp/vsm-ipregion.XXXXXX.sh)
+                if curl -fsSL --max-time 30 "https://ipregion.vrnt.xyz" -o "$ipregion_probe" \
+                   && [ -s "$ipregion_probe" ]; then
+                    upstream_fingerprint "https://ipregion.vrnt.xyz" "$ipregion_probe" || \
+                        read -p "$(echo -e "${YELLOW}Enter — продолжить изменившимся скриптом...${NC}")"
+                fi
+                rm -f "$ipregion_probe"
                 run_remote_script "https://ipregion.vrnt.xyz"
                 ;;
             2) run_censorcheck ;;
