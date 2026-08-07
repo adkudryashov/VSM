@@ -266,6 +266,27 @@ function uninstall_xui_pro {
     fi
     read -p "$(echo -e "${RED}Введите УДАЛИТЬ для подтверждения: ${NC}")" confirm
     if [ "$confirm" == "УДАЛИТЬ" ]; then
+        # Снимаем apt-mark hold, поставленный пересборкой nginx с OpenSSL 3.5.
+        #
+        # Без этого удаление не проходит: установщик автора делает purge nginx,
+        # а захолженный nginx-full зависит от nginx, и apt отказывается решать
+        # конфликт — `apt-get -s purge nginx nginx-common` возвращает 100 с
+        # «Это может быть вызвано зафиксированными пакетами». Проверено на
+        # стенде после пересборки. То есть один пункт меню молча ломал другой,
+        # и связь эта нигде не была записана.
+        #
+        # Снимать безопасно ровно здесь: nginx сейчас будет удалён целиком,
+        # защищать пересобранный бинарник от перезаписи больше не от чего.
+        local held; held=$(apt-mark showhold 2>/dev/null | grep -E '^nginx' | tr '\n' ' ')
+        if [ -n "$held" ]; then
+            echo -e "${YELLOW}>>> Снимаю фиксацию пакетов после пересборки: ${held}${NC}"
+            # shellcheck disable=SC2086
+            apt-mark unhold $held >/dev/null 2>&1
+            local still; still=$(apt-mark showhold 2>/dev/null | grep -cE '^nginx')
+            if [ "${still:-0}" -ne 0 ]; then
+                echo -e "${RED}⚠️  Фиксация снялась не полностью — удаление nginx может не пройти.${NC}"
+            fi
+        fi
         # Через xui_installer_fetch, а не run_remote_script: это тот же файл
         # установщика, и check_cpu в нём срабатывает независимо от -uninstall.
         # Прежний вызов правку не применял, поэтому на хостере с эмулированным
