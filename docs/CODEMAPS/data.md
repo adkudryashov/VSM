@@ -14,6 +14,8 @@
 | `/etc/vsm/xui.conf` | логин и пароль панели 3x-ui, введённые вручную | 600 | `xui_credentials_save` |
 | `/etc/vsm/bots.conf` | токены, `ADMIN_IDS`, `MAP_DOMAIN`, `MAP_PATH`, `BOTS_MODE` | 600 | `bots-stack.sh` |
 | `/etc/vsm/upstream.sha256` | `<url> <sha256> <дата>` для сторонних установщиков | 600 | `upstream_fingerprint` |
+| `/etc/vsm/awg.conf` | порт, профиль мимикрии и пиннинг AmneziaWG | 600 | `awg-stack.sh` |
+| `/etc/vsm/awg/server.conf` | ключ сервера и параметры обфускации 3.0 | 600 | `awg-stack.sh` |
 | `/root/VSM/bots/.env` | окружение ботов | 600 | `bots-stack.sh` |
 
 Пароль панели 3x-ui **прочитать с сервера нельзя**: установщик генерирует его

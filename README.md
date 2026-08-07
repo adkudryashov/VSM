@@ -25,11 +25,12 @@ bash <(curl -sL https://raw.githubusercontent.com/adkudryashov/VSM/main/uninstal
 | **1** | **Управление X-UI** | Установка [3x-ui-pro](https://github.com/mozaroc/3x-ui-pro) — VLESS/Reality/Trojan через nginx с автоSSL и Clash-подпиской. Патч без потери БД, AdGuard Home, бэкап и восстановление, записная книжка учётных данных панели |
 | **2** | **Стек telemt / MTProto** | MTProto-прокси для Telegram, веб-панель telemt_panel, лимитер входящих соединений, современный TLS |
 | **3** | **Telegram-боты** | Боты мониторинга Telemt и панелей 3x-ui — вместе или по отдельности |
-| **4** | **Тестирование сервера** | Проверка доступности из РФ, замеры скорости, YABS, IPQuality, сетевые сканеры |
-| **5** | **Настройка и оптимизация** | BBR, запрет ICMP, UFW, часовой пояс, SSL-сертификаты, Cloudflare WARP |
-| **6** | **Меню IPv6** | Включение и отключение на уровне ядра, проверка адресов |
-| **7** | **Системные утилиты** | htop, ncdu, nethogs, ping/mtr, активные порты, очистка системы, проверка привязки домена |
-| **8** | **Обновить скрипты** | `git pull`, пересоздание ссылок и перезапуск ботов — без перезагрузки сервера |
+| **4** | **AmneziaWG 3.0** | Обфусцированный WireGuard в контейнере: пакеты I1–I5, диапазоны заголовков, профили мимикрии под QUIC/HTTP3/TLS. Свой UDP-порт, стек не затрагивается |
+| **5** | **Тестирование сервера** | Проверка доступности из РФ, замеры скорости, YABS, IPQuality, сетевые сканеры |
+| **6** | **Настройка и оптимизация** | BBR, запрет ICMP, UFW, часовой пояс, SSL-сертификаты, Cloudflare WARP |
+| **7** | **Меню IPv6** | Включение и отключение на уровне ядра, проверка адресов |
+| **8** | **Системные утилиты** | htop, ncdu, nethogs, ping/mtr, активные порты, очистка системы, проверка привязки домена |
+| **9** | **Обновить скрипты** | `git pull`, пересоздание ссылок и перезапуск ботов — без перезагрузки сервера |
 
 Главный экран показывает характеристики сервера, геолокацию, статусы X-UI, telemt
 и ботов, а также адреса панелей. Логинов и паролей на нём нет намеренно: меню
@@ -145,14 +146,15 @@ bash <(curl -sL https://raw.githubusercontent.com/adkudryashov/VSM/main/uninstal
 
 Архитектура, устройство клавиатуры и структура кода — в [bots/README.md](bots/README.md).
 
-### Остальные разделы — пункты 4–7
+### Остальные разделы — пункты 4–8
 
 | Раздел | Пункты |
 |---|---|
-| **4 — Тестирование сервера** | IP region · доступность из РФ (DNS, датацентры, радар ТСПУ) · iPerf3 · YABS · IPQuality · параметры сервера · sysbench · RealiTLScanner · DPI Detector · SNI Scan |
-| **5 — Настройка и оптимизация** | BBR · запрет ICMP · UFW · часовой пояс · SSL-сертификаты · Cloudflare WARP |
-| **6 — Меню IPv6** | Включить, отключить, статус; выбор сохраняется в `/etc/sysctl.conf` |
-| **7 — Системные утилиты** | htop · ncdu · nethogs · внешний IP · ping и mtr · активные порты · kill · очистка системы · проверка привязки домена |
+| **4 — AmneziaWG 3.0** | установка · клиенты · проверка обновлений · журнал · удаление |
+| **5 — Тестирование сервера** | IP region · доступность из РФ (DNS, датацентры, радар ТСПУ) · iPerf3 · YABS · IPQuality · параметры сервера · sysbench · RealiTLScanner · DPI Detector · SNI Scan |
+| **6 — Настройка и оптимизация** | BBR · запрет ICMP · UFW · часовой пояс · SSL-сертификаты · Cloudflare WARP |
+| **7 — Меню IPv6** | Включить, отключить, статус; выбор сохраняется в `/etc/sysctl.conf` |
+| **8 — Системные утилиты** | htop · ncdu · nethogs · внешний IP · ping и mtr · активные порты · kill · очистка системы · проверка привязки домена |
 
 Бенчмарки (YABS, iPerf3, bench.sh, sysbench) на слабой машине идут долго — от десятков минут.
 
@@ -185,6 +187,7 @@ bash <(curl -sL https://raw.githubusercontent.com/adkudryashov/VSM/main/uninstal
 * **[MTProxyL](https://github.com/Liafanx/MTProxyL)** от *Liafanx* — SYN-лимитер на nftables, обход Zapret2, тюнинг sysctl и фиксы для iOS под Telemt.
 * **[MTproxy-reanimation](https://github.com/Liafanx/MTproxy-reanimation)** от *Liafanx* — предыдущее поколение того же инструмента, заброшено автором на 1.2.9. Меню предупредит, если его следы остались на сервере.
 * **[MTPROTO_FIX_By_MEKO](https://github.com/Mekotofeuka/MTPROTO_FIX_By_MEKO)** от *Mekotofeuka* — iptables SYN-фикс, самое первое поколение.
+* **[awg-containers-and-tools](https://github.com/Vadim-Khristenko/awg-containers-and-tools)** от *Vadim-Khristenko* — контейнеры AmneziaWG 1.0–3.0 и CLI `awg-tool`. Единственный найденный способ поднять именно 3.0: штатный `awg setconf` ключей 3.0 не знает, а этот инструмент подаёт конфигурацию демону напрямую через UAPI.
 
 ### 🕵️‍♂️ Анализ блокировок и сети
 * **[Censorcheck](https://github.com/Nokola-Tesla/censorcheck)** от *Nikola Tesla* ([@tracerlab](https://t.me/tracerlab)) — проверка доступности из РФ: DNS, датацентры и радар ТСПУ в домашних сетях. Запускается напрямую с `censorcheck.tlab.pw`.
