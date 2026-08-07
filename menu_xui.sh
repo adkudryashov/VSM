@@ -31,45 +31,53 @@ function install_xui_pro {
     echo -e "${YELLOW}Нужны два домена/поддомена: один для панели, другой для REALITY.${NC}"
     echo ""
 
-    read -p "Автоопределение доменов (без ручного ввода)? [y/N]: " auto_domain
+    # Автоопределение доменов больше не предлагается. Апстрим удалил его
+    # коммитом 18a2e01 «delete autodomain»: разбор -auto_domain снят, а вместе
+    # с ним и подстановка вида <ip>.cdn-one.org — wildcard-DNS автора, которого
+    # больше нет. Восстановить нечем.
+    #
+    # Молчать об этом было нельзя. Разбор аргументов у автора заканчивается
+    # веткой `*) shift 1`, то есть неизвестный флаг проглатывается без слова:
+    # мы передали бы -auto_domain y, домены остались бы пустыми, и установщик
+    # ушёл бы в свой `while [[ -z $domain ]]; do read -r domain; done`. С
+    # терминалом человек, выбравший «без ручного ввода», получил бы английский
+    # запрос ручного ввода; без TTY read возвращается мгновенно и пустым, и
+    # цикл занимает ядро навсегда.
     local xui_args=()
+    read -p "Домен панели (например panel.example.com): " subdomain
+    read -p "Домен для REALITY (другой домен/поддомен): " reality_domain
 
-    if [[ "$auto_domain" =~ ^[Yy]$ ]]; then
-        xui_args+=(-auto_domain y)
-    else
-        read -p "Домен панели (например panel.example.com): " subdomain
-        read -p "Домен для REALITY (другой домен/поддомен): " reality_domain
-        [ -n "$subdomain" ] && xui_args+=(-subdomain "$subdomain")
-        [ -n "$reality_domain" ] && xui_args+=(-reality_domain "$reality_domain")
+    # Отказываем сразу, а не «просто не добавляем флаг». Прежний код на пустой
+    # ответ молча опускал аргумент и приводил в тот же бесконечный цикл у
+    # автора. Правило то же, что в ask_domains меню telemt.
+    if [ -z "$subdomain" ] || [ -z "$reality_domain" ]; then
+        echo -e "${RED}❌ Оба домена обязательны — установщику их взять неоткуда.${NC}"
+        read -p "Нажмите Enter для продолжения..."
+        return
     fi
+    if [ "$subdomain" == "$reality_domain" ]; then
+        echo -e "${RED}❌ Домены должны быть разными, иначе nginx не примет конфиг.${NC}"
+        read -p "Нажмите Enter для продолжения..."
+        return
+    fi
+    xui_args+=(-subdomain "$subdomain" -reality_domain "$reality_domain")
 
     read -p "Версия 3x-ui (Enter = последняя): " version
     [ -n "$version" ] && xui_args+=(-version "$version")
 
-    # Установщик 3x-ui-pro содержит check_cpu(): он ищет «QEMU» в
-    # /proc/cpuinfo и обрывается с exit 1, если процессор эмулируется. Проверка
-    # снимается на лету — вызов check_cpu заменяется на no-op. Сам скрипт у
-    # автора не трогаем, патч живёт только в памяти этого запуска.
-    #
-    # Зачем: у ряда хостеров CPU отдаётся как QEMU Virtual CPU, и панель было
-    # не поставить вовсе. Апстрим считает это требованием ради скорости Xray —
-    # на эмулированном процессоре он будет медленнее, и это осознанный размен.
     echo -e "${CYAN}>>> Запуск установки 3x-ui-pro...${NC}"
 
-    # Скачиваем во временный файл, а не через `bash <(curl ...)`: при неудачной
-    # загрузке подстановка процесса отдаёт пустой ввод, bash выполняет пустой
-    # скрипт и выходит с нулём — сбой выглядел бы как успешная установка.
-    # Отдельный файл нужен ещё и потому, что здесь применяется правка.
+    # Загрузка, сверка отпечатка и снятие проверки CPU — в общей
+    # xui_installer_fetch. Раньше этот блок жил здесь, и проверка CPU снималась
+    # только тут: удаление панели и установка стека запускали тот же файл без
+    # правки и падали на хостерах с эмулированным процессором.
     local installer; installer=$(mktemp /tmp/vsm-xui.XXXXXX.sh)
-    if ! curl -fsSL --max-time 60 "$XUI_PRO_REPO/x-ui-latest.sh" -o "$installer" \
-       || [ ! -s "$installer" ]; then
-        rm -f "$installer"
-        echo -e "${RED}❌ Не удалось загрузить установщик 3x-ui-pro.${NC}"
+    if ! xui_installer_fetch "$XUI_PRO_REPO/x-ui-latest.sh" "$installer"; then
         read -p "Нажмите Enter для продолжения..."
         return
     fi
-    if grep -q '^check_cpu$' "$installer"; then
-        sed -i 's/^check_cpu$/: # проверка CPU снята VSM/' "$installer"
+    if [ "${UPSTREAM_CHANGED:-0}" -ne 0 ]; then
+        read -p "$(echo -e "${YELLOW}Enter — продолжить установку изменившимся скриптом...${NC}")"
     fi
     bash "$installer" "${xui_args[@]}"
     rm -f "$installer"
@@ -79,6 +87,16 @@ function install_xui_pro {
 
 function patch_xui_pro {
     echo -e "${CYAN}>>> Применение патча к текущей установке (без изменения БД)...${NC}"
+    # Отдельной сверкой, без снятия проверки CPU: в x-ui-patch.sh check_cpu нет
+    # вовсе — проверено по тексту. Скачиваем ради отпечатка, а запускает
+    # run_remote_script своей копией: два скачивания дешевле, чем ветвление в
+    # общей функции ради одного вызова.
+    local probe; probe=$(mktemp /tmp/vsm-xui-patch.XXXXXX.sh)
+    if curl -fsSL --max-time 60 "$XUI_PRO_REPO/x-ui-patch.sh" -o "$probe" && [ -s "$probe" ]; then
+        upstream_fingerprint "$XUI_PRO_REPO/x-ui-patch.sh" "$probe" || \
+            read -p "$(echo -e "${YELLOW}Enter — продолжить изменившимся скриптом...${NC}")"
+    fi
+    rm -f "$probe"
     run_remote_script "$XUI_PRO_REPO/x-ui-patch.sh"
     warn_telemt_after_panel_change
     read -p "Нажмите Enter для продолжения..."
@@ -248,7 +266,22 @@ function uninstall_xui_pro {
     fi
     read -p "$(echo -e "${RED}Введите УДАЛИТЬ для подтверждения: ${NC}")" confirm
     if [ "$confirm" == "УДАЛИТЬ" ]; then
-        run_remote_script "$XUI_PRO_REPO/x-ui-latest.sh" -uninstall y
+        # Через xui_installer_fetch, а не run_remote_script: это тот же файл
+        # установщика, и check_cpu в нём срабатывает независимо от -uninstall.
+        # Прежний вызов правку не применял, поэтому на хостере с эмулированным
+        # процессором удаление не выполнялось вовсе: скрипт выходил с exit 1 до
+        # ветки удаления, на экране появлялась чужая английская ошибка, а код
+        # возврата никто не смотрел. Именно на таких хостерах патч и нужен.
+        local remover; remover=$(mktemp /tmp/vsm-xui-rm.XXXXXX.sh)
+        if xui_installer_fetch "$XUI_PRO_REPO/x-ui-latest.sh" "$remover"; then
+            bash "$remover" -uninstall y
+            local rc=$?
+            rm -f "$remover"
+            if [ "$rc" -ne 0 ]; then
+                echo -e "${RED}❌ Установщик вернул код ${rc} — панель могла остаться на месте.${NC}"
+                echo -e "${YELLOW}   Проверьте: systemctl status x-ui${NC}"
+            fi
+        fi
     else
         echo -e "${BLUE}Отменено.${NC}"
     fi

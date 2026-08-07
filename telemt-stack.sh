@@ -218,13 +218,59 @@ apt-get update -qq
 if [[ "$MODE" == "full" ]]; then
     log "Этап 1: установка 3x-ui-pro"
     cd /root
-    wget -qO x-ui-latest.sh https://raw.githubusercontent.com/mozaroc/3x-ui-pro/main/x-ui-latest.sh
+    XUI_URL="https://raw.githubusercontent.com/mozaroc/3x-ui-pro/main/x-ui-latest.sh"
+    wget -qO x-ui-latest.sh "$XUI_URL"
+    [[ -s x-ui-latest.sh ]] || die "Установщик 3x-ui-pro скачался пустым."
     chmod +x x-ui-latest.sh
+
+    # Отпечаток стороннего установщика. Двойник upstream_fingerprint из
+    # _config_and_utils.sh: этот скрипт самодостаточен и утилиты меню не
+    # подключает — как и с wait_for_apt, поведение копий обязано совпадать.
+    #
+    # Нужно потому, что файл берётся с ветки main без пиннинга и выполняется от
+    # root. Автор уже удалял разбор аргумента, который мы передавали, а его
+    # ветка `*) shift 1` проглатывает неизвестный флаг молча — узнали не от кода.
+    XUI_FP_FILE=/etc/vsm/upstream.sha256
+    XUI_SHA="$(sha256sum x-ui-latest.sh | awk '{print $1}')" || XUI_SHA=""
+    if [[ -n "$XUI_SHA" ]]; then
+        mkdir -p /etc/vsm
+        XUI_OLD=""
+        if [[ -f "$XUI_FP_FILE" ]]; then
+            while read -r u h _; do
+                if [[ "$u" == "$XUI_URL" ]]; then XUI_OLD="$h"; fi
+            done < "$XUI_FP_FILE"
+        fi
+        if [[ -z "$XUI_OLD" ]]; then
+            ( umask 077; printf '%s %s %s\n' "$XUI_URL" "$XUI_SHA" "$(date '+%F')" >> "$XUI_FP_FILE" )
+        elif [[ "$XUI_OLD" != "$XUI_SHA" ]]; then
+            warn "Установщик 3x-ui-pro изменился с прошлого запуска:"
+            warn "  было  ${XUI_OLD}"
+            warn "  стало ${XUI_SHA}"
+            warn "  Он выполняется от root, и аргументы могли смениться."
+            XUI_TMP="$(mktemp "${XUI_FP_FILE}.XXXXXX")"
+            awk -v u="$XUI_URL" '$1 != u' "$XUI_FP_FILE" > "$XUI_TMP" 2>/dev/null || true
+            printf '%s %s %s\n' "$XUI_URL" "$XUI_SHA" "$(date '+%F')" >> "$XUI_TMP"
+            chmod 600 "$XUI_TMP"; mv "$XUI_TMP" "$XUI_FP_FILE"
+        fi
+    fi
+
+    # Снятие проверки CPU. Раньше её снимал только пункт меню «Установить
+    # панель», а этот путь запускал тот же файл сырым — и установка всего стека
+    # на хостере с эмулированным QEMU-процессором обрывалась здесь, на этапе 1,
+    # чужой английской ошибкой. Проверяем фактом: молчаливый пропуск правки
+    # означал бы падение через несколько минут работы.
+    sed -i 's/^[[:space:]]*check_cpu[[:space:]]*$/: # проверка CPU снята VSM/' x-ui-latest.sh
+    XUI_LEFT="$(grep -cE '^[[:space:]]*check_cpu([[:space:]]|$)' x-ui-latest.sh)" || XUI_LEFT=0
+    if [[ "${XUI_LEFT:-0}" -ne 0 ]]; then
+        warn "Проверка CPU снята не полностью (осталось ${XUI_LEFT}) — на QEMU-хостере установка оборвётся."
+    fi
+
+    # -auto_domain больше не передаём: автор снял его разбор в 18a2e01, а домены
+    # мы и так задаём явно двумя строками ниже.
     bash x-ui-latest.sh \
         -install y \
         -subdomain "$DOMAIN_PANEL" \
-        -reality_domain "$DOMAIN_REALITY" \
-        -auto_domain n
+        -reality_domain "$DOMAIN_REALITY"
 else
     log "Этап 1: пропущен (режим addon, панель уже установлена)"
 fi
