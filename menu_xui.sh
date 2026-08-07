@@ -313,9 +313,9 @@ function manage_xui_service {
     local SERVICE_NAME=$XUI_SERVICE
     while true; do
         clear
-        echo -e "${CYAN}======================================================${NC}"
-        echo -e "${CYAN}         🎛️  УПРАВЛЕНИЕ X-UI PRO (3x-ui-pro) 🎛️        ${NC}"
-        echo -e "${CYAN}======================================================${NC}"
+        echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${CYAN}║${NC}                    ${GREEN}🎛️   ПАНЕЛЬ X-UI (3x-ui-pro)${NC}                           ${CYAN}║${NC}"
+        echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
 
         STATUS_XUI=$(get_service_status $SERVICE_NAME)
         STATUS_DISPLAY=$(if [ "$STATUS_XUI" == "active" ]; then echo -e "${GREEN}РАБОТАЕТ${NC}"; else echo -e "${RED}ОСТАНОВЛЕН${NC}"; fi)
@@ -337,23 +337,30 @@ function manage_xui_service {
         elif [ "$STATUS_XUI" == "active" ]; then
             # Подсказка только при работающей панели: на чистом сервере учёток
             # ещё неоткуда взяться, и строка была бы шумом.
-            echo -e "${BLUE}Логин и пароль: ${NC}не записаны — пункт 7"
+            echo -e "${BLUE}Логин и пароль: ${NC}не записаны — пункт 3"
         fi
         echo -e "${BLUE}------------------------------------------------------${NC}"
 
-        echo -e "${GREEN}1) 📥  Установить X-UI Pro (nginx | SSL | Clash | диагностика)${NC}"
-        echo -e "${YELLOW}2) 🩹  Применить патч (обновить без изменения БД)${NC}"
-        echo -e "${CYAN}3) 🛡️   AdGuard Home (опционально)${NC}"
-        echo -e "${CYAN}4) 💾  Бэкап и восстановление (создать | список | вернуть)${NC}"
-        echo -e "${YELLOW}5) 🚥  Управление сервисом (статус | старт | стоп | рестарт)${NC}"
-        echo -e "${CYAN}6) 🖥️   Запустить панель X-UI (команда x-ui)${NC}"
-        echo -e "${CYAN}7) 🔑  Учётные данные панели (показать | записать)${NC}"
+        echo ""
+        echo -e "${BLUE}  ── УСТАНОВКА И ОБНОВЛЕНИЕ ───────────────────────────────────────────────${NC}"
+        echo -e "   ${YELLOW}1${NC}  📥  Установить          ${BLUE}nginx, SSL, Clash-подписка, диагностика${NC}"
+        echo -e "   ${YELLOW}2${NC}  🩹  Применить патч      ${BLUE}Обновление без изменения базы инбаундов${NC}"
+        echo ""
+        echo -e "${BLUE}  ── ЭКСПЛУАТАЦИЯ ─────────────────────────────────────────────────────────${NC}"
+        echo -e "   ${YELLOW}3${NC}  🔑  Учётные данные      ${BLUE}Показать или записать логин и пароль${NC}"
+        echo -e "   ${YELLOW}4${NC}  💾  Бэкап               ${BLUE}Создать, посмотреть список, восстановить${NC}"
+        echo -e "   ${YELLOW}5${NC}  🚥  Управление службой  ${BLUE}Статус, старт, стоп, рестарт${NC}"
+        echo -e "   ${YELLOW}6${NC}  🖥️   Открыть панель      ${BLUE}Штатное меню апстрима (команда x-ui)${NC}"
+        echo ""
+        echo -e "${BLUE}  ── ДОПОЛНИТЕЛЬНО ────────────────────────────────────────────────────────${NC}"
+        echo -e "   ${YELLOW}7${NC}  🛡️   AdGuard Home        ${BLUE}DNS-over-HTTPS и блокировка рекламы${NC}"
+        echo ""
         # Удаление уехало с 7 на 8 из-за нового пункта. Сдвиг безопасен именно
         # в эту сторону: кто по привычке нажмёт 7, попадёт на экран учёток, а
         # не на снос панели. Обратный порядок был бы недопустим.
-        echo -e "${RED}8) 🗑️   Удалить X-UI Pro полностью${NC}"
-        echo -e "${RED}X) 🔙  Назад в главное меню${NC}"
-        echo -e "${BLUE}------------------------------------------------------${NC}"
+        echo -e "   ${RED}8${NC}  🗑️   Удалить X-UI Pro    ${BLUE}Панель, база и nginx целиком${NC}"
+        echo -e "   ${RED}X${NC}  🔙  Назад"
+        echo ""
 
         read -p "Ваш выбор [1-8, X]: " choice
         echo ""
@@ -361,7 +368,7 @@ function manage_xui_service {
         case $choice in
             1) install_xui_pro ;;
             2) patch_xui_pro ;;
-            3) manage_adguard ;;
+            3) manage_xui_credentials ;;
             4) manage_backup ;;
             5)
                 manage_service_status_restart $SERVICE_NAME
@@ -379,7 +386,7 @@ function manage_xui_service {
                 fi
                 read -p "Нажмите Enter для возврата в меню..."
                 ;;
-            7) manage_xui_credentials ;;
+            7) manage_adguard ;;
             8) uninstall_xui_pro ;;
             [Xx]) return ;;
             *) echo -e "${RED}❌ Неверный ввод.${NC}" ;;

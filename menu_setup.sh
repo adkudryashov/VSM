@@ -514,37 +514,50 @@ function manage_ssl_menu {
 function run_setup_menu {
     while true; do
         clear
-        echo -e "${CYAN}======================================================${NC}"
-        echo -e "${CYAN}       ⚙️  МЕНЮ НАСТРОЙКИ И ОПТИМИЗАЦИИ СЕРВЕРА ⚙️      ${NC}"
-        echo -e "${CYAN}======================================================${NC}"
+        echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${CYAN}║${NC}                    ${GREEN}⚙️   НАСТРОЙКА И ОПТИМИЗАЦИЯ${NC}                           ${CYAN}║${NC}"
+        echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
         
         BBR_STATUS=$(get_bbr_status)
         PING_STATUS=$(get_ping_status)
         
-        echo -e "${BLUE}--- ТЕКУЩИЕ СТАТУСЫ ----------------------------------${NC}"
-        echo -e "📈  BBR:       [$(if [ "$BBR_STATUS" == "active" ]; then echo -e "${GREEN}АКТИВЕН${NC}"; else echo -e "${RED}ОТКЛЮЧЕН${NC}"; fi)]"
-        echo -e "🏓  PING:      [$(if [ "$PING_STATUS" == "enabled" ]; then echo -e "${GREEN}РАЗРЕШЕН${NC}"; else echo -e "${RED}ЗАПРЕЩЕН${NC}"; fi)]"
-        echo -e "🛡️   UFW:       [$(if [ "$(get_ufw_status)" == "active" ]; then echo -e "${GREEN}АКТИВЕН${NC}"; else echo -e "${RED}ОТКЛЮЧЕН${NC}"; fi)]"
-        echo -e "🕒  Timezone:  [${YELLOW}$(get_timezone_status)${NC}]"
-        echo -e "${BLUE}------------------------------------------------------${NC}"
+        # IPv6 читаем тем же способом, что и ipv6-menu: отключение делается
+        # через sysctl disable_ipv6, поэтому смотрим именно на него.
+        if [ "$(sysctl -n net.ipv6.conf.all.disable_ipv6 2>/dev/null)" = "1" ]; then
+            IPV6_LINE="${RED}ОТКЛЮЧЁН${NC}"
+        else
+            IPV6_LINE="${GREEN}ВКЛЮЧЁН${NC}"
+        fi
+        echo ""
+        echo -e "${BLUE}  ── СТАТУС ─────────────────────────────────────────────────────────────────${NC}"
+        echo -e "   📈  BBR   [$(if [ "$BBR_STATUS" == "active" ]; then echo -e "${GREEN}АКТИВЕН${NC}"; else echo -e "${RED}ОТКЛЮЧЕН${NC}"; fi)]      🏓  ICMP  [$(if [ "$PING_STATUS" == "enabled" ]; then echo -e "${GREEN}РАЗРЕШЁН${NC}"; else echo -e "${RED}ЗАПРЕЩЁН${NC}"; fi)]"
+        echo -e "   🛡️   UFW   [$(if [ "$(get_ufw_status)" == "active" ]; then echo -e "${GREEN}АКТИВЕН${NC}"; else echo -e "${RED}ОТКЛЮЧЕН${NC}"; fi)]      🌐  IPv6  [${IPV6_LINE}]"
+        echo -e "   🕒  Часовой пояс   ${YELLOW}$(get_timezone_status)${NC}"
 
-       echo -e "${CYAN}1) 📈  Управление BBR (оптимизация сети)${NC}"
-        echo -e "${CYAN}2) 🏓  Управление PING (запрет ICMP)${NC}"
-        echo -e "${CYAN}3) 🛡️   Управление фаерволом (UFW)${NC}"
-        echo -e "${CYAN}4) 🕒  Настройка часового пояса${NC}"
-        echo -e "${CYAN}5) 🔐  Управление SSL-сертификатами${NC}"
-        echo -e "${YELLOW}6) ☁️   Управление Cloudflare WARP${NC}"
-        echo -e "${RED}X) 🔙  Назад в главное меню${NC}"
-        echo -e "${BLUE}------------------------------------------------------${NC}"
-        
-        read -p "Ваш выбор [1-6, X]: " choice
+        echo ""
+        echo -e "${BLUE}  ── СЕТЬ ─────────────────────────────────────────────────────────────────${NC}"
+        echo -e "   ${YELLOW}1${NC}  📈  BBR                  ${BLUE}Алгоритм управления перегрузкой TCP${NC}"
+        echo -e "   ${YELLOW}2${NC}  🏓  ICMP                 ${BLUE}Ответы на ping: разрешить или запретить${NC}"
+        echo -e "   ${YELLOW}3${NC}  🛡️   Фаервол UFW          ${BLUE}Порты, правила, включение с защитой SSH${NC}"
+        echo -e "   ${YELLOW}4${NC}  🌐  IPv6                 ${BLUE}Включение и отключение на уровне ядра${NC}"
+        echo ""
+        echo -e "${BLUE}  ── СЕРТИФИКАТЫ И ПРОЧЕЕ ─────────────────────────────────────────────────${NC}"
+        echo -e "   ${YELLOW}5${NC}  🔐  SSL-сертификаты      ${BLUE}Выпуск, продление, удаление Let's Encrypt${NC}"
+        echo -e "   ${YELLOW}6${NC}  🕒  Часовой пояс         ${BLUE}Смена часового пояса сервера${NC}"
+        echo -e "   ${YELLOW}7${NC}  ☁️   Cloudflare WARP      ${BLUE}Исходящий трафик через WARP${NC}"
+        echo ""
+        echo -e "   ${RED}X${NC}  🔙  Назад"
+        echo ""
+
+        read -p "Ваш выбор [1-7, X]: " choice
         case $choice in
             1) show_bbr_menu ;;
             2) show_ping_menu ;;
             3) show_ufw_menu ;;
-            4) set_timezone_menu ;;
+            4) bash /usr/local/bin/ipv6-menu ;;
             5) manage_ssl_menu ;;
-            6)
+            6) set_timezone_menu ;;
+            7)
             bash /usr/local/bin/menu_warp.sh
             ;;
             [Xx]) return ;;

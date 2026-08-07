@@ -61,11 +61,138 @@ function check_for_updates {
 }
 
 # --- ГЛАВНОЕ МЕНЮ ---
+# ----------------------------------------------------------------------
+# Пункт 0 — доступы и домены.
+#
+# Всё это раньше жило на главном экране блоком АДРЕСА и уехало сюда целиком.
+# Причина не в тесноте: полный адрес панели содержит случайный webBasePath,
+# который и есть механизм защиты от сканирования, а главное меню открывается
+# при каждом входе по SSH, и его скриншот лежит в публичном README. Инвариант
+# 6 требует ровно этого — показывать полностью, но в подменю.
+#
+# Пароли скрыты до нажатия P и печатаются один раз. Ревью отмечало отдельным
+# пунктом, что пароль, перерисовываемый в цикле меню, множится в истории
+# терминала; разовый показ по запросу это снимает.
+# ----------------------------------------------------------------------
+
+# Значение из файла конфигурации. Кавычки снимаются разворачиванием параметра,
+# а не через tr: в конфиг они попадают из printf %q при записи, а вложенные
+# кавычки внутри команды — источник ошибок, которые видны только в рантайме.
+# Результат идёт в echo -e, поэтому проходит через _addr_clean.
+function _cfg_val {
+    local file="$1" key="$2" v
+    [ -f "$file" ] || return 0
+    v=$(grep -m1 -oP "^${key}=\K.*" "$file" 2>/dev/null) || v=""
+    v=${v%\"}; v=${v#\"}
+    v=${v%\'}; v=${v#\'}
+    _addr_clean "$v"
+}
+
+function show_access_info {
+    local reveal=0
+    while true; do
+        clear
+        echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${CYAN}║${NC}                      ${GREEN}🔑  ДОСТУПЫ И ДОМЕНЫ${NC}                                ${CYAN}║${NC}"
+        echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
+
+        local url_xui url_tp
+        url_xui=$(xui_panel_url)
+        url_tp=$(telemt_panel_url)
+
+        echo ""
+        echo -e "${BLUE}  ── ПАНЕЛЬ 3X-UI ─────────────────────────────────────────────────────────${NC}"
+        if [ -n "$url_xui" ]; then
+            echo -e "   Адрес     ${CYAN}${url_xui}${NC}"
+        else
+            echo -e "   Адрес     ${YELLOW}панель не установлена${NC}"
+        fi
+        # Пароль панели прочитать с сервера нельзя: установщик печатает его
+        # один раз и не сохраняет, панель держит bcrypt-хэш. /etc/vsm/xui.conf
+        # — записная книжка, заполняется вручную пунктом «Учётные данные».
+        local xu xp
+        xu=$(xui_admin_user); xp=$(xui_admin_pass)
+        if [ -n "$xu" ] || [ -n "$xp" ]; then
+            echo -e "   Логин     ${YELLOW}${xu:-—}${NC}"
+            if [ "$reveal" -eq 1 ]; then
+                printf "   Пароль    \033[0;33m%s\033[0m\n" "$xp"
+            else
+                echo -e "   Пароль    ${BLUE}скрыт, показать — P${NC}"
+            fi
+        else
+            echo -e "   Учётные данные ${BLUE}не записаны — пункт «Панель X-UI»${NC}"
+        fi
+
+        echo ""
+        echo -e "${BLUE}  ── ПАНЕЛЬ TELEMT_PANEL ──────────────────────────────────────────────────${NC}"
+        if [ -n "$url_tp" ]; then
+            echo -e "   Адрес     ${CYAN}${url_tp}${NC}"
+        else
+            echo -e "   Адрес     ${YELLOW}стек telemt не установлен${NC}"
+        fi
+        local tu tpass
+        tu=$(_cfg_val /etc/vsm/telemt.conf PANEL_ADMIN_USER)
+        tpass=$(_cfg_val /etc/vsm/telemt.conf PANEL_ADMIN_PASS)
+        if [ -n "$tu" ]; then
+            echo -e "   Логин     ${YELLOW}${tu}${NC}"
+            if [ "$reveal" -eq 1 ]; then
+                printf "   Пароль    \033[0;33m%s\033[0m\n" "$tpass"
+            else
+                echo -e "   Пароль    ${BLUE}скрыт, показать — P${NC}"
+            fi
+        fi
+
+        if [ -f /etc/vsm/awg.conf ]; then
+            local awg_port awg_profile
+            awg_port=$(_cfg_val /etc/vsm/awg.conf AWG_PORT)
+            awg_profile=$(_cfg_val /etc/vsm/awg.conf AWG_PROFILE)
+            echo ""
+            echo -e "${BLUE}  ── AMNEZIAWG ────────────────────────────────────────────────────────────${NC}"
+            echo -e "   Порт      ${YELLOW}${awg_port}/udp${NC}          Профиль мимикрии   ${YELLOW}${awg_profile}${NC}"
+        fi
+
+        local d_panel d_reality
+        d_panel=$(_cfg_val /etc/vsm/telemt.conf DOMAIN_PANEL)
+        d_reality=$(_cfg_val /etc/vsm/telemt.conf DOMAIN_REALITY)
+        if [ -n "$d_panel" ] || [ -n "$d_reality" ]; then
+            echo ""
+            echo -e "${BLUE}  ── ДОМЕНЫ ───────────────────────────────────────────────────────────────${NC}"
+            if [ -n "$d_panel" ]; then
+                echo -e "   ${YELLOW}${d_panel}${NC}   ${BLUE}панель 3x-ui, она же цель self-SNI маскировки${NC}"
+            fi
+            if [ -n "$d_reality" ]; then
+                echo -e "   ${YELLOW}${d_reality}${NC}  ${BLUE}SNI-роутинг REALITY${NC}"
+            fi
+        fi
+
+        echo ""
+        echo -e "${BLUE}  ─────────────────────────────────────────────────────────────────────────${NC}"
+        if [ "$reveal" -eq 1 ]; then
+            echo -e "   ${YELLOW}P${NC}  Скрыть пароли"
+        else
+            echo -e "   ${YELLOW}P${NC}  Показать пароли"
+        fi
+        echo -e "   ${RED}X${NC}  Назад"
+        echo ""
+
+        # "|| break" обязателен: при закрытом stdin read возвращается мгновенно
+        # и пустым, и цикл занял бы ядро целиком.
+        read -p "Ваш выбор [P, X]: " ch || break
+        case "$ch" in
+            [Pp]) if [ "$reveal" -eq 1 ]; then reveal=0; else reveal=1; fi ;;
+            *) break ;;
+        esac
+    done
+    # Экран чистим на выходе: пароль, показанный открытым текстом, не должен
+    # оставаться после возврата в главное меню.
+    clear
+}
+
 function show_menu {
     clear
-    echo -e "${CYAN}======================================================${NC}"
-    echo -e "${CYAN}             🚀  МЕНЮ УПРАВЛЕНИЯ СЕРВЕРОМ  🚀        ${NC}"
-    echo -e "${CYAN}======================================================${NC}"
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}                        ${GREEN}VPS SERVER MENU (VSM)${NC}                             ${CYAN}║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
     
     # --- БЛОК ОТОБРАЖЕНИЯ ХАРАКТЕРИСТИК ---
     # --- СБОР ДАННЫХ В СТИЛЕ BENCH.SH ---
@@ -149,30 +276,21 @@ fi
     # ANSI-кодами лежала в самой переменной и уезжала в URL запроса.
     [ -n "$IPV4" ] || IPV4="${RED}✗ Offline${NC}"
     # --- ВЫВОД МЕНЮ В СТИЛЕ BENCH.SH ---
-    echo -e "${BLUE}----------------------------------------------------------------------${NC}"
-    echo -e " 💻  Модель процессора   : ${YELLOW}$CPU_MODEL${NC}"
-    echo -e " 🧠  Ядра процессора     : ${YELLOW}$CPU_CORES @ ${CPU_FREQ} MHz${NC}"
-    echo -e " 🗄️   Кэш процессора      : ${YELLOW}$CPU_CACHE${NC}"
-    echo -e " 🔐  AES-NI              : $AES_NI"
-    echo -e " 📦  VM-x/AMD-V          : $VM_X"
-    echo -e " 💾  Всего диска         : ${YELLOW}$D_TOTAL ($D_USED использовано)${NC}"
-    echo -e " 🐏  Всего памяти        : ${YELLOW}$RAM_TOTAL GB ($(printf "%.1f" $MEM_USED) GB использовано)${NC}"
-    echo -e " ⏱️   Время работы        : ${YELLOW}$UPTIME${NC}"
-    echo -e " 📈  Средняя нагрузка    : ${YELLOW}$LOAD_AVG${NC}"
-    echo -e " 🐧  ОС                  : ${YELLOW}$OS_NAME${NC}"
-    echo -e " 🏗️   Архитектура         : ${YELLOW}$ARCH (64 Bit)${NC}"
-    echo -e " ⚙️   Ядро                : ${YELLOW}$KERNEL${NC}"
-    echo -e " 🚀  TCP CC              : ${YELLOW}$TCP_CC${NC}"
-    echo -e " ☁️   Виртуализация       : ${YELLOW}$VIRT${NC}"
-    echo -e " 🌐  IPv4 / IPv6         : ${GREEN}$IPV4${NC} / ${GREEN}${IPV6}${NC}"
-    echo -e " 🌍  Страна              : ${YELLOW}$COUNTRY${NC}"
-    echo -e " 🏢  Организация         : ${YELLOW}$ORG${NC}"
-    echo -e " 📍  Локация             : ${YELLOW}$LOC${NC}"
-    echo -e " 🗺️   Регион              : ${YELLOW}$REG${NC}"
-    echo -e "${BLUE}----------------------------------------------------------------------${NC}"
+    # Сводка в одну строку вместо двадцати.
+    #
+    # Меню открывается из ~/.bashrc при КАЖДОМ входе по SSH. Двадцать строк
+    # характеристик железа отодвигали пункты за нижний край экрана, а читают
+    # их раз в жизни — при выборе хостера. Подробный вывод никуда не делся:
+    # он в «Тестирование» → «Параметры сервера» (bench.sh) и в утилитах.
+    #
+    # Оставлено ровно то, что меняется и на что смотрят каждый день: ОС,
+    # ресурсы, аптайм, алгоритм TCP и где физически стоит сервер.
+    echo -e "  ${YELLOW}${OS_NAME}${NC} · ${CPU_CORES} ядр. · ${RAM_TOTAL} ГБ · ${D_TOTAL} диск · uptime ${UPTIME} · ${TCP_CC}${COUNTRY:+ · }${COUNTRY}"
+    echo -e "  ${BLUE}IPv4${NC} ${IPV4:-—}${IPV6:+   ${BLUE}IPv6${NC} есть}   ${BLUE}нагрузка${NC} ${LOAD_AVG}"
     
     # СТАТУС ПРИЛОЖЕНИЙ
-    echo -e "${BLUE}--- СТАТУС ПРИЛОЖЕНИЙ --------------------------------${NC}"
+    echo ""
+    echo -e "${BLUE}  ── СТАТУС ─────────────────────────────────────────────────────────────────${NC}"
     # Проверка X-UI. Отсутствие каталога и остановленная служба — разные вещи:
     # на чистом сервере «ОСТАНОВЛЕН» отправлял пользователя запускать службу
     # вместо установки. Признак установки тот же, что у telemt ниже, — свой
@@ -214,51 +332,38 @@ fi
         status_bots="${RED}ЧАСТИЧНО ($bots_up/$bots_total)${NC}"
     fi
 
-    echo -e "    🎛️   X-UI:        [$status_xui]"
-    echo -e "    ✈️   telemt:      [$status_telemt]"
-    echo -e "    🤖  TG-боты:     [$status_bots]"
-
-    # АДРЕСА. Здесь намеренно НЕТ паролей и секрета telemt: это меню
-    # открывается при каждом входе по SSH, а его скриншот лежит в публичном
-    # README. Решение подтверждено отдельно: учётки показываются полностью, но
-    # в подменю — X-UI для панели 3x-ui, «Стек telemt» для telemt_panel.
-    #
-    # Блок целиком пропускается, если показывать нечего — на чистом сервере он
-    # не должен занимать экран пустыми строками. Условие смотрит ровно на те
-    # значения, которые печатаются: иначе на сервере с конфигом стека, но без
-    # собираемых адресов рисовался бы заголовок с одной подсказкой.
-    local addr_panel addr_tp tg_login
-    addr_panel=$(xui_panel_url)
-    addr_tp=$(telemt_panel_url)
-    tg_login=""
-    if [ -f /etc/vsm/telemt.conf ]; then
-        # Значение из конфига уходит в echo -e, поэтому чистим его так же, как
-        # адреса — от управляющих символов.
-        tg_login=$(_addr_clean "$(grep -m1 -oP '^PANEL_ADMIN_USER=\K.*' /etc/vsm/telemt.conf 2>/dev/null | tr -d "\"'")")
-    fi
-    if [ -n "$addr_panel" ] || [ -n "$addr_tp" ]; then
-        echo -e "${BLUE}--- АДРЕСА -------------------------------------------${NC}"
-        [ -n "$addr_panel" ] && echo -e "    Панель 3x-ui:   ${CYAN}${addr_panel}${NC}"
-        [ -n "$addr_tp" ] && \
-            echo -e "    telemt_panel:   ${CYAN}${addr_tp}${NC}${tg_login:+   логин: ${YELLOW}${tg_login}${NC}}"
-        echo -e "    ${BLUE}Логины и пароли — в подменю «Управление X-UI» и «Стек telemt»${NC}"
+    # AmneziaWG. Признак установки — свой конфиг, как у x-ui и telemt: без
+    # него «ОСТАНОВЛЕН» на чистом сервере отправлял бы запускать то, чего нет.
+    # Смотрим на контейнер, а не на службу systemd: узел живёт в Docker.
+    if [ ! -f /etc/vsm/awg.conf ]; then
+        status_awg="${RED}НЕ УСТАНОВЛЕН${NC}"
+    elif [ "$(docker inspect -f '{{.State.Running}}' awg-server 2>/dev/null)" = "true" ]; then
+        status_awg="${GREEN}РАБОТАЕТ${NC}"
+    else
+        status_awg="${RED}ОСТАНОВЛЕН${NC}"
     fi
 
-    echo -e "${BLUE}--- ДЕЙСТВИЯ ---------------------------------------${NC}"
-    echo -e "${YELLOW}1) 🎛️   Управление X-UI (установка | запуск | статус)${NC}"
-    # Подпись описывает действия, а не механизмы: скриншот главного меню
-    # попадает в публичный README, а «self-SNI» и «SYN-лимитер» — ровно то,
-    # что из текста README было убрано.
-    echo -e "${YELLOW}2) ✈️   Стек telemt / MTProto (установка | панель | диагностика)${NC}"
-    echo -e "${YELLOW}3) 🤖  Telegram-боты (Telemt | панели 3x-ui)${NC}"
-    echo -e "${YELLOW}4) 🔐  AmneziaWG 3.0 (установка | клиенты | обновления)${NC}"
-    echo -e "${GREEN}5) 🧪  Тестирование сервера (скорость | блокировки | сканеры)${NC}"
-    echo -e "${GREEN}6) ⚙️   Настройка и оптимизация (BBR | UFW | SSL | WARP)${NC}"
-    echo -e "${GREEN}7) 🌐  Меню IPv6 (включить | выключить | статус)${NC}"
-    echo -e "${YELLOW}8) 🛠️   Системные утилиты (htop | ncdu | сеть | очистка)${NC}"
-    echo -e "${CYAN}9) 🔄  Обновить скрипты (с GitHub)${NC}"
-    echo -e "${RED}X) 🚪  Выход в оболочку${NC}"
-    echo -e "${BLUE}------------------------------------------------------${NC}"
+    echo -e "   🎛️   X-UI       [$status_xui]      🔐  AmneziaWG  [$status_awg]"
+    echo -e "   ✈️   telemt     [$status_telemt]      🤖  TG-боты    [$status_bots]"
+
+    echo ""
+    echo -e "${BLUE}  ── СПРАВКА ──────────────────────────────────────────────────────────────${NC}"
+    echo -e "   ${YELLOW}0${NC}  🔑  Доступы и домены     ${BLUE}Адреса панелей, учётные данные, домены${NC}"
+    echo ""
+    echo -e "${BLUE}  ── СЕРВИСЫ ──────────────────────────────────────────────────────────────${NC}"
+    echo -e "   ${YELLOW}1${NC}  🎛️   Панель X-UI          ${BLUE}3x-ui-pro: VLESS, Reality, Trojan, SSL${NC}"
+    echo -e "   ${YELLOW}2${NC}  🔐  AmneziaWG 3.0        ${BLUE}Обфусцированный WireGuard, свой UDP-порт${NC}"
+    echo -e "   ${YELLOW}3${NC}  ✈️   Стек telemt          ${BLUE}MTProto-прокси, веб-панель, маскировка${NC}"
+    echo -e "   ${YELLOW}4${NC}  🤖  Telegram-боты        ${BLUE}Мониторинг telemt и панелей 3x-ui${NC}"
+    echo ""
+    echo -e "${BLUE}  ── ОБСЛУЖИВАНИЕ ─────────────────────────────────────────────────────────${NC}"
+    echo -e "   ${YELLOW}5${NC}  🧪  Тестирование         ${BLUE}Доступность из РФ, скорость, сканеры${NC}"
+    echo -e "   ${YELLOW}6${NC}  ⚙️   Настройка системы    ${BLUE}BBR, ICMP, UFW, время, SSL, WARP, IPv6${NC}"
+    echo -e "   ${YELLOW}7${NC}  🛠️   Системные утилиты    ${BLUE}htop, ncdu, порты, очистка, диагностика${NC}"
+    echo -e "   ${YELLOW}8${NC}  🔄  Обновить VSM         ${BLUE}git pull, пересоздание ссылок, рестарт${NC}"
+    echo ""
+    echo -e "   ${RED}X${NC}  🚪  Выход"
+    echo ""
 }
 
 # Проверка обновлений — один раз за сессию, до входа в цикл. Раньше вызов
@@ -273,15 +378,15 @@ while true; do
     read -p "$PROMPT" choice
 
     case $choice in
+        0) show_access_info ;;
         1) /usr/local/bin/menu_xui.sh ;;
-        2) /usr/local/bin/menu_telemt.sh ;;
-        3) /usr/local/bin/menu_bots.sh ;;
-        4) /usr/local/bin/menu_awg.sh ;;
+        2) /usr/local/bin/menu_awg.sh ;;
+        3) /usr/local/bin/menu_telemt.sh ;;
+        4) /usr/local/bin/menu_bots.sh ;;
         5) /usr/local/bin/menu_tests.sh ;;
         6) /usr/local/bin/menu_setup.sh ;;
-        7) /usr/local/bin/ipv6-menu ;;
-        8) /usr/local/bin/menu_utils.sh ;;
-        9)
+        7) /usr/local/bin/menu_utils.sh ;;
+        8)
            echo -e "${YELLOW}>>> Принудительное обновление через Git...${NC}"
            cd "$VSM_DIR" || exit
            git fetch origin main &>/dev/null
