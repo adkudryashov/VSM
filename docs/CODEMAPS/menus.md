@@ -20,14 +20,16 @@
 ## Управление X-UI — `menu_xui.sh` (335 строк)
 
 ```
-1 install_xui_pro        качает x-ui-latest.sh во временный файл, снимает check_cpu
-2 patch_xui_pro          run_remote_script x-ui-patch.sh
+1 install_xui_pro        xui_installer_fetch: отпечаток + снятие check_cpu;
+                       оба домена обязательны, автоопределения больше нет
+2 patch_xui_pro          отпечаток + run_remote_script x-ui-patch.sh
 3 manage_adguard         x-ui-adguard.sh, install | uninstall
 4 manage_backup          ensure_backup_script → x-ui-backup backup|list|restore
 5 manage_service_status_restart x-ui
 6 x-ui                   штатное меню апстрима
 7 manage_xui_credentials → xui_credentials_save (/etc/vsm/xui.conf, 600)
-8 uninstall_xui_pro      УДАЛИТЬ; вычищает nginx и /etc/nginx целиком
+8 uninstall_xui_pro      УДАЛИТЬ; снимает apt-mark hold от пересборки, иначе
+                       purge nginx не проходит; вычищает /etc/nginx целиком
 ```
 
 `warn_telemt_after_panel_change` вызывается после 1 и 2: патч чистит

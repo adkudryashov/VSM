@@ -4,18 +4,33 @@
 
 ## Сторонние проекты, устанавливаемые меню
 
-| Проект | Откуда | Как тянется | Пиннинг |
-|---|---|---|---|
-| [3x-ui-pro](https://github.com/mozaroc/3x-ui-pro) | `raw.githubusercontent.com/mozaroc/3x-ui-pro/main` | `x-ui-latest.sh` во временный файл, патчится `check_cpu` | **нет**, ветка `main` |
-| [telemt](https://github.com/telemt/telemt) | install.sh апстрима | `curl \| sh` с аргументами | **нет** |
-| [telemt_panel](https://github.com/amirotin/telemt_panel) | install.sh апстрима | ответы подаются через `script` вслепую позиционно | **нет** |
-| [MTProxyL](https://github.com/Liafanx/MTProxyL) | `main` | лимитер, режим Reanimator | **нет** |
-| AdGuard Home | `x-ui-adguard.sh` из 3x-ui-pro | | **нет** |
-| x-ui-backup | `assets/backup/x-ui-backup.sh` из 3x-ui-pro | `wget` в `/usr/local/bin` | **нет** |
+| Проект | Откуда | Как тянется | Пиннинг | Отпечаток |
+|---|---|---|---|---|
+| [3x-ui-pro](https://github.com/mozaroc/3x-ui-pro) | `raw.githubusercontent.com/mozaroc/3x-ui-pro/main` | `x-ui-latest.sh` через `xui_installer_fetch`: сверка + снятие `check_cpu` | **нет**, ветка `main` | **да** |
+| 3x-ui-pro patch | тот же репозиторий | `x-ui-patch.sh`, `check_cpu` там нет | **нет** | **да** |
+| [telemt](https://github.com/telemt/telemt) | install.sh апстрима | `curl \| sh` с аргументами | **нет** | нет |
+| [telemt_panel](https://github.com/amirotin/telemt_panel) | install.sh апстрима | ответы подаются через `script` вслепую позиционно | **нет** | нет |
+| [MTProxyL](https://github.com/Liafanx/MTProxyL) | `main` | лимитер, режим Reanimator | **нет** | нет |
+| AdGuard Home | `x-ui-adguard.sh` из 3x-ui-pro | | **нет** | нет |
+| x-ui-backup | `assets/backup/x-ui-backup.sh` из 3x-ui-pro | `wget` в `/usr/local/bin` | **нет** | нет |
 
 Отсутствие пиннинга — известный риск: всё это выполняется от root. Решение
 владельца — запоминать отпечаток и предупреждать при изменении, а не
 фиксировать версии.
+
+`upstream_fingerprint` в `_config_and_utils.sh` считает sha256 и сверяет с
+`/etc/vsm/upstream.sha256`. Незнакомый адрес запоминается молча, совпадение
+проходит без слова, расхождение печатает оба отпечатка и не блокирует —
+блокировать решено не было. Своя минимальная копия живёт в `telemt-stack.sh`:
+установщик самодостаточен, как и с `wait_for_apt`.
+
+Покрыты пока только пути 3x-ui-pro. Остальные апстримы — следующим заходом.
+
+**Почему это понадобилось.** 6 августа автор 3x-ui-pro удалил разбор
+`-auto_domain` (коммит `18a2e01`). VSM продолжал его передавать, а ветка
+`*) shift 1` в разборе аргументов проглатывает неизвестный флаг молча — ни
+ошибки, ни предупреждения. Путь «автоопределение доменов» после этого отдавал
+установщику пустые домены, и тот уходил в бесконечный `read`.
 
 ## Данные
 

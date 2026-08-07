@@ -76,7 +76,7 @@ panel_proxy_remove       снятие при удалении стека
 Блок панели живёт в `sites-enabled` и **не переживает патч 3x-ui-pro** —
 переприменяется пунктом 4. Маска в `conf.d` переживает.
 
-## `rebuild-nginx-openssl35.sh` (451)
+## `rebuild-nginx-openssl35.sh` (608)
 
 Читает `configure`-флаги текущего nginx, пересобирает с OpenSSL 3.5 в
 `/opt/openssl-3.5`, подменяет `/usr/sbin/nginx` с бэкапом и откатом, делает
@@ -84,15 +84,20 @@ panel_proxy_remove       снятие при удалении стека
 20–40 минут на одном ядре.
 
 ```
-отбор модулей   xslt / image_filter / perl / geoip / mail вырезаются, если их
-                директив нет в nginx -T; иначе остаются + dev-пакеты.
-                stream* обязателен — иначе die до изменений в системе
+отбор модулей   xslt / image_filter / perl / geoip (http и stream) / mail
+                вырезаются, если их директив нет в nginx -T; иначе остаются
+                + dev-пакеты. stream, stream_ssl и stream_ssl_preread
+                обязательны — иначе die до изменений в системе
 этап 1          OpenSSL → make install_sw в /opt/openssl-3.5 (нужен пункту 5
-                меню telemt для проверки PQ), проверка запуском бинарника
+                меню telemt для проверки PQ), два -Wl,-rpath, проверка
+                запуском бинарника ГОЛЫМ, без LD_LIBRARY_PATH
 этап 2          ./configure с флагами дистрибутива, включая cc-opt/ld-opt
-этап 3          бэкап бинарника, modules-enabled и nginx.conf; подмена;
-                nginx -t и старт с откатом; парный подъём telemt и
-                telemt-panel (Requires=nginx.service их уносит), trap на
-                INT TERM HUP; итог печатается по факту
+этап 3          бэкап бинарника и modules-enabled (не перезаписываются
+                повторно), бэкап nginx.conf (каждый раз); подмена;
+                снимаются только конфликтующие модули — сторонние из
+                nginx-extras сохраняются; nginx -t и старт с откатом;
+                парный подъём telemt и telemt-panel (Requires=nginx.service
+                их уносит) с проверкой NRestarts, trap на INT TERM HUP;
+                итог печатается по факту
 DRY_RUN=1       показать решения отбора и итоговые флаги, ничего не меняя
 ```
