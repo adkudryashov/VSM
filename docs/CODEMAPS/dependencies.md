@@ -13,7 +13,7 @@
 | [MTProxyL](https://github.com/Liafanx/MTProxyL) | `main` | лимитер, режим Reanimator | **нет** | нет |
 | AdGuard Home | `x-ui-adguard.sh` из 3x-ui-pro | | **нет** | нет |
 | x-ui-backup | `assets/backup/x-ui-backup.sh` из 3x-ui-pro | `wget` в `/usr/local/bin` | **нет** | нет |
-| [awg-containers-and-tools](https://github.com/Vadim-Khristenko/awg-containers-and-tools) | GitHub Releases + Docker Hub | `awg-tool` по тегу, образы по digest | **да**, тег + digest | сверка официальной sha256 |
+| [awg-containers-and-tools](https://github.com/Vadim-Khristenko/awg-containers-and-tools) | GitHub Releases + Docker Hub | `awg-tool` по тегу, образы 2.0 и 3.0 по digest | **да**, тег + digest | сверка официальной sha256 |
 
 Отсутствие пиннинга — известный риск: всё это выполняется от root. Решение
 владельца — запоминать отпечаток и предупреждать при изменении, а не

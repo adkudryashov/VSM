@@ -2,16 +2,23 @@
 set -euo pipefail
 
 # ============================================================================
-# AmneziaWG 3.0 — установка рядом с работающим стеком VSM
+# AmneziaWG 2.0 / 3.0 — установка рядом с работающим стеком VSM
 #
-# ЗАЧЕМ 3.0 И ПОЧЕМУ ИМЕННО ТАК. Обфускация 3.0 (диапазоны H1-H4, пакеты I1-I5,
+# ЗАЧЕМ ИМЕННО ЭТОТ ИСТОЧНИК. Обфускация 3.0 (диапазоны H1-H4, пакеты I1-I5,
 # HeaderProtectionKey, рандомизированные тайминги) штатным серверным
 # инструментом не подаётся вовсе: `awg setconf` этих ключей не знает.
 # Единственный найденный путь — контейнеры Vadim-Khristenko/awg-containers-and-tools,
 # где конфигурация уходит демону напрямую через UAPI-сокет.
 #
+# 2.0 берётся ОТТУДА ЖЕ, образом vaiprog/amnezia-wg-2. Отдельный установщик под
+# 2.0 (wiresock: PPA + модуль ядра через DKMS) рассматривался и отвергнут: он
+# рабочий, но это второй механизм установки со своей поверхностью конфликтов —
+# сборка модуля против ядра, apt-репозиторий, свои правила NAT, — ради версии,
+# которая тем же семейством контейнеров уже покрыта. Один проверенный путь на
+# обе версии дешевле двух.
+#
 # Рассмотренные и отвергнутые:
-#   wiresock/amneziawg-install  — даёт только 2.0 (Jc, S1-S4, H1-H4);
+#   wiresock/amneziawg-install  — только 2.0, и модуль ядра вместо контейнера;
 #   bivlked/amneziawg-installer — заявляет 3.0, но накатывает свою политику UFW
 #                                 «входящие запрещены, открыт только порт VPN».
 #                                 На нашем сервере это закрыло бы 443, 80 и порт
@@ -30,6 +37,7 @@ set -euo pipefail
 MODE="install"
 AWG_PORT=""
 AWG_PROFILE="quic"
+AWG_VERSION="3.0"
 
 # --------------------------------------------------------------------------
 # Пиннинг. Обновляться могут ТРИ вещи независимо: репозиторий, релиз бинарника
@@ -44,7 +52,13 @@ AWG_TOOL_TAG="v0.2.2"
 # опрашивала реестр по номеру релиза бинарника.
 AWG_IMG_TAG="v0.2.2"
 AWG_TOOL_SHA="d669dac00879df3beaefdb3526082a946465f83e8bff7c288cd576e27f7bd0e0"
-AWG_SRV_IMG="vaiprog/amnezia-wg-3@sha256:091c82084269f2987983468af56980d700b1afdffe35c5dd1b50da79917c5ce7"
+# По образу на версию протокола. Оба из того же семейства, что и 3.0:
+# механизм, пиннинг и профиль конфликтов уже проверены на стенде, и вводить
+# ради 2.0 второй установщик (DKMS + PPA у wiresock) означало бы удвоить
+# поверхность конфликтов ради того, что уже покрыто.
+AWG_IMG_20="vaiprog/amnezia-wg-2@sha256:769c2784517196ee001a5819de234c28e4b4820656abc11e37312008ca17fc3e"
+AWG_IMG_30="vaiprog/amnezia-wg-3@sha256:091c82084269f2987983468af56980d700b1afdffe35c5dd1b50da79917c5ce7"
+AWG_SRV_IMG="$AWG_IMG_30"
 AWG_DNS_IMG="vaiprog/amnezia-wg-dns@sha256:0c339b84e7e827982172c26e6bd38a1d99489f9de7e4755e0f24f10a1e441570"
 AWG_REL_BASE="https://github.com/Vadim-Khristenko/awg-containers-and-tools/releases/download/${AWG_TOOL_TAG}"
 
@@ -96,11 +110,18 @@ while [[ "$#" -gt 0 ]]; do
         --mode)    MODE="$2";        shift 2 ;;
         --port)    AWG_PORT="$2";    shift 2 ;;
         --profile) AWG_PROFILE="$2"; shift 2 ;;
+        --awg-version) AWG_VERSION="$2"; shift 2 ;;
         *) die "Неизвестный аргумент: $1" ;;
     esac
 done
 
 [[ "$(id -u)" -eq 0 ]] || die "Запускай под root."
+
+case "$AWG_VERSION" in
+    2.0) AWG_SRV_IMG="$AWG_IMG_20" ;;
+    3.0) AWG_SRV_IMG="$AWG_IMG_30" ;;
+    *)   die "Версия протокола '${AWG_VERSION}' не поддерживается: только 2.0 или 3.0." ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Удаление
@@ -233,14 +254,35 @@ log "  оба образа получены по digest"
 # ---------------------------------------------------------------------------
 # 6. Конфигурация сервера
 # ---------------------------------------------------------------------------
-log "Этап 6: конфигурация AmneziaWG 3.0"
+log "Этап 6: конфигурация AmneziaWG ${AWG_VERSION}"
 mkdir -p "$AWG_DIR"
 chmod 700 "$AWG_DIR"
 SRV_PRIV="$(docker run --rm --entrypoint awg "$AWG_SRV_IMG" genkey)" || die "Не удалось сгенерировать ключ."
-"$AWG_TOOL" gen --version 3.0 --profile "$AWG_PROFILE" > "${AWG_DIR}/params.conf" \
-    || die "awg-tool не сгенерировал параметры 3.0."
-grep -q '^I1' "${AWG_DIR}/params.conf" \
-    || die "В параметрах нет пакетов I1-I5 — это не 3.0. Проверь awg-tool."
+# Профиль мимикрии описывает пакет I1 и осмыслен только в 3.0.
+if [[ "$AWG_VERSION" == "3.0" ]]; then
+    "$AWG_TOOL" gen --version 3.0 --profile "$AWG_PROFILE" > "${AWG_DIR}/params.conf" \
+        || die "awg-tool не сгенерировал параметры 3.0."
+else
+    "$AWG_TOOL" gen --version 2.0 > "${AWG_DIR}/params.conf" \
+        || die "awg-tool не сгенерировал параметры 2.0."
+    AWG_PROFILE="—"
+fi
+
+# Проверяем фактом, что получили запрошенную версию.
+#
+# Различает их НЕ наличие I1: пакеты I1-I5 есть и в 2.0 — проверено выводом
+# awg-tool на обеих версиях. Отличают 3.0 ключи HeaderProtectionKey,
+# ContentPaddingAddition и рандомизированные тайминги, которых в 2.0 нет
+# вовсе. Ошибка здесь дорогая: образ 2.0 отвергает 3.0-ключи с errno=-22 и
+# молча уходит в цикл перезапуска — так и поймали.
+V3_KEYS='^(HeaderProtectionKey|ContentPaddingAddition|RekeyAfterTime)'
+V3_FOUND="$(grep -cE "$V3_KEYS" "${AWG_DIR}/params.conf")" || V3_FOUND=0
+if [[ "$AWG_VERSION" == "3.0" ]] && [[ "${V3_FOUND:-0}" -eq 0 ]]; then
+    die "Запрошена 3.0, но в параметрах нет ключей 3.0. Проверь awg-tool."
+fi
+if [[ "$AWG_VERSION" == "2.0" ]] && [[ "${V3_FOUND:-0}" -ne 0 ]]; then
+    die "Запрошена 2.0, но в параметрах ${V3_FOUND} ключей 3.0 — образ 2.0 их отвергнет. Проверь awg-tool."
+fi
 
 ( umask 077
   { echo "[Interface]"
@@ -250,7 +292,7 @@ grep -q '^I1' "${AWG_DIR}/params.conf" \
     cat "${AWG_DIR}/params.conf"
   } > "${AWG_DIR}/server.conf" )
 chmod 600 "${AWG_DIR}/server.conf" "${AWG_DIR}/params.conf"
-log "  server.conf готов, профиль мимикрии ${AWG_PROFILE}"
+log "  server.conf готов: версия ${AWG_VERSION}, профиль мимикрии ${AWG_PROFILE}"
 
 # ---------------------------------------------------------------------------
 # 7. Резолвер
@@ -304,7 +346,7 @@ wait_until 30 awg_running || die "Контейнер сервера не под�
 wait_until 30 awg_listens || die "Порт ${AWG_PORT}/udp никто не слушает. Смотри: docker logs awg-server"
 
 if ! docker logs awg-server 2>&1 | grep -q 'config-applied'; then
-    die "Демон не принял конфигурацию 3.0. Смотри: docker logs awg-server"
+    die "Демон не принял конфигурацию ${AWG_VERSION}. Смотри: docker logs awg-server"
 fi
 RESTARTS="$(docker inspect -f '{{.RestartCount}}' awg-server 2>/dev/null)" || RESTARTS=0
 if [[ "${RESTARTS:-0}" -gt 0 ]]; then
@@ -321,6 +363,7 @@ fi
 # бинарника и образы на Docker Hub — независимо друг от друга. Образы
 # публикуются отдельно от GitHub, поэтому отслеживаются по digest.
 AWG_PORT=${AWG_PORT}
+AWG_VERSION=${AWG_VERSION}
 AWG_PROFILE=${AWG_PROFILE}
 AWG_TOOL_TAG=${AWG_TOOL_TAG}
 AWG_TOOL_SHA=${AWG_TOOL_SHA}
@@ -337,7 +380,7 @@ chmod 600 "$AWG_CONF"
 cat <<SUMMARY
 
 ════════════════════════════════════════════════════════════════
-AmneziaWG 3.0 работает. Порт ${AWG_PORT}/udp, профиль мимикрии ${AWG_PROFILE}.
+AmneziaWG ${AWG_VERSION} работает. Порт ${AWG_PORT}/udp, профиль мимикрии ${AWG_PROFILE}.
 
 Стек VSM не тронут: сервер поднят в host-режиме, порт слушает сам демон,
 и правилами UFW он управляется как обычный порт.

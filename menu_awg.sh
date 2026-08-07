@@ -2,7 +2,7 @@
 source /usr/local/bin/_config_and_utils.sh
 
 # ----------------------------------------------------------------------
-# AMNEZIAWG 3.0: УСТАНОВКА, КЛИЕНТЫ, ОБНОВЛЕНИЯ
+# AMNEZIAWG 2.0 / 3.0: УСТАНОВКА, КЛИЕНТЫ, ОБНОВЛЕНИЯ
 #
 # Стоит рядом со стеком telemt и панелью, не пересекаясь с ними: сервер
 # слушает свой UDP-порт в host-режиме, nginx и сертификаты не трогает.
@@ -14,7 +14,7 @@ AWG_CONF="/etc/vsm/awg.conf"
 AWG_DIR="/etc/vsm/awg"
 
 function load_awg_conf {
-    AWG_PORT=""; AWG_PROFILE=""; AWG_SRV_IMG=""; AWG_DNS_IMG=""
+    AWG_PORT=""; AWG_PROFILE=""; AWG_SRV_IMG=""; AWG_DNS_IMG=""; AWG_VERSION=""
     AWG_TOOL_TAG=""; AWG_TOOL_SHA=""; AWG_DNS_IP=""; AWG_DNS_OK=""
     if [ -f "$AWG_CONF" ]; then
         # shellcheck disable=SC1090
@@ -63,10 +63,11 @@ function awg_forward_line {
 function awg_install {
     clear
     echo -e "${CYAN}======================================================${NC}"
-    echo -e "${CYAN}        🔐  УСТАНОВКА AMNEZIAWG 3.0  🔐               ${NC}"
+    echo -e "${CYAN}        🔐  УСТАНОВКА AMNEZIAWG (2.0 / 3.0)  🔐       ${NC}"
     echo -e "${CYAN}======================================================${NC}"
-    echo -e "Ставит AmneziaWG 3.0 в контейнере: обфускация с пакетами I1-I5,"
-    echo -e "диапазонами заголовков и рандомизированными таймингами.\n"
+    echo -e "Ставит AmneziaWG в контейнере рядом со стеком: свой UDP-порт,"
+    echo -e "nginx и сертификаты не затрагиваются."
+    echo ""
     echo -e "${GREEN}Стек не затрагивается:${NC} nginx, сертификаты и порты панели"
     echo -e "и telemt остаются как есть. Занимается только один UDP-порт.\n"
     echo -e "${YELLOW}Требуется Docker — будет установлен, если его нет.${NC}\n"
@@ -79,16 +80,35 @@ function awg_install {
         if [ "$c" != "ПЕРЕУСТАНОВИТЬ" ]; then echo -e "${BLUE}Отменено.${NC}"; sleep 1; return; fi
     fi
 
-    local port profile
+    # Версия протокола — первый вопрос: от неё зависит и образ, и набор
+    # параметров. 3.0 добавляет пакеты I1-I5 и рандомизированные тайминги,
+    # 2.0 ограничивается Jc/S1-S4/H1-H4 и понимается более старыми клиентами.
+    local ver port profile
+    echo -e "${BLUE}Версия протокола:${NC}"
+    echo -e "   ${YELLOW}1${NC}  AmneziaWG 3.0   ${BLUE}пакеты I1-I5, мимикрия, рандомные тайминги${NC}"
+    echo -e "   ${YELLOW}2${NC}  AmneziaWG 2.0   ${BLUE}Jc, S1-S4, H1-H4 — шире совместимость клиентов${NC}"
+    read -p "Выбор [1]: " ver
+    case "$ver" in
+        2) ver="2.0" ;;
+        1|"") ver="3.0" ;;
+        *) echo -e "${RED}❌ Только 1 или 2.${NC}"; read -p "Enter..."; return ;;
+    esac
+
     read -p "UDP-порт (Enter — подобрать свободный): " port
     if [ -n "$port" ] && ! [[ "$port" =~ ^[0-9]+$ ]]; then
         echo -e "${RED}❌ Порт должен быть числом.${NC}"; read -p "Enter..."; return
     fi
-    echo -e "\n${BLUE}Профили мимикрии: quic, quic0rtt, tls, noise, dtls, http3,${NC}"
-    echo -e "${BLUE}sip, tls-to-quic, quic-burst, dns, random${NC}"
-    read -p "Профиль [quic]: " profile
 
-    local args=(--mode install)
+    # Профиль мимикрии описывает пакет I1, которого в 2.0 нет: спрашивать о
+    # нём там нечего, и установщик его всё равно проигнорирует.
+    if [ "$ver" = "3.0" ]; then
+        echo ""
+        echo -e "${BLUE}Профили мимикрии: quic, quic0rtt, tls, noise, dtls, http3,${NC}"
+        echo -e "${BLUE}sip, tls-to-quic, quic-burst, dns, random${NC}"
+        read -p "Профиль [quic]: " profile
+    fi
+
+    local args=(--mode install --awg-version "$ver")
     [ -n "$port" ]    && args+=(--port "$port")
     [ -n "$profile" ] && args+=(--profile "$profile")
 
@@ -240,10 +260,11 @@ function run_awg_menu {
         load_awg_conf
         clear
         echo -e "${CYAN}======================================================${NC}"
-        echo -e "${CYAN}          🔐  AMNEZIAWG 3.0  🔐                       ${NC}"
+        echo -e "${CYAN}          🔐  AMNEZIAWG  🔐                            ${NC}"
         echo -e "${CYAN}======================================================${NC}"
         echo -e "    Узел:        [$(awg_status_line)]"
         if awg_installed; then
+            echo -e "    Версия:      ${YELLOW}AmneziaWG ${AWG_VERSION:-3.0}${NC}"
             echo -e "    Порт:        ${YELLOW}${AWG_PORT}/udp${NC}   профиль: ${YELLOW}${AWG_PROFILE}${NC}"
             echo -e "    Форвардинг:  [$(awg_forward_line)]"
             if [ "${AWG_DNS_OK:-1}" != "1" ]; then
@@ -251,7 +272,7 @@ function run_awg_menu {
             fi
         fi
         echo -e "${BLUE}------------------------------------------------------${NC}"
-        echo -e "${YELLOW}1) 📥  Установить AmneziaWG 3.0${NC}"
+        echo -e "${YELLOW}1) 📥  Установить AmneziaWG (2.0 или 3.0)${NC}"
         echo -e "${YELLOW}2) 👥  Клиенты (список и выдача конфигов)${NC}"
         echo -e "${YELLOW}3) 🔄  Проверить обновления${NC}"
         echo -e "${YELLOW}4) 📜  Журнал сервера${NC}"

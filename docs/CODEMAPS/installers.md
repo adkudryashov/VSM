@@ -102,9 +102,10 @@ panel_proxy_remove       снятие при удалении стека
 DRY_RUN=1       показать решения отбора и итоговые флаги, ничего не меняя
 ```
 
-## `awg-stack.sh` (350)
+## `awg-stack.sh` (393)
 
-Ставит AmneziaWG 3.0 контейнером рядом со стеком. Самодостаточен: общий слой
+Ставит AmneziaWG **2.0 или 3.0** контейнером рядом со стеком: `--awg-version`,
+по образу на версию из того же семейства. Самодостаточен: общий слой
 меню не подключает, свои копии `wait_until` и `wait_for_apt`.
 
 ```
@@ -113,7 +114,9 @@ DRY_RUN=1       показать решения отбора и итоговые
 этап 3   ip_forward персистентно в /etc/sysctl.d/, DEFAULT_FORWARD_POLICY→ACCEPT
 этап 4   awg-tool по тегу релиза, сверка официальной sha256, в /usr/local/bin
 этап 5   образы по digest
-этап 6   ключ сервера + awg-tool gen --version 3.0; отсутствие I1-I5 = не 3.0
+этап 6   ключ сервера + awg-tool gen --version 2.0|3.0. Версия проверяется
+         фактом по ключам HeaderProtectionKey / ContentPaddingAddition /
+         RekeyAfterTime: пакеты I1-I5 есть и в 2.0, различать по ним нельзя
 этап 7   резолвер: cap_drop ALL плюс SETUID и SETGID, иначе unbound не стартует
 этап 8   сервер в host-режиме — при публикации порта Docker обходит UFW
 этап 9   правило UFW
