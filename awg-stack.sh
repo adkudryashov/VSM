@@ -277,13 +277,61 @@ log "Этап 6: конфигурация AmneziaWG ${AWG_VERSION}"
 mkdir -p "$AWG_DIR"
 chmod 700 "$AWG_DIR"
 SRV_PRIV="$(docker run --rm --entrypoint awg "$AWG_SRV_IMG" genkey)" || die "Не удалось сгенерировать ключ."
+
 # Профиль мимикрии описывает пакет I1 и осмыслен только в 3.0.
-if [[ "$AWG_VERSION" == "3.0" ]]; then
-    "$AWG_TOOL" gen --version 3.0 --profile "$AWG_PROFILE" > "${AWG_DIR}/params.conf" \
-        || die "awg-tool не сгенерировал параметры 3.0."
-else
-    "$AWG_TOOL" gen --version 2.0 > "${AWG_DIR}/params.conf" \
-        || die "awg-tool не сгенерировал параметры 2.0."
+gen_params() {
+    if [[ "$AWG_VERSION" == "3.0" ]]; then
+        "$AWG_TOOL" gen --version 3.0 --profile "$AWG_PROFILE" > "${AWG_DIR}/params.conf" \
+            || die "awg-tool не сгенерировал параметры 3.0."
+    else
+        "$AWG_TOOL" gen --version 2.0 > "${AWG_DIR}/params.conf" \
+            || die "awg-tool не сгенерировал параметры 2.0."
+    fi
+}
+
+# Совпадение длин служебных пакетов — awg-tool этого не проверяет.
+#
+# Размеры служебных сообщений (messages.h модуля ядра): init 148, response 92,
+# cookie reply 64. S-паддинг прибавляется к ним, поэтому три пары способны
+# совпасть по длине в проводе:
+#     S2 = S1 + 56   init против response
+#     S3 = S2 + 28   response против cookie reply
+#     S3 = S1 + 84   init против cookie reply
+#
+# Туннель это не ломает: демон такой конфиг принимает и работает. Но два
+# разных типа служебного пакета получают одинаковую длину, и DPI различает их
+# по ней — теряется ровно то, ради чего S-паддинг и задаётся.
+#
+# Замерено на стенде, 600 наборов (по 300 на версию): S3 = S2 + 28 встретилось
+# 6 раз, около 1%. Две другие пары не встретились ни разу — при нынешних
+# диапазонах awg-tool (S не больше 60, а S1 + 56 не меньше 68) они недостижимы.
+# Проверяются всё равно: диапазоны — чужая сторона договора и могут измениться.
+params_collide() {
+    local f="$1" s1 s2 s3
+    s1="$(awk -F'= *' '/^S1 /{print $2; exit}' "$f")"
+    s2="$(awk -F'= *' '/^S2 /{print $2; exit}' "$f")"
+    s3="$(awk -F'= *' '/^S3 /{print $2; exit}' "$f")"
+    if [[ -z "$s1" || -z "$s2" || -z "$s3" ]]; then
+        die "В параметрах нет S1-S3 — формат вывода awg-tool изменился."
+    fi
+    if [[ $((s1 + 56)) -eq "$s2" ]]; then return 0; fi
+    if [[ $((s2 + 28)) -eq "$s3" ]]; then return 0; fi
+    if [[ $((s1 + 84)) -eq "$s3" ]]; then return 0; fi
+    return 1
+}
+
+gen_params
+PARAM_TRIES=0
+while params_collide "${AWG_DIR}/params.conf"; do
+    PARAM_TRIES=$((PARAM_TRIES + 1))
+    if [[ "$PARAM_TRIES" -ge 20 ]]; then
+        die "Двадцать наборов подряд дали совпадение длин служебных пакетов — похоже, диапазоны awg-tool сузились. Проверь вывод awg-tool gen."
+    fi
+    log "  совпадение длин служебных пакетов, беру другой набор (попытка ${PARAM_TRIES})"
+    gen_params
+done
+
+if [[ "$AWG_VERSION" != "3.0" ]]; then
     AWG_PROFILE="—"
 fi
 
