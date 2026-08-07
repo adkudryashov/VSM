@@ -251,11 +251,12 @@ fi
     # что из текста README было убрано.
     echo -e "${YELLOW}2) ✈️   Стек telemt / MTProto (установка | панель | диагностика)${NC}"
     echo -e "${YELLOW}3) 🤖  Telegram-боты (Telemt | панели 3x-ui)${NC}"
-    echo -e "${GREEN}4) 🧪  Тестирование сервера (скорость | блокировки | сканеры)${NC}"
-    echo -e "${GREEN}5) ⚙️   Настройка и оптимизация (BBR | UFW | SSL | WARP)${NC}"
-    echo -e "${GREEN}6) 🌐  Меню IPv6 (включить | выключить | статус)${NC}"
-    echo -e "${YELLOW}7) 🛠️   Системные утилиты (htop | ncdu | сеть | очистка)${NC}"
-    echo -e "${CYAN}8) 🔄  Обновить скрипты (с GitHub)${NC}"
+    echo -e "${YELLOW}4) 🔐  AmneziaWG 3.0 (установка | клиенты | обновления)${NC}"
+    echo -e "${GREEN}5) 🧪  Тестирование сервера (скорость | блокировки | сканеры)${NC}"
+    echo -e "${GREEN}6) ⚙️   Настройка и оптимизация (BBR | UFW | SSL | WARP)${NC}"
+    echo -e "${GREEN}7) 🌐  Меню IPv6 (включить | выключить | статус)${NC}"
+    echo -e "${YELLOW}8) 🛠️   Системные утилиты (htop | ncdu | сеть | очистка)${NC}"
+    echo -e "${CYAN}9) 🔄  Обновить скрипты (с GitHub)${NC}"
     echo -e "${RED}X) 🚪  Выход в оболочку${NC}"
     echo -e "${BLUE}------------------------------------------------------${NC}"
 }
@@ -275,11 +276,12 @@ while true; do
         1) /usr/local/bin/menu_xui.sh ;;
         2) /usr/local/bin/menu_telemt.sh ;;
         3) /usr/local/bin/menu_bots.sh ;;
-        4) /usr/local/bin/menu_tests.sh ;;
-        5) /usr/local/bin/menu_setup.sh ;;
-        6) /usr/local/bin/ipv6-menu ;;
-        7) /usr/local/bin/menu_utils.sh ;;
-        8)
+        4) /usr/local/bin/menu_awg.sh ;;
+        5) /usr/local/bin/menu_tests.sh ;;
+        6) /usr/local/bin/menu_setup.sh ;;
+        7) /usr/local/bin/ipv6-menu ;;
+        8) /usr/local/bin/menu_utils.sh ;;
+        9)
            echo -e "${YELLOW}>>> Принудительное обновление через Git...${NC}"
            cd "$VSM_DIR" || exit
            git fetch origin main &>/dev/null
