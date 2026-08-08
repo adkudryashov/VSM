@@ -95,7 +95,7 @@ function _cfg_val {
 function show_access_info {
     local reveal=0
     while true; do
-        clear
+        clear 2>/dev/null
         ui_title "🔑  ДОСТУПЫ И ДОМЕНЫ"
 
         local url_xui url_tp
@@ -193,11 +193,11 @@ function show_access_info {
     done
     # Экран чистим на выходе: пароль, показанный открытым текстом, не должен
     # оставаться после возврата в главное меню.
-    clear
+    clear 2>/dev/null
 }
 
 function show_menu {
-    clear
+    clear 2>/dev/null
     # Через ui_title, а не литералом: рамка считается от терминала, и здесь же
     # сбрасывается кэш ширины — то есть смена размера окна подхватывается раз
     # на отрисовку, а не двадцатью форками tput подряд.

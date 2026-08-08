@@ -61,7 +61,7 @@ function awg_forward_line {
 }
 
 function awg_install {
-    clear
+    clear 2>/dev/null
     echo -e "${CYAN}======================================================${NC}"
     echo -e "${CYAN}              🔐  УСТАНОВКА AMNEZIAWG  🔐             ${NC}"
     echo -e "${CYAN}======================================================${NC}"
@@ -127,7 +127,7 @@ function awg_clients {
     if ! awg_installed; then
         echo -e "${RED}❌ AmneziaWG не установлен.${NC}"; read -p "Enter..."; return
     fi
-    clear
+    clear 2>/dev/null
     echo -e "${CYAN}--- 👥  КЛИЕНТЫ AMNEZIAWG ---${NC}\n"
     echo -e "${BLUE}Выданные пиры:${NC}"
     docker exec awg-server awg show 2>/dev/null | grep -aE '^peer|latest handshake' | sed 's/^/  /' \
@@ -225,7 +225,7 @@ function awg_remote_digest {
 # единого коммита — сверяем по digest.
 function awg_check_updates {
     load_awg_conf
-    clear
+    clear 2>/dev/null
     echo -e "${CYAN}--- 🔄  ПРОВЕРКА ОБНОВЛЕНИЙ ---${NC}\n"
     if [ ! -f "$AWG_CONF" ]; then
         echo -e "${RED}❌ AmneziaWG не установлен.${NC}"; read -p "Enter..."; return
@@ -273,7 +273,7 @@ function awg_check_updates {
 }
 
 function awg_uninstall {
-    clear
+    clear 2>/dev/null
     echo -e "${RED}======================================================${NC}"
     echo -e "${RED}         🧨   УДАЛЕНИЕ AMNEZIAWG  🧨                  ${NC}"
     echo -e "${RED}======================================================${NC}"
@@ -297,7 +297,7 @@ function run_awg_menu {
     fi
     while true; do
         load_awg_conf
-        clear
+        clear 2>/dev/null
         ui_title "🔐  AMNEZIAWG"
         echo ""
         echo -e "   ${C_NAME}$(ui_pad '🚥  Узел' 17)${NC}$(awg_status_line)"

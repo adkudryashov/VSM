@@ -23,7 +23,7 @@ function warn_telemt_after_panel_change {
 }
 
 function install_xui_pro {
-    clear
+    clear 2>/dev/null
     echo -e "${CYAN}======================================================${NC}"
     echo -e "${CYAN}          📥  УСТАНОВКА X-UI PRO (3x-ui-pro) 📥        ${NC}"
     echo -e "${CYAN}======================================================${NC}"
@@ -104,7 +104,7 @@ function patch_xui_pro {
 
 function manage_adguard {
     while true; do
-        clear
+        clear 2>/dev/null
         echo -e "${CYAN}--- 🔒  ADGUARD HOME (DNS-over-HTTPS + блокировка рекламы) ---${NC}"
         echo -e "${YELLOW}Ставится на домен панели, без отдельного домена и портов (через 443).${NC}"
         echo -e "${BLUE}------------------------------------------------------${NC}"
@@ -147,7 +147,7 @@ function ensure_backup_script {
 function manage_backup {
     ensure_backup_script
     while true; do
-        clear
+        clear 2>/dev/null
         echo -e "${CYAN}--- 💾  БЭКАП / ВОССТАНОВЛЕНИЕ X-UI PRO ---------------${NC}"
         echo -e "1) 📦  Создать бэкап"
         echo -e "2) 📋  Список бэкапов"
@@ -180,7 +180,7 @@ function manage_backup {
 # прямо, иначе его примут за смену пароля.
 function manage_xui_credentials {
     while true; do
-        clear
+        clear 2>/dev/null
         echo -e "${CYAN}--- 🔑  УЧЁТНЫЕ ДАННЫЕ ПАНЕЛИ 3x-ui ------------------${NC}"
         local cur_user cur_pass
         cur_user=$(xui_admin_user); cur_pass=$(xui_admin_pass)
@@ -312,7 +312,7 @@ function uninstall_xui_pro {
 function manage_xui_service {
     local SERVICE_NAME=$XUI_SERVICE
     while true; do
-        clear
+        clear 2>/dev/null
         ui_title "📊  ПАНЕЛЬ X-UI (3x-ui-pro)"
 
         STATUS_XUI=$(get_service_status $SERVICE_NAME)

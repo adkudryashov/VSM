@@ -17,7 +17,7 @@ function get_warp_status {
 
 function setup_warp_cron {
     while true; do
-        clear
+        clear 2>/dev/null
         echo -e "${CYAN}--- 🔄 НАСТРОЙКА АВТОПЕРЕЗАПУСКА WARP --------------------${NC}"
         echo -e "    Текущий статус: $(get_warp_cron_status)"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
@@ -154,7 +154,7 @@ function get_warp_cron_status {
 
 function run_warp_menu {
     while true; do
-        clear
+        clear 2>/dev/null
         ui_title "📦  CLOUDFLARE WARP"
         echo ""
         echo -e "   ${C_NAME}$(ui_pad '🚥  Статус' 20)${NC}$(get_warp_status)"

@@ -114,7 +114,7 @@ function ufw_enable_safely {
 
 function show_ufw_menu {
     while true; do
-        clear
+        clear 2>/dev/null
         echo -e "${CYAN}--- 🔒 УПРАВЛЕНИЕ ФАЙРВОЛОМ (UFW) -----------------------${NC}"
         echo -e "    Статус: [$(if [ "$(get_ufw_status)" == "active" ]; then echo -e "${GREEN}ВКЛЮЧЕН${NC}"; else echo -e "${RED}ВЫКЛЮЧЕН${NC}"; fi)]"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
@@ -197,7 +197,7 @@ function show_ufw_menu {
 
 function set_timezone_menu {
     while true; do
-        clear
+        clear 2>/dev/null
         echo -e "${CYAN}--- 🕒 НАСТРОЙКА ЧАСОВОГО ПОЯСА -------------------------${NC}"
         echo -e "    Текущий пояс: ${GREEN}$(get_timezone_status)${NC}"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
@@ -259,7 +259,7 @@ function disable_bbr {
 
 function show_bbr_menu {
     while true; do
-        clear
+        clear 2>/dev/null
         STATUS=$(get_bbr_status)
         echo -e "${CYAN}--- 📈 УПРАВЛЕНИЕ ОПТИМИЗАЦИЕЙ BBR -----------------------${NC}"
         echo -e "    Текущий статус: [$(if [ "$STATUS" == "active" ]; then echo -e "${GREEN}АКТИВЕН${NC}"; else echo -e "${RED}ОТКЛЮЧЕН${NC}"; fi)]"
@@ -377,7 +377,7 @@ function manage_ssl_menu {
     mkdir -p "$SSL_SAVE_DIR"
 
     while true; do
-        clear
+        clear 2>/dev/null
         echo -e "${CYAN}--- 🔐 УПРАВЛЕНИЕ СЕРТИФИКАТАМИ (SSL/ACME) ----------------${NC}"
         echo -e "    Папка сохранения: ${GREEN}$SSL_SAVE_DIR${NC}"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
@@ -513,7 +513,7 @@ function manage_ssl_menu {
 
 function run_setup_menu {
     while true; do
-        clear
+        clear 2>/dev/null
         ui_title "🔧  НАСТРОЙКА И ОПТИМИЗАЦИЯ"
 
         BBR_STATUS=$(get_bbr_status)

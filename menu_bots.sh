@@ -107,7 +107,7 @@ function run_install {
     local mode="$1"
     [ -f "$STACK_SCRIPT" ] || { echo -e "${RED}❌ Не найден $STACK_SCRIPT${NC}"; read -p "Enter..."; return; }
 
-    clear
+    clear 2>/dev/null
     echo -e "${CYAN}======================================================${NC}"
     echo -e "${CYAN}       🤖  УСТАНОВКА TELEGRAM-БОТОВ  🤖              ${NC}"
     echo -e "${CYAN}======================================================${NC}"
@@ -149,7 +149,7 @@ function installed_units {
 }
 
 function run_update {
-    clear
+    clear 2>/dev/null
     echo -e "${CYAN}======================================================${NC}"
     echo -e "${CYAN}          🔄  ОБНОВЛЕНИЕ КОДА БОТОВ  🔄              ${NC}"
     echo -e "${CYAN}======================================================${NC}"
@@ -256,7 +256,7 @@ function manage_services {
 }
 
 function run_remove {
-    clear
+    clear 2>/dev/null
     echo -e "${RED}======================================================${NC}"
     echo -e "${RED}            🧨  УДАЛЕНИЕ БОТОВ  🧨                    ${NC}"
     echo -e "${RED}======================================================${NC}"

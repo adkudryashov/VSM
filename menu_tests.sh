@@ -187,7 +187,7 @@ function run_sni_scan {
 }
 function run_tests_menu {
     while true; do
-        clear
+        clear 2>/dev/null
         ui_title "🧪  ТЕСТЫ СЕРВЕРА"
         echo ""
         ui_section "ГДЕ МЫ И КАК НАС ВИДНО"

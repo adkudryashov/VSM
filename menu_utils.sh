@@ -17,7 +17,7 @@ function run_utils_menu {
     check_utils_deps
     
     while true; do
-        clear
+        clear 2>/dev/null
         ui_title "🧰  СИСТЕМНЫЕ УТИЛИТЫ"
         echo ""
         ui_section "НАБЛЮДЕНИЕ"

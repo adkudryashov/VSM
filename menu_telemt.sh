@@ -139,7 +139,7 @@ function run_install {
     local mode="$1"
     [ -f "$STACK_SCRIPT" ] || { echo -e "${RED}❌ Не найден $STACK_SCRIPT${NC}"; read -p "Enter..."; return; }
 
-    clear
+    clear 2>/dev/null
     echo -e "${CYAN}======================================================${NC}"
     if [ "$mode" == "full" ]; then
         echo -e "${CYAN}     📦  УСТАНОВКА ВСЕГО СТЕКА С НУЛЯ  📦             ${NC}"
@@ -187,7 +187,7 @@ function run_install {
 }
 
 function run_diagnostics {
-    clear
+    clear 2>/dev/null
     load_stack_conf
     echo -e "${CYAN}======================================================${NC}"
     echo -e "${CYAN}          🩺  СТАТУС И ДИАГНОСТИКА СТЕКА  🩺          ${NC}"
@@ -374,7 +374,7 @@ function _pq_openssl_bin {
 }
 
 function check_tls_parity {
-    clear
+    clear 2>/dev/null
     load_stack_conf
     echo -e "${CYAN}======================================================${NC}"
     echo -e "${CYAN}       🔬  СВЕРКА TLS: МАСКА ПРОТИВ ПАНЕЛИ  🔬        ${NC}"
@@ -459,7 +459,7 @@ function check_tls_parity {
 }
 
 function show_credentials {
-    clear
+    clear 2>/dev/null
     if [ ! -f "$STACK_CREDS" ]; then
         echo -e "${RED}❌ Файл учётных данных не найден ($STACK_CREDS).${NC}"
     else
@@ -508,7 +508,7 @@ function show_credentials {
 
 function manage_services {
     while true; do
-        clear
+        clear 2>/dev/null
         echo -e "${CYAN}--- 🔧  УПРАВЛЕНИЕ СЛУЖБАМИ СТЕКА --------------------${NC}"
         echo -e "    telemt:       [$(stack_status_line)]"
         echo -e "    telemt_panel: [$(panel_status_line)]"
@@ -639,7 +639,7 @@ function legacy_leftovers_warning {
 }
 
 function run_mtproxyl {
-    clear
+    clear 2>/dev/null
     load_stack_conf
     echo -e "${CYAN}======================================================${NC}"
     echo -e "${CYAN}      🔒  MTPROXYL — SYN-ЛИМИТЕР И ТЮНИНГ  🔒         ${NC}"
@@ -747,7 +747,7 @@ function run_mtproxyl {
 }
 
 function run_rebuild_nginx {
-    clear
+    clear 2>/dev/null
     echo -e "${CYAN}======================================================${NC}"
     echo -e "${CYAN}    🔬  ПЕРЕСБОРКА NGINX С OPENSSL 3.5 (PQ TLS)  🔬   ${NC}"
     echo -e "${CYAN}======================================================${NC}"
@@ -811,7 +811,7 @@ function run_rebuild_nginx {
 }
 
 function uninstall_stack {
-    clear
+    clear 2>/dev/null
     echo -e "${RED}======================================================${NC}"
     echo -e "${RED}          🧨   УДАЛЕНИЕ СТЕКА TELEMT  🧨              ${NC}"
     echo -e "${RED}======================================================${NC}"
@@ -884,7 +884,7 @@ function uninstall_stack {
 # ----------------------------------------------------------------------
 function run_telemt_menu {
     while true; do
-        clear
+        clear 2>/dev/null
         load_stack_conf
         ui_title "🛫  СТЕК TELEMT / MTPROTO"
         echo ""
