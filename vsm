@@ -137,9 +137,23 @@ function show_access_info {
         else
             echo -e "   ${C_NAME}$(ui_pad '🌐  Адрес' 17)${NC}${C_WARN}стек telemt не установлен${NC}"
         fi
+        # Учётки показываем, только если панель ДЕЙСТВИТЕЛЬНО стоит.
+        #
+        # /etc/vsm/telemt.conf переживает удаление стека — там же лежат домены,
+        # и это осмысленно для повторной установки. Но вместе с доменами
+        # переживают и учётные данные, а этот экран читал их прямо из файла. В
+        # прогоне разрушающих пунктов было видно, как после сноса стека пункт 0
+        # показывает логин и пароль панели, которой больше нет: секрет
+        # несуществующей службы на экране, который открывают именно за секретами.
+        #
+        # Признак установки тот же, что у статуса в шапке, — свой конфиг службы.
         local tu tpass
-        tu=$(_cfg_val /etc/vsm/telemt.conf PANEL_ADMIN_USER)
-        tpass=$(_cfg_val /etc/vsm/telemt.conf PANEL_ADMIN_PASS)
+        if [ -f /etc/telemt-panel/config.toml ]; then
+            tu=$(_cfg_val /etc/vsm/telemt.conf PANEL_ADMIN_USER)
+            tpass=$(_cfg_val /etc/vsm/telemt.conf PANEL_ADMIN_PASS)
+        else
+            tu=""; tpass=""
+        fi
         if [ -n "$tu" ]; then
             ui_secret '👤  Логин' "$tu" 17
             if [ "$reveal" -eq 1 ]; then
