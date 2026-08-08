@@ -188,7 +188,20 @@ while [[ "$#" -gt 0 ]]; do
     case "$1" in
         --mode)    MODE="$2";        shift 2 ;;
         --port)    AWG_PORT="$2";    shift 2 ;;
-        --profile) AWG_PROFILE="$2"; shift 2 ;;
+        # Профиль сверяется со списком, а не принимается как есть.
+        #
+        # Значение попадало в /etc/vsm/awg.conf без экранирования, а этот файл
+        # `source`-ят и меню, и сам установщик. То есть строка вида
+        # `quic$(команда)` выполнялась бы при каждом следующем открытии меню.
+        # Список профилей закрытый — сверка с ним и есть правильная проверка,
+        # а не чистка символов.
+        --profile)
+            case "$2" in
+                quic|quic0rtt|tls|noise|dtls|http3|sip|tls-to-quic|quic-burst|dns|random)
+                    AWG_PROFILE="$2" ;;
+                *) die "Неизвестный профиль мимикрии: «$2». Допустимы: quic, quic0rtt, tls, noise, dtls, http3, sip, tls-to-quic, quic-burst, dns, random." ;;
+            esac
+            shift 2 ;;
         --awg-version) AWG_VERSION="$2"; shift 2 ;;
         *) die "Неизвестный аргумент: $1" ;;
     esac
@@ -587,20 +600,27 @@ RESTARTS="$(docker inspect -f '{{.RestartCount}}' awg-server 2>/dev/null)" || RE
 if [[ "${RESTARTS:-0}" -gt 0 ]]; then
     warn "Сервер перезапускался ${RESTARTS} раз — смотри docker logs awg-server"
 fi
-( umask 077; cat > "$AWG_CONF" <<CONF
-# AmneziaWG, поставлен VSM. Пиннинг: обновляться могут репозиторий, релиз
-# бинарника и образы на Docker Hub — независимо друг от друга. Образы
-# публикуются отдельно от GitHub, поэтому отслеживаются по digest.
-AWG_PORT=${AWG_PORT}
-AWG_VERSION=${AWG_VERSION}
-AWG_PROFILE=${AWG_PROFILE}
-AWG_TOOL_TAG=${AWG_TOOL_TAG}
-AWG_TOOL_SHA=${AWG_TOOL_SHA}
-AWG_IMG_TAG=${AWG_IMG_TAG}
-AWG_SRV_IMG=${AWG_SRV_IMG}
-AWG_TUN_SUBNET=${AWG_TUN_SUBNET}
-AWG_CLIENT_DNS="${AWG_CLIENT_DNS}"
-CONF
+# Значения пишутся через printf %q, а не подстановкой в heredoc.
+#
+# Файл `source`-ят и меню, и сам установщик — то есть всё, что сюда попало,
+# однажды выполнится оболочкой. Подстановка в heredoc отдавала значение как
+# есть: пробел ломал файл, а `$(команда)` выполнялась бы при каждом открытии
+# меню. Остальные конфиги проекта (telemt, xui, боты) писались через %q с
+# самого начала — этот отставал. Найдено разбором безопасности.
+( umask 077
+  { echo "# AmneziaWG, поставлен VSM. Пиннинг: обновляться могут репозиторий,"
+    echo "# релиз бинарника и образы на Docker Hub — независимо друг от друга."
+    echo "# Образы публикуются отдельно от GitHub, поэтому идут по digest."
+    printf 'AWG_PORT=%q\n'        "$AWG_PORT"
+    printf 'AWG_VERSION=%q\n'     "$AWG_VERSION"
+    printf 'AWG_PROFILE=%q\n'     "$AWG_PROFILE"
+    printf 'AWG_TOOL_TAG=%q\n'    "$AWG_TOOL_TAG"
+    printf 'AWG_TOOL_SHA=%q\n'    "$AWG_TOOL_SHA"
+    printf 'AWG_IMG_TAG=%q\n'     "$AWG_IMG_TAG"
+    printf 'AWG_SRV_IMG=%q\n'     "$AWG_SRV_IMG"
+    printf 'AWG_TUN_SUBNET=%q\n'  "$AWG_TUN_SUBNET"
+    printf 'AWG_CLIENT_DNS=%q\n'  "$AWG_CLIENT_DNS"
+  } > "$AWG_CONF"
 )
 chmod 600 "$AWG_CONF"
 
