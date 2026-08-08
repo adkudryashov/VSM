@@ -309,10 +309,10 @@ fi
     # раньше, значит показывать «Intel(R) Xeon(R) Platinum 81» вместо ответа на
     # вопрос, ради которого её и смотрят.
     _row2() { # подпись1 значение1 цвет1 подпись2 значение2 цвет2
-        echo -e "   ${3}$(ui_pad "$1" 15)${NC}${C_DESC}$(ui_pad "$2" 21)${NC}${6}$(ui_pad "$4" 15)${NC}${C_DESC}${5}${NC}"
+        echo -e "   ${3}$(ui_pad "$1" 17)${NC}${C_DESC}$(ui_pad "$2" 20)${NC}${6}$(ui_pad "$4" 17)${NC}${C_DESC}${5}${NC}"
     }
     _row1() { # подпись значение
-        echo -e "   ${C_NAME}$(ui_pad "$1" 15)${NC}${C_DESC}${2}${NC}"
+        echo -e "   ${C_NAME}$(ui_pad "$1" 17)${NC}${C_DESC}${2}${NC}"
     }
 
     echo ""
@@ -324,14 +324,14 @@ fi
           "💾  Диск"        "${D_TOTAL} (занято ${D_USED})"                         "$C_NAME"
     _row2 "📈  Нагрузка"    "$LOAD_AVG"                                             "$C_NAME" \
           "⏳  Аптайм"      "$UPTIME"                                               "$C_NAME"
-    _row2 "🐧  ОС"          "${OS_NAME:0:21}"                                       "$C_NAME" \
+    _row2 "🐧  ОС"          "${OS_NAME:0:20}"                                       "$C_NAME" \
           "🧱  Архитектура" "${ARCH}${ARCH_BITS:+ (${ARCH_BITS} бит)}"              "$C_NAME"
     _row2 "🔩  Ядро"        "$KERNEL"                                               "$C_NAME" \
           "🚀  TCP CC"      "$TCP_CC"                                               "$C_NAME"
     # AES-NI и VM-x красятся по состоянию: это не значение, а признак «есть или
     # нет», и цвет здесь несёт смысл, а не роль.
-    echo -e "   ${C_NAME}$(ui_pad '📦  Виртуализация' 15)${NC}${C_DESC}$(ui_pad "$VIRT" 21)${NC}${C_NAME}$(ui_pad '🔒  AES-NI' 15)${NC}${AES_C}${AES_NI}${NC}"
-    echo -e "   ${C_NAME}$(ui_pad '🧩  VM-x/AMD-V' 15)${NC}${VM_C}$(ui_pad "$VM_X" 21)${NC}${C_NAME}$(ui_pad '🌐  IPv4' 15)${NC}${C_DESC}${IPV4:-—}${NC}"
+    echo -e "   ${C_NAME}$(ui_pad '📦  Виртуализация' 15)${NC}${C_DESC}$(ui_pad "$VIRT" 20)${NC}${C_NAME}$(ui_pad '🔒  AES-NI' 17)${NC}${AES_C}${AES_NI}${NC}"
+    echo -e "   ${C_NAME}$(ui_pad '🧩  VM-x/AMD-V' 17)${NC}${VM_C}$(ui_pad "$VM_X" 20)${NC}${C_NAME}$(ui_pad '🌐  IPv4' 17)${NC}${C_DESC}${IPV4:-—}${NC}"
     if [ -n "$IPV6" ]; then
         _row1 "🌐  IPv6" "$IPV6"
     fi
@@ -346,7 +346,7 @@ fi
     if [ -n "$COUNTRY" ]; then
         printf "   %b%s%b%b%s%b%b%s%b%b%s%b\n" \
             "$C_NAME" "$(ui_pad '🌍  Страна' 15)" "$NC" \
-            "$C_DESC" "$(ui_pad "$COUNTRY" 21)" "$NC" \
+            "$C_DESC" "$(ui_pad "$COUNTRY" 20)" "$NC" \
             "$C_NAME" "$(ui_pad '📍  Локация' 15)" "$NC" \
             "$C_DESC" "$LOC" "$NC"
     fi
