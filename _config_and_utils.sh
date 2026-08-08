@@ -124,7 +124,6 @@ function ui_cols_init {
     if [[ ! "$c" =~ ^[0-9]+$ ]] || [ "$c" -lt 20 ]; then c=80; fi
     if [ "$c" -gt 78 ]; then c=78; fi
     _UI_COLS="$c"
-    echo "$c"
 }
 
 # Узкий терминал — признак, а не догадка.
