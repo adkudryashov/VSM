@@ -330,7 +330,7 @@ fi
           "🚀  TCP CC"      "$TCP_CC"                                               "$C_NAME"
     # AES-NI и VM-x красятся по состоянию: это не значение, а признак «есть или
     # нет», и цвет здесь несёт смысл, а не роль.
-    echo -e "   ${C_NAME}$(ui_pad '📦  Виртуализация' 15)${NC}${C_DESC}$(ui_pad "$VIRT" 20)${NC}${C_NAME}$(ui_pad '🔒  AES-NI' 17)${NC}${AES_C}${AES_NI}${NC}"
+    echo -e "   ${C_NAME}$(ui_pad '📦  Виртуализация' 17)${NC}${C_DESC}$(ui_pad "$VIRT" 20)${NC}${C_NAME}$(ui_pad '🔒  AES-NI' 17)${NC}${AES_C}${AES_NI}${NC}"
     echo -e "   ${C_NAME}$(ui_pad '🧩  VM-x/AMD-V' 17)${NC}${VM_C}$(ui_pad "$VM_X" 20)${NC}${C_NAME}$(ui_pad '🌐  IPv4' 17)${NC}${C_DESC}${IPV4:-—}${NC}"
     if [ -n "$IPV6" ]; then
         _row1 "🌐  IPv6" "$IPV6"
@@ -345,18 +345,18 @@ fi
     # Данные по-прежнему идут через %s и не интерпретируются.
     if [ -n "$COUNTRY" ]; then
         printf "   %b%s%b%b%s%b%b%s%b%b%s%b\n" \
-            "$C_NAME" "$(ui_pad '🌍  Страна' 15)" "$NC" \
+            "$C_NAME" "$(ui_pad '🌍  Страна' 17)" "$NC" \
             "$C_DESC" "$(ui_pad "$COUNTRY" 20)" "$NC" \
-            "$C_NAME" "$(ui_pad '📍  Локация' 15)" "$NC" \
+            "$C_NAME" "$(ui_pad '📍  Локация' 17)" "$NC" \
             "$C_DESC" "$LOC" "$NC"
     fi
     if [ -n "$REG" ] && [ "$REG" != "null" ]; then
         printf "   %b%s%b%b%s%b\n" \
-            "$C_NAME" "$(ui_pad '🧭  Регион' 15)" "$NC" "$C_DESC" "$REG" "$NC"
+            "$C_NAME" "$(ui_pad '🧭  Регион' 17)" "$NC" "$C_DESC" "$REG" "$NC"
     fi
     if [ -n "$ORG" ]; then
         printf "   %b%s%b%b%s%b\n" \
-            "$C_NAME" "$(ui_pad '🏢  Организация' 15)" "$NC" "$C_DESC" "$ORG" "$NC"
+            "$C_NAME" "$(ui_pad '🏢  Организация' 17)" "$NC" "$C_DESC" "$ORG" "$NC"
     fi
 
     # СТАТУС ПРИЛОЖЕНИЙ
