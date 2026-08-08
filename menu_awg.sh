@@ -148,16 +148,21 @@ function awg_clients {
         echo -e "${RED}❌ AmneziaWG не установлен.${NC}"; read -p "Enter..."; return
     fi
     clear 2>/dev/null
-    echo -e "${CYAN}--- 👥  КЛИЕНТЫ AMNEZIAWG ---${NC}\n"
-    echo -e "${BLUE}Выданные пиры:${NC}"
-    docker exec awg-server awg show 2>/dev/null | grep -aE '^peer|latest handshake' | sed 's/^/  /' \
-        || echo -e "  ${YELLOW}(не удалось опросить сервер)${NC}"
-    echo
-    echo -e "1) ➕  Выдать конфиг новому клиенту"
-    echo -e "X) 🔙  Назад"
+    ui_title "👥  КЛИЕНТЫ AMNEZIAWG"
+    echo ""
+    echo -e "   ${C_NAME}Выданные пиры${NC}"
+    docker exec awg-server awg show 2>/dev/null | grep -aE '^peer|latest handshake' | sed 's/^/     /' \
+        || echo -e "     ${C_WARN}(не удалось опросить сервер)${NC}"
+    echo ""
+    ui_section "ВЫДАЧА КОНФИГА"
+    ui_item "1" "➕" "AmneziaVPN"   "Обычный формат, официальные клиенты"
+    ui_item "2" "🔀" "mihomo"       "Тот же конфиг в формате clash-meta"
+    echo ""
+    ui_item "X" "🔙" "Назад"
+    echo ""
     read -p "Выбор: " ch || return
     case "$ch" in
-        1)
+        1|2)
             local name endpoint
             read -p "Имя клиента (латиницей, без пробелов): " name
             if ! [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]]; then
@@ -234,6 +239,36 @@ function awg_clients {
                 return
             fi
             rm -f "$err"
+
+            # Конвертация делается ЗДЕСЬ, а не переносом полей руками.
+            #
+            # Дважды конфиг для mihomo собирался вручную и дважды выходил
+            # нерабочим — причём ошибки были не в значениях, а в структуре:
+            # обфускация на верхнем уровне вместо вложенного блока,
+            # preshared-key вместо pre-shared-key, dns-server вместо dns,
+            # потерянный persistent-keepalive. Ни одна не видна по значениям.
+            # Скрипт переносит всё сам и отказывается конвертировать 3.0,
+            # которую mihomo не понимает вовсе.
+            if [ "$ch" = "2" ]; then
+                local conv; conv="$REPO_DIR/awg2mihomo.sh"
+                if [ ! -f "$conv" ]; then
+                    echo -e "\n${C_DANGER}❌ Не найден ${conv} — обнови VSM (install.sh).${NC}"
+                    echo -e "${C_WARN}   Конфиг ниже выдан в обычном формате, пир уже создан.${NC}"
+                else
+                    local mih
+                    mih=$(printf '%s\n' "$cfg" | bash "$conv" -)
+                    if [ -n "$mih" ]; then
+                        echo -e "\n${C_WARN}--- конфиг для mihomo, сохраните его сейчас ---${NC}\n"
+                        printf '%s\n' "$mih"
+                        echo -e "\n${C_WARN}--- конец конфига ---${NC}"
+                        read -p "Нажмите Enter..."
+                        return
+                    fi
+                    echo -e "\n${C_WARN}Конвертация не выполнена, причина выше."
+                    echo -e "Пир создан; ниже тот же конфиг в обычном формате.${NC}"
+                fi
+            fi
+
             echo -e "\n${C_WARN}--- конфиг ниже, сохраните его сейчас: повторно он не выдаётся ---${NC}\n"
             printf '%s\n' "$cfg"
             echo -e "\n${C_WARN}--- конец конфига ---${NC}"
