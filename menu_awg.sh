@@ -150,14 +150,22 @@ function awg_clients {
     clear 2>/dev/null
     ui_title "👥  КЛИЕНТЫ AMNEZIAWG"
     echo ""
-    echo -e "   ${C_NAME}Выданные пиры${NC}"
-    docker exec awg-server awg show 2>/dev/null | grep -aE '^peer|latest handshake' | sed 's/^/     /' \
-        || echo -e "     ${C_WARN}(не удалось опросить сервер)${NC}"
+    # Список берём у awg-peer, а не у `awg show`.
+    #
+    # `awg show` печатает только публичные ключи — по такому списку нельзя ни
+    # понять, чей это клиент, ни удалить нужного. Имена знает лишь awg-peer:
+    # он и хранит записи. Раньше здесь стоял `awg show`, и экран показывал
+    # строки вида «peer: OTB+v4vl…», то есть был бесполезен ровно тогда, когда
+    # нужен.
+    ui_section "ВЫДАННЫЕ КЛИЕНТЫ"
+    docker exec awg-server awg-peer list 2>/dev/null | sed 's/^/   /' \
+        || echo -e "   ${C_WARN}(не удалось опросить сервер)${NC}"
     echo ""
-    ui_section "ВЫДАЧА КОНФИГА"
-    ui_item "1" "➕" "AmneziaVPN"   "Обычный формат, официальные клиенты"
-    ui_item "2" "🔀" "mihomo"       "Тот же конфиг в формате clash-meta"
+    ui_section "ДЕЙСТВИЯ"
+    ui_item "1" "➕" "Выдать: AmneziaVPN" "Обычный формат, официальные клиенты"
+    ui_item "2" "🔀" "Выдать: mihomo"     "Тот же конфиг в формате clash-meta"
     echo ""
+    ui_danger_item "3" "Удалить клиента"  "Отзыв доступа, его конфиг умрёт"
     ui_item "X" "🔙" "Назад"
     echo ""
     read -p "Выбор: " ch || return
@@ -272,6 +280,46 @@ function awg_clients {
             echo -e "\n${C_WARN}--- конфиг ниже, сохраните его сейчас: повторно он не выдаётся ---${NC}\n"
             printf '%s\n' "$cfg"
             echo -e "\n${C_WARN}--- конец конфига ---${NC}"
+            read -p "Нажмите Enter..."
+            ;;
+        3)
+            # Удаление клиента.
+            #
+            # Подтверждение — [y/N] с показом того, что именно будет отозвано,
+            # а не ввод слова целиком: словом в проекте подтверждаются операции,
+            # сносящие стек, а здесь отзывается доступ одного клиента. Тот же
+            # вес, что у удаления AdGuard.
+            #
+            # Зато имя сверяется со списком ДО удаления: опечатка не должна
+            # молча ничего не сделать и оставить человека в уверенности, что
+            # доступ отозван. Это как раз тот класс — «рапорт об успехе поверх
+            # ничего не сделанного», — который проект ловит везде.
+            local victim line
+            read -p "Имя клиента для удаления: " victim
+            if [ -z "$victim" ]; then
+                echo -e "${C_WARN}Отменено.${NC}"; sleep 1; return
+            fi
+            line=$(docker exec awg-server awg-peer list 2>/dev/null | awk -v n="$victim" '$1 == n {print; exit}')
+            if [ -z "$line" ]; then
+                echo -e "\n${C_DANGER}❌ Клиента «${victim}» нет в списке.${NC}"
+                echo -e "${C_DESC}   Имя должно совпадать в точности, включая регистр.${NC}"
+                read -p "Нажмите Enter..."; return
+            fi
+            echo -e "\n${C_WARN}Будет отозван доступ:${NC}"
+            echo -e "   ${C_DESC}${line}${NC}"
+            echo -e "${C_WARN}Его конфиг перестанет работать. Выдать заново тот же нельзя —${NC}"
+            echo -e "${C_WARN}только новый, с новыми ключами.${NC}\n"
+            read -p "$(echo -e "${C_DANGER}Удалить? [y/N]: ${NC}")" yn
+            if [[ ! "$yn" =~ ^[Yy]$ ]]; then
+                echo -e "${C_WARN}Отменено.${NC}"; sleep 1; return
+            fi
+            docker exec awg-server awg-peer rm "$victim" >/dev/null 2>&1
+            # Проверяем фактом, а не кодом возврата: правило проекта.
+            if docker exec awg-server awg-peer list 2>/dev/null | awk -v n="$victim" '$1 == n {found=1} END {exit !found}'; then
+                echo -e "\n${C_DANGER}❌ Клиент «${victim}» всё ещё в списке — удаление не прошло.${NC}"
+            else
+                echo -e "\n${C_OK}✅ Доступ клиента «${victim}» отозван.${NC}"
+            fi
             read -p "Нажмите Enter..."
             ;;
         [Xx]) return ;;
