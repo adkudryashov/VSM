@@ -255,7 +255,7 @@ function awg_clients {
             local cfg err rc
             err=$(mktemp) || err=/tmp/awg-peer.err
             cfg=$(docker exec -e AWG_ENDPOINT="${endpoint}:${AWG_PORT}" \
-                        -e AWG_CLIENT_DNS="${AWG_CLIENT_DNS:-1.1.1.1}" \
+                        -e AWG_CLIENT_DNS="${AWG_CLIENT_DNS:-1.1.1.1, 8.8.8.8}" \
                         -e AWG_CLIENT_ALLOWED="0.0.0.0/0, ::/0" \
                         awg-server awg-peer add "$name" 2>"$err")
             rc=$?
@@ -459,7 +459,7 @@ function run_awg_menu {
             ui_kv '🏷  Версия'      "AmneziaWG ${AWG_VERSION:-3.0}" 17
             echo -e "   ${C_NAME}$(ui_pad '🔌  Порт' 17)${NC}${C_DESC}$(ui_pad "${AWG_PORT}/udp" 20)${NC}${C_NAME}$(ui_pad '🎭  Профиль' 17)${NC}${C_DESC}${AWG_PROFILE}${NC}"
             echo -e "   ${C_NAME}$(ui_pad '🔀  Форвардинг' 17)${NC}$(awg_forward_line)"
-            ui_kv '🌐  DNS клиентам' "${AWG_CLIENT_DNS:-1.1.1.1} — запрос идёт внутри туннеля" 17
+            ui_kv '🌐  DNS клиентам' "${AWG_CLIENT_DNS:-1.1.1.1, 8.8.8.8} — запрос идёт внутри туннеля" 17
         fi
         echo ""
         ui_section "AMNEZIAWG"

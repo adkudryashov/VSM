@@ -67,7 +67,7 @@ AWG_CONF=/etc/vsm/awg.conf
 AWG_TOOL=/usr/local/bin/awg-tool     # НЕ в /tmp: он очищается при перезагрузке
 AWG_DNS_NET=awg-dns-net              # только для снятия остатков прежних установок
 AWG_TUN_SUBNET=10.99.0.0/24
-AWG_CLIENT_DNS=1.1.1.1               # публичный, но запрос уходит внутри туннеля
+AWG_CLIENT_DNS="1.1.1.1, 8.8.8.8"   # два: если первый недоступен, клиент идёт ко второму
 AWG_IFACE=awg0                       # имя задаёт образ; правила фаервола ищем по нему
 AWG_SYSCTL=/etc/sysctl.d/99-vsm-awg.conf
 
@@ -599,7 +599,7 @@ AWG_TOOL_SHA=${AWG_TOOL_SHA}
 AWG_IMG_TAG=${AWG_IMG_TAG}
 AWG_SRV_IMG=${AWG_SRV_IMG}
 AWG_TUN_SUBNET=${AWG_TUN_SUBNET}
-AWG_CLIENT_DNS=${AWG_CLIENT_DNS}
+AWG_CLIENT_DNS="${AWG_CLIENT_DNS}"
 CONF
 )
 chmod 600 "$AWG_CONF"
