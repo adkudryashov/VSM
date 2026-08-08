@@ -118,9 +118,46 @@ wait_for_apt() {
 # растёт без предела, читать `iptables -S` становится нечем, и это ровно тот
 # случай, когда «не мешает» однажды кончается.
 #
-# Снимаем ВСЕ правила, поминающие интерфейс, а не «все кроме одного»: entrypoint
-# при старте добавит ровно один комплект сам. Ключ отбора — имя интерфейса
-# туннеля, больше его не использует никто.
+# Отсюда две операции, а не одна.
+#
+# `dedupe_awg_rules` оставляет по одному экземпляру каждого правила и зовётся
+# ПОСЛЕ старта контейнера. Снимать всё перед стартом нельзя: между снятием и
+# подъёмом нового комплекта узел остаётся без NAT, и это окно ничем не покрыто.
+# Дедуп же чинит и то, чего наш установщик не видел — контейнер поднят с
+# `--restart unless-stopped`, и каждый его самостоятельный перезапуск добавляет
+# свой комплект.
+#
+# `prune_awg_rules` снимает всё и зовётся только при удалении, когда контейнера
+# уже нет: иначе на машине навсегда остался бы MASQUERADE для подсети туннеля,
+# которого больше не существует.
+#
+# Ключ отбора в обеих — имя интерфейса туннеля, больше его не использует никто.
+dedupe_awg_rules() {
+    local removed=0
+    _dedupe_chain() {
+        local table="$1" chain="$2" spec n
+        while IFS= read -r spec; do
+            if [[ -z "$spec" ]]; then continue; fi
+            while :; do
+                n="$(iptables -t "$table" -S "$chain" 2>/dev/null \
+                     | grep -cFx -- "-A ${chain} ${spec}")" || n=0
+                if [[ "${n:-0}" -le 1 ]]; then break; fi
+                # Намеренное разбиение на слова: spec — спецификация правила.
+                # shellcheck disable=SC2086
+                if ! iptables -t "$table" -D "$chain" $spec 2>/dev/null; then break; fi
+                removed=$((removed + 1))
+            done
+        done < <(iptables -t "$table" -S "$chain" 2>/dev/null \
+                 | grep -F -- " ${AWG_IFACE}" | sed "s/^-A ${chain} //" | sort -u)
+    }
+    _dedupe_chain filter INPUT
+    _dedupe_chain filter FORWARD
+    _dedupe_chain nat POSTROUTING
+    if [[ "$removed" -gt 0 ]]; then
+        log "  снято повторов правил ${AWG_IFACE}: ${removed}"
+    fi
+}
+
 prune_awg_rules() {
     local table chain rule removed=0
     for chain in INPUT FORWARD; do
@@ -159,6 +196,14 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 [[ "$(id -u)" -eq 0 ]] || die "Запускай под root."
+
+# Отдельный режим, чтобы дедуп был доступен и вне установки: контейнер поднят с
+# `--restart unless-stopped`, и его самостоятельные перезапуски — цикл падений,
+# например — добавляют комплект правил мимо нас. Зовётся из меню при входе.
+if [[ "$MODE" == "dedupe" ]]; then
+    dedupe_awg_rules
+    exit 0
+fi
 
 case "$AWG_VERSION" in
     2.0) AWG_SRV_IMG="$AWG_IMG_20" ;;
@@ -431,9 +476,6 @@ docker run -d --name awg-dns --restart unless-stopped \
 # ---------------------------------------------------------------------------
 log "Этап 8: сервер"
 docker rm -f awg-server >/dev/null 2>&1 || true
-# Снимаем правила прежнего запуска ДО старта нового контейнера: свой комплект он
-# добавит сам, а прежний иначе останется лежать рядом навсегда.
-prune_awg_rules
 docker run -d --name awg-server --restart unless-stopped \
     --network host \
     --cap-add NET_ADMIN --device /dev/net/tun:/dev/net/tun \
@@ -493,6 +535,12 @@ fi
 if ! wait_until 20 awg_applied; then
     die_unaccepted "Демон не подтвердил конфигурацию ${AWG_VERSION} за 20 с. Смотри: docker logs awg-server"
 fi
+
+# Только здесь, а не сразу после `docker run`: свой комплект правил entrypoint
+# ставит не мгновенно, и дедуп, пущенный раньше, свернул бы прежние повторы в
+# один — а потом контейнер добавил бы к нему ещё один. К этой точке демон уже
+# подтвердил конфигурацию, значит правила на месте.
+dedupe_awg_rules
 RESTARTS="$(docker inspect -f '{{.RestartCount}}' awg-server 2>/dev/null)" || RESTARTS=0
 if [[ "${RESTARTS:-0}" -gt 0 ]]; then
     warn "Сервер перезапускался ${RESTARTS} раз — смотри docker logs awg-server"

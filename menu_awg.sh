@@ -282,6 +282,13 @@ function awg_uninstall {
 }
 
 function run_awg_menu {
+    # Правила фаервола, добавляемые контейнером при старте, он за собой не
+    # снимает, а перезапускается сам — по политике restart и в цикле падений.
+    # Дедуп при входе в меню держит их количество в узде между установками.
+    # Молчит, когда снимать нечего; вывод глушим, чтобы шапка не прыгала.
+    if awg_installed; then
+        bash "$AWG_SCRIPT" --mode dedupe >/dev/null 2>&1 || true
+    fi
     while true; do
         load_awg_conf
         clear
