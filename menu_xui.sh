@@ -324,12 +324,12 @@ function manage_xui_service {
             ST_TXT="ОСТАНОВЛЕН"; ST_COL="$C_DANGER"
         fi
         echo ""
-        echo -e "   ${C_NAME}$(ui_pad '🚥  Статус' 17)${NC}${ST_COL}${ST_TXT}${NC}"
+        echo -e "   ${C_NAME}$(ui_pad '🚥  Статус' 20)${NC}${ST_COL}${ST_TXT}${NC}"
         # Путь панели у 3x-ui случайный, и держать его в голове невозможно.
         # Строки нет, если адрес собрать не удалось: панель не установлена или
         # домен ещё не известен.
         PANEL_URL=$(xui_panel_url)
-        [ -n "$PANEL_URL" ] && ui_kv '🌐  Панель' "$PANEL_URL" 17
+        [ -n "$PANEL_URL" ] && ui_kv '🌐  Панель' "$PANEL_URL" 20
         # Учётки печатаются здесь, а не в главном меню: то открывается при
         # каждом входе по SSH, и его скриншот лежит в публичном README.
         XUI_USER=$(xui_admin_user); XUI_PASS=$(xui_admin_pass)
@@ -341,14 +341,14 @@ function manage_xui_service {
             # Значения жирным, а не серым: серый пароль нечитаем на светлом
             # терминале, и оформление отняло бы функцию там, где она важнее
             # всего.
-            printf "   %b%s%b%b%s%b\n" "$C_NAME" "$(ui_pad '👤  Логин' 17)" "$NC" \
+            printf "   %b%s%b%b%s%b\n" "$C_NAME" "$(ui_pad '👤  Логин' 20)" "$NC" \
                 "$C_SECRET" "${XUI_USER:-—}" "$NC"
-            printf "   %b%s%b%b%s%b\n" "$C_NAME" "$(ui_pad '🔑  Пароль' 17)" "$NC" \
+            printf "   %b%s%b%b%s%b\n" "$C_NAME" "$(ui_pad '🔑  Пароль' 20)" "$NC" \
                 "$C_SECRET" "${XUI_PASS:-—}" "$NC"
         elif [ "$STATUS_XUI" == "active" ]; then
             # Подсказка только при работающей панели: на чистом сервере учёток
             # ещё неоткуда взяться, и строка была бы шумом.
-            ui_kv '🔑  Учётные данные' 'не записаны — пункт 3' 17
+            ui_kv '🔑  Учётные данные' 'не записаны — пункт 3' 20
         fi
 
         echo ""
