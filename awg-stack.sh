@@ -59,16 +59,15 @@ AWG_TOOL_SHA="d669dac00879df3beaefdb3526082a946465f83e8bff7c288cd576e27f7bd0e0"
 AWG_IMG_20="vaiprog/amnezia-wg-2@sha256:769c2784517196ee001a5819de234c28e4b4820656abc11e37312008ca17fc3e"
 AWG_IMG_30="vaiprog/amnezia-wg-3@sha256:091c82084269f2987983468af56980d700b1afdffe35c5dd1b50da79917c5ce7"
 AWG_SRV_IMG="$AWG_IMG_30"
-AWG_DNS_IMG="vaiprog/amnezia-wg-dns@sha256:0c339b84e7e827982172c26e6bd38a1d99489f9de7e4755e0f24f10a1e441570"
+# Образа резолвера здесь больше нет: контейнер убран, см. этап 7.
 AWG_REL_BASE="https://github.com/Vadim-Khristenko/awg-containers-and-tools/releases/download/${AWG_TOOL_TAG}"
 
 AWG_DIR=/etc/vsm/awg
 AWG_CONF=/etc/vsm/awg.conf
 AWG_TOOL=/usr/local/bin/awg-tool     # НЕ в /tmp: он очищается при перезагрузке
-AWG_DNS_NET=awg-dns-net
-AWG_DNS_SUBNET=172.29.172.0/24
-AWG_DNS_IP=172.29.172.254            # из туннеля недостижим — см. HANDOFF §3б
+AWG_DNS_NET=awg-dns-net              # только для снятия остатков прежних установок
 AWG_TUN_SUBNET=10.99.0.0/24
+AWG_CLIENT_DNS=1.1.1.1               # публичный, но запрос уходит внутри туннеля
 AWG_IFACE=awg0                       # имя задаёт образ; правила фаервола ищем по нему
 AWG_SYSCTL=/etc/sysctl.d/99-vsm-awg.conf
 
@@ -357,10 +356,9 @@ log "  ${AWG_TOOL}: $("$AWG_TOOL" --version 2>&1 | head -1)"
 # ---------------------------------------------------------------------------
 # 5. Образы — по digest
 # ---------------------------------------------------------------------------
-log "Этап 5: образы"
+log "Этап 5: образ"
 docker pull -q "$AWG_SRV_IMG" >/dev/null || die "Не удалось получить образ сервера."
-docker pull -q "$AWG_DNS_IMG" >/dev/null || die "Не удалось получить образ резолвера."
-log "  оба образа получены по digest"
+log "  образ получен по digest"
 
 # ---------------------------------------------------------------------------
 # 6. Конфигурация сервера
@@ -454,22 +452,32 @@ chmod 600 "${AWG_DIR}/server.conf" "${AWG_DIR}/params.conf"
 log "  server.conf готов: версия ${AWG_VERSION}, профиль мимикрии ${AWG_PROFILE}"
 
 # ---------------------------------------------------------------------------
-# 7. Резолвер
+# 7. Резолвера больше нет — намеренно
 #
-# cap_drop ALL, как в примере автора, не работает: образ стартует от root, а
-# unbound.conf в нём требует сброса привилегий на пользователя unbound. Без
-# SETUID/SETGID это «unable to set group id: Operation not permitted» и вечный
-# цикл перезапуска — проверено на стенде, восемь падений подряд. Возвращаем
-# ровно две возможности, остальное остаётся снятым.
+# Свой unbound в контейнере на docker-мосту из туннеля недостижим, и причина не
+# в его настройках. Docker 29 сам ставит в таблицу `raw` правило
+# `-d <адрес контейнера> ! -i <его мост> -j DROP` — защиту от прямого доступа к
+# адресам контейнеров в обход опубликованных портов. Таблица `raw` идёт до
+# conntrack, `nat` и `filter`, поэтому все правки ниже по течению — политика
+# FORWARD, правило в DOCKER-USER, access-control в unbound — до пакета просто
+# не доживали. Разобрано с tcpdump и пробными счётчиками, см. HANDOFF §3б.
+#
+# Обойти можно одним ACCEPT выше запрета — проверено, работает сразу, — но это
+# борьба с собственной защитой Docker: правило пришлось бы восстанавливать
+# после каждой пересборки его набора.
+#
+# Решение владельца от 8 августа 2026: убрать. Клиенты получают 1.1.1.1, и
+# запрос уходит ВНУТРИ туннеля, то есть местному провайдеру не виден — ради
+# чего резолвер и задумывался. Свой добавил бы только сокрытие запросов от
+# Cloudflare, и это не стоит отдельного контейнера с сетью и подсетью.
+#
+# Остатки прежних установок убираются здесь же: у тех, кто ставил VSM до этой
+# правки, контейнер и сеть на машине есть, и удаление AmneziaWG их бы не
+# тронуло — установщик про них уже не знал бы.
 # ---------------------------------------------------------------------------
-log "Этап 7: резолвер"
-docker network create --subnet "$AWG_DNS_SUBNET" "$AWG_DNS_NET" >/dev/null 2>&1 || true
+log "Этап 7: снятие прежнего резолвера, если он остался"
 docker rm -f awg-dns >/dev/null 2>&1 || true
-docker run -d --name awg-dns --restart unless-stopped \
-    --cap-drop ALL --cap-add SETUID --cap-add SETGID \
-    --read-only --tmpfs /var/log/unbound \
-    --network "$AWG_DNS_NET" --ip "$AWG_DNS_IP" "$AWG_DNS_IMG" >/dev/null \
-    || die "Резолвер не запустился."
+docker network rm "$AWG_DNS_NET" >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
 # 8. Сервер в host-режиме
@@ -545,12 +553,6 @@ RESTARTS="$(docker inspect -f '{{.RestartCount}}' awg-server 2>/dev/null)" || RE
 if [[ "${RESTARTS:-0}" -gt 0 ]]; then
     warn "Сервер перезапускался ${RESTARTS} раз — смотри docker logs awg-server"
 fi
-DNS_OK=1
-if ! wait_until 20 sh -c "docker inspect -f '{{.State.Running}}' awg-dns 2>/dev/null | grep -q true"; then
-    warn "Резолвер не поднялся: клиентам придётся указывать свой DNS."
-    DNS_OK=0
-fi
-
 ( umask 077; cat > "$AWG_CONF" <<CONF
 # AmneziaWG, поставлен VSM. Пиннинг: обновляться могут репозиторий, релиз
 # бинарника и образы на Docker Hub — независимо друг от друга. Образы
@@ -562,10 +564,8 @@ AWG_TOOL_TAG=${AWG_TOOL_TAG}
 AWG_TOOL_SHA=${AWG_TOOL_SHA}
 AWG_IMG_TAG=${AWG_IMG_TAG}
 AWG_SRV_IMG=${AWG_SRV_IMG}
-AWG_DNS_IMG=${AWG_DNS_IMG}
-AWG_DNS_IP=${AWG_DNS_IP}
 AWG_TUN_SUBNET=${AWG_TUN_SUBNET}
-AWG_DNS_OK=${DNS_OK}
+AWG_CLIENT_DNS=${AWG_CLIENT_DNS}
 CONF
 )
 chmod 600 "$AWG_CONF"

@@ -14,8 +14,8 @@ AWG_CONF="/etc/vsm/awg.conf"
 AWG_DIR="/etc/vsm/awg"
 
 function load_awg_conf {
-    AWG_PORT=""; AWG_PROFILE=""; AWG_SRV_IMG=""; AWG_DNS_IMG=""; AWG_VERSION=""
-    AWG_TOOL_TAG=""; AWG_TOOL_SHA=""; AWG_DNS_IP=""; AWG_DNS_OK=""
+    AWG_PORT=""; AWG_PROFILE=""; AWG_SRV_IMG=""; AWG_VERSION=""
+    AWG_TOOL_TAG=""; AWG_TOOL_SHA=""; AWG_CLIENT_DNS=""
     if [ -f "$AWG_CONF" ]; then
         # shellcheck disable=SC1090
         source "$AWG_CONF"
@@ -176,18 +176,13 @@ function awg_clients {
             # пирами вместо awg-peer: их инструмент пишет пиру один адрес, и
             # второй не переживает перезапуск контейнера.
             #
-            # DNS клиенту даём ПУБЛИЧНЫЙ, а не адрес контейнера-резолвера.
-            #
-            # Резолвер 172.29.172.254 живёт на docker-мосту, а сервер работает
-            # в host-режиме и на этом мосту не стоит. Измерено на стенде: из
-            # туннеля этот адрес недостижим — ни пинга, ни ответа на запрос,
-            # хотя с самого хоста он отвечает. Клиент с таким DNS не резолвит
-            # ничего, и это выглядит как «VPN подключился, но не работает»:
-            # рукопожатие есть, трафик идёт, а имена не разрешаются.
+            # DNS клиенту даём ПУБЛИЧНЫЙ. Своего резолвера у нас больше нет:
+            # контейнер на docker-мосту из туннеля недостижим по устройству
+            # Docker, и он убран — разбор в HANDOFF §3б.
             #
             # 1.1.1.1 через туннель проверен: имена резолвятся, health-check
             # https://www.gstatic.com/generate_204 отдаёт 204 за 0.3 с.
-            # Запрос уходит внутри туннеля, то есть местному провайдеру он не
+            # Запрос уходит ВНУТРИ туннеля, то есть местному провайдеру он не
             # виден — ради чего резолвер и задумывался.
             echo -e "\n${YELLOW}--- конфиг ниже, сохраните его сейчас: повторно он не выдаётся ---${NC}\n"
             docker exec -e AWG_ENDPOINT="${endpoint}:${AWG_PORT}" \
@@ -224,10 +219,10 @@ function awg_remote_digest {
     printf '%s' "$d"
 }
 
-# Проверка обновлений. Отслеживаются ТРИ поверхности, и меняться они могут
-# независимо: релиз бинарника, образ сервера и образ резолвера. Образы
-# публикуются на Docker Hub отдельно от GitHub, поэтому тег там способен
-# переехать на другой образ без единого коммита — сверяем по digest.
+# Проверка обновлений. Отслеживаются ДВЕ поверхности, и меняться они могут
+# независимо: релиз бинарника и образ сервера. Образ публикуется на Docker Hub
+# отдельно от GitHub, поэтому тег там способен переехать на другой образ без
+# единого коммита — сверяем по digest.
 function awg_check_updates {
     load_awg_conf
     clear
@@ -237,7 +232,7 @@ function awg_check_updates {
     fi
 
     local changed=0 img name pinned remote
-    for img in "$AWG_SRV_IMG:сервер" "$AWG_DNS_IMG:резолвер"; do
+    for img in "$AWG_SRV_IMG:сервер"; do
         name="${img##*:}"; pinned="${img%:*}"
         local repo="${pinned%@*}" digest="${pinned#*@}"
         remote=$(awg_remote_digest "$repo" "${AWG_IMG_TAG:-$AWG_TOOL_TAG}") || remote=""
@@ -282,8 +277,8 @@ function awg_uninstall {
     echo -e "${RED}======================================================${NC}"
     echo -e "${RED}         🗑️   УДАЛЕНИЕ AMNEZIAWG  🗑️                  ${NC}"
     echo -e "${RED}======================================================${NC}"
-    echo -e "${YELLOW}Будут удалены: контейнеры сервера и резолвера, их сеть и тома,"
-    echo -e "конфигурация в ${AWG_DIR}, правило UFW и запись форвардинга.${NC}"
+    echo -e "${YELLOW}Будут удалены: контейнер сервера и его тома, конфигурация"
+    echo -e "в ${AWG_DIR}, правила фаервола, правило UFW и запись форвардинга.${NC}"
     echo -e "${YELLOW}Все выданные клиентские конфиги перестанут работать.${NC}"
     echo -e "${GREEN}Стек telemt, панель, nginx и сертификаты НЕ трогаются.${NC}\n"
     read -p "$(echo -e "${RED}Введите УДАЛИТЬ для подтверждения: ${NC}")" c
@@ -311,9 +306,7 @@ function run_awg_menu {
             echo -e "    Версия:      ${YELLOW}AmneziaWG ${AWG_VERSION:-3.0}${NC}"
             echo -e "    Порт:        ${YELLOW}${AWG_PORT}/udp${NC}   профиль: ${YELLOW}${AWG_PROFILE}${NC}"
             echo -e "    Форвардинг:  [$(awg_forward_line)]"
-            if [ "${AWG_DNS_OK:-1}" != "1" ]; then
-                echo -e "    ${YELLOW}Резолвер не поднялся — клиенты ходят к своему DNS.${NC}"
-            fi
+            echo -e "    DNS клиентам: ${YELLOW}${AWG_CLIENT_DNS:-1.1.1.1}${NC}   ${BLUE}запрос идёт внутри туннеля${NC}"
         fi
         echo -e "${BLUE}------------------------------------------------------${NC}"
         echo -e "${YELLOW}1) 📥  Установить AmneziaWG (2.0 или 3.0)${NC}"
