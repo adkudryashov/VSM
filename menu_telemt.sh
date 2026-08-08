@@ -144,10 +144,10 @@ function run_install {
     if [ "$mode" == "full" ]; then
         echo -e "${CYAN}     📦  УСТАНОВКА ВСЕГО СТЕКА С НУЛЯ  📦             ${NC}"
         echo -e "${CYAN}======================================================${NC}"
-        echo -e "${RED}⚠️  ВНИМАНИЕ: установщик 3x-ui-pro СТИРАЕТ существующую"
+        echo -e "${RED}❗  ВНИМАНИЕ: установщик 3x-ui-pro СТИРАЕТ существующую"
         echo -e "    панель — базу, инбаунды и всех пользователей.${NC}"
         if [ -d /etc/x-ui ]; then
-            echo -e "${RED}⚠️  На сервере УЖЕ ЕСТЬ установленная 3x-ui (/etc/x-ui).${NC}"
+            echo -e "${RED}❗  На сервере УЖЕ ЕСТЬ установленная 3x-ui (/etc/x-ui).${NC}"
             echo -e "${YELLOW}    Если она боевая — выбери вместо этого пункт 2"
             echo -e "    (добавить telemt к существующей панели).${NC}"
         fi
@@ -209,7 +209,7 @@ function run_diagnostics {
     echo -e "vhost маскировки: [$(mask_status_line)]  ($MASK_VHOST)"
 
     if [ ! -f "$MASK_VHOST" ]; then
-        echo -e "${RED}⚠️  Файл маскировки отсутствует!${NC}"
+        echo -e "${RED}❗  Файл маскировки отсутствует!${NC}"
         echo -e "${YELLOW}    Скорее всего его стёрла переустановка или патч 3x-ui-pro."
         echo -e "    Без него telemt при DPI-пробе не отдаёт настоящий сайт."
         echo -e "    Почини пунктом 'Восстановить конфиги nginx'.${NC}"
@@ -439,7 +439,7 @@ function check_tls_parity {
         # Паритет важнее самого PQ: включённый на одном порту и выключенный на
         # другом — это признак, которого без PQ вовсе не было бы.
         if [ "$ok_pq" = 1 ]; then
-            echo -e "  ${RED}⚠️  PQ работает только на ОДНОМ порту — это расхождение.${NC}"
+            echo -e "  ${RED}❗  PQ работает только на ОДНОМ порту — это расхождение.${NC}"
             diff=$((diff + 1))
         fi
     else
@@ -494,12 +494,12 @@ function show_credentials {
 function manage_services {
     while true; do
         clear
-        echo -e "${CYAN}--- ⚙️  УПРАВЛЕНИЕ СЛУЖБАМИ СТЕКА --------------------${NC}"
+        echo -e "${CYAN}--- 🔧  УПРАВЛЕНИЕ СЛУЖБАМИ СТЕКА --------------------${NC}"
         echo -e "    telemt:       [$(stack_status_line)]"
         echo -e "    telemt_panel: [$(panel_status_line)]"
         echo -e "${BLUE}------------------------------------------------------${NC}"
-        echo -e "1) 🎛️   Служба telemt (статус | старт | стоп | логи)"
-        echo -e "2) 🖥️   Служба telemt_panel (статус | старт | стоп | логи)"
+        echo -e "1) 📊   Служба telemt (статус | старт | стоп | логи)"
+        echo -e "2) 💻   Служба telemt_panel (статус | старт | стоп | логи)"
         echo -e "X) 🔙  Назад"
         echo -e "${BLUE}------------------------------------------------------${NC}"
         read -p "Выбор: " s_choice
@@ -604,7 +604,7 @@ function legacy_leftovers_warning {
     [ -z "$meko" ] && [ -z "$mtpr" ] && return 0
 
     if [ -n "$mtpr" ]; then
-        echo -e "${RED}⚠️  Найдены следы MTproxy-reanimation ($mtpr).${NC}"
+        echo -e "${RED}❗  Найдены следы MTproxy-reanimation ($mtpr).${NC}"
         echo -e "${YELLOW}   Это предыдущее поколение того же инструмента, и оно ограничивает"
         echo -e "   тот же трафик. Хуже всего с Zapret2: он заворачивает пакеты прокси"
         echo -e "   в очередь nfqws, а такой же обработчик MTProxyL встанет рядом —"
@@ -614,7 +614,7 @@ function legacy_leftovers_warning {
     fi
 
     if [ -n "$meko" ]; then
-        echo -e "${RED}⚠️  Найдены следы MEKO ($meko).${NC}"
+        echo -e "${RED}❗  Найдены следы MEKO ($meko).${NC}"
         echo -e "${YELLOW}   MEKO ставит SYN FIX либо в iptables, либо в nftables — в обоих"
         echo -e "   случаях он ограничивает тот же трафик, что и MTProxyL."
         echo -e "   Сначала снимите его: ${CYAN}mekopr${YELLOW} → «Удалить SYN FIX»,"
@@ -627,7 +627,7 @@ function run_mtproxyl {
     clear
     load_stack_conf
     echo -e "${CYAN}======================================================${NC}"
-    echo -e "${CYAN}      🛡️  MTPROXYL — SYN-ЛИМИТЕР И ТЮНИНГ  🛡️         ${NC}"
+    echo -e "${CYAN}      🔒  MTPROXYL — SYN-ЛИМИТЕР И ТЮНИНГ  🔒         ${NC}"
     echo -e "${CYAN}======================================================${NC}"
 
     # Пункты чужого меню здесь намеренно не перечисляются: они зависят от
@@ -653,7 +653,7 @@ function run_mtproxyl {
     # только один из них совместим со стеком VSM. Спрашивают об этом первым же
     # вопросом установщика, поэтому предупреждаем заранее.
     if ! mtproxyl_is_installed; then
-        echo -e "${RED}⚠️  ВАЖНО: на первом вопросе выберите режим [2] Reanimator.${NC}"
+        echo -e "${RED}❗  ВАЖНО: на первом вопросе выберите режим [2] Reanimator.${NC}"
         echo -e "${YELLOW}   Reanimator применяет фиксы к УЖЕ работающему telemt — к тому,"
         echo -e "   который поставил VSM. Ничего не устанавливает и не перезаписывает."
         echo -e "   Режим [1] Manager поставит Docker и поднимет ВТОРОЙ telemt в"
@@ -663,7 +663,7 @@ function run_mtproxyl {
     # Своя маскировка у MTProxyL правит те же ключи [censorship], которыми
     # управляет self-SNI маскировка VSM. Пункт 4 будет возвращать их обратно,
     # и вдвоём они устроят качели.
-    echo -e "${RED}⚠️  Selfmask в его меню — не включайте.${NC}"
+    echo -e "${RED}❗  Selfmask в его меню — не включайте.${NC}"
     echo -e "${YELLOW}   Маскировку в этой сборке держит VSM (пункт 4), а Selfmask"
     echo -e "   переставит tls_domain, mask_host и mask_port на свой nginx."
     echo -e "   Постквантовый TLS для маскировки — это пункт 8, ещё один"
@@ -675,7 +675,7 @@ function run_mtproxyl {
     legacy_leftovers_warning
 
     if command -v docker &> /dev/null; then
-        echo -e "${YELLOW}⚠️  Обнаружен Docker. После применения правил проверьте"
+        echo -e "${YELLOW}❗  Обнаружен Docker. После применения правил проверьте"
         echo -e "    порядок цепочек: ${CYAN}nft list ruleset${YELLOW} — правило должно"
         echo -e "    отрабатывать раньше цепочек Docker.${NC}\n"
     fi
@@ -718,7 +718,7 @@ function run_mtproxyl {
         # Режим проверяем после ЛЮБОГО запуска, а не только после установки:
         # переключить его можно и из чужого меню, уже после нашего экрана.
         if [ "$(mtproxyl_mode)" = "manager" ]; then
-            echo -e "\n${RED}⚠️  Выбран режим Manager — он несовместим со стеком VSM.${NC}"
+            echo -e "\n${RED}❗  Выбран режим Manager — он несовместим со стеком VSM.${NC}"
             echo -e "${YELLOW}   Сейчас на сервере два telemt: наш и его контейнер."
             echo -e "   Переключить: ${CYAN}mtproxyl mode reanimator${YELLOW}"
             echo -e "   При переходе он предложит остановить и удалить свой контейнер —"
@@ -739,13 +739,13 @@ function run_rebuild_nginx {
     echo -e "Системный OpenSSL 3.0.x не умеет постквантовый обмен ключей"
     echo -e "(X25519MLKEM768). Клиенты iOS его предпочитают, и его отсутствие"
     echo -e "на self-SNI backend'е — заметный маркер для DPI-эвристик.\n"
-    echo -e "${RED}⚠️  Операция долгая: 20-40 минут на 1 vCPU.${NC}"
-    echo -e "${RED}⚠️  Подменяется системный бинарник nginx (с бэкапом и авто-откатом).${NC}"
-    echo -e "${RED}⚠️  После неё пакет nginx замораживается (apt-mark hold) —"
+    echo -e "${RED}❗  Операция долгая: 20-40 минут на 1 vCPU.${NC}"
+    echo -e "${RED}❗  Подменяется системный бинарник nginx (с бэкапом и авто-откатом).${NC}"
+    echo -e "${RED}❗  После неё пакет nginx замораживается (apt-mark hold) —"
     echo -e "    security-обновления придётся ставить вручную.${NC}\n"
 
     if [ -z "${TMUX:-}" ] && [ -z "${STY:-}" ]; then
-        echo -e "${YELLOW}⚠️  Ты НЕ в tmux/screen. Обрыв SSH прервёт сборку на середине.${NC}"
+        echo -e "${YELLOW}❗  Ты НЕ в tmux/screen. Обрыв SSH прервёт сборку на середине.${NC}"
         echo -e "${YELLOW}    Рекомендую: tmux new -s nginx, затем вернуться сюда.${NC}\n"
     else
         echo -e "${GREEN}✓ Сессия в tmux/screen — обрыв SSH сборку не убьёт.${NC}\n"
@@ -798,7 +798,7 @@ function run_rebuild_nginx {
 function uninstall_stack {
     clear
     echo -e "${RED}======================================================${NC}"
-    echo -e "${RED}          🗑️   УДАЛЕНИЕ СТЕКА TELEMT  🗑️              ${NC}"
+    echo -e "${RED}          🧨   УДАЛЕНИЕ СТЕКА TELEMT  🧨              ${NC}"
     echo -e "${RED}======================================================${NC}"
     echo -e "${YELLOW}Будут удалены: telemt, telemt_panel, их конфиги и данные,"
     echo -e "vhost маскировки, правила UFW для портов стека.${NC}"
@@ -832,7 +832,7 @@ function uninstall_stack {
         systemctl reload nginx
         echo -e "${GREEN}✓ nginx перезагружен без vhost маскировки.${NC}"
     else
-        echo -e "${RED}⚠️  nginx -t не проходит — проверь конфиг вручную.${NC}"
+        echo -e "${RED}❗  nginx -t не проходит — проверь конфиг вручную.${NC}"
     fi
 
     # Блок доступа к панели вписан в vhost 3x-ui, а сам vhost мы не трогаем —
@@ -872,7 +872,7 @@ function run_telemt_menu {
         clear
         load_stack_conf
         echo -e "${CYAN}======================================================${NC}"
-        echo -e "${CYAN}        ✈️   СТЕК TELEMT / MTPROTO  ✈️                ${NC}"
+        echo -e "${CYAN}        🛫   СТЕК TELEMT / MTPROTO  🛫                ${NC}"
         echo -e "${CYAN}======================================================${NC}"
         local tp_url; tp_url=$(telemt_panel_url)
         echo -e "    telemt:         [$(stack_status_line)]"
@@ -915,11 +915,11 @@ function run_telemt_menu {
         echo -e "${CYAN}4) 🔧  Восстановить конфиги nginx (маска + доступ к панели)${NC}"
         echo -e "${CYAN}5) 🔬  Сверить TLS маски и панели (+ PQ)${NC}"
         echo -e "${CYAN}6) 🔑  Показать учётные данные${NC}"
-        echo -e "${CYAN}7) ⚙️   Управление службами (старт | стоп | логи)${NC}"
+        echo -e "${CYAN}7) 🔧   Управление службами (старт | стоп | логи)${NC}"
         echo -e "${BLUE}--- ДОПОЛНИТЕЛЬНО ------------------------------------${NC}"
-        echo -e "${YELLOW}8) 🛡️   MTProxyL (лимитер | обход | тюнинг)${NC}"
+        echo -e "${YELLOW}8) 🔒   MTProxyL (лимитер | обход | тюнинг)${NC}"
         echo -e "${YELLOW}9) 🔬  Пересборка nginx с OpenSSL 3.5 (PQ TLS)${NC}"
-        echo -e "${RED}10) 🗑️   Удалить стек telemt${NC}"
+        echo -e "${RED}10) 🧨   Удалить стек telemt${NC}"
         echo -e "${RED}X) 🔙  Назад в главное меню${NC}"
         echo -e "${BLUE}------------------------------------------------------${NC}"
 

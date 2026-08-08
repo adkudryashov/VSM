@@ -115,14 +115,14 @@ function ufw_enable_safely {
 function show_ufw_menu {
     while true; do
         clear
-        echo -e "${CYAN}--- 🛡️ УПРАВЛЕНИЕ ФАЙРВОЛОМ (UFW) -----------------------${NC}"
+        echo -e "${CYAN}--- 🔒 УПРАВЛЕНИЕ ФАЙРВОЛОМ (UFW) -----------------------${NC}"
         echo -e "    Статус: [$(if [ "$(get_ufw_status)" == "active" ]; then echo -e "${GREEN}ВКЛЮЧЕН${NC}"; else echo -e "${RED}ВЫКЛЮЧЕН${NC}"; fi)]"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
         echo -e "1) 🟢  Включить UFW"
         echo -e "2) 🔴  Выключить UFW"
         echo -e "3) 🔓  Разрешить порт (allow)"
         echo -e "4) 🔒  Запретить порт (deny)"
-        echo -e "5) 🗑️   Удалить правило (по номеру)"
+        echo -e "5) 🧨   Удалить правило (по номеру)"
         echo -e "6) 📜  Список правил (с номерами)"
         echo -e "7) 🔄  Перезагрузить (reload)"
         echo -e "X) 🔙  Назад"
@@ -201,10 +201,10 @@ function set_timezone_menu {
         echo -e "${CYAN}--- 🕒 НАСТРОЙКА ЧАСОВОГО ПОЯСА -------------------------${NC}"
         echo -e "    Текущий пояс: ${GREEN}$(get_timezone_status)${NC}"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
-        echo -e "1) 🏰  Калининград (MSK-1)   5) 🏔️  Екатеринбург (MSK+2)"
-        echo -e "2) 🏛️   Москва (MSK)          6) 🌲 Новосибирск (MSK+4)"
+        echo -e "1) 🏰  Калининград (MSK-1)   5) 🗻  Екатеринбург (MSK+2)"
+        echo -e "2) 🏢   Москва (MSK)          6) 🌲 Новосибирск (MSK+4)"
         echo -e "3) 🚀  Самара (MSK+1)        7) ⚓ Владивосток (MSK+7)"
-        echo -e "4) 🌍  UTC                   8) ❄️  Магадан (MSK+8)"
+        echo -e "4) 🌍  UTC                   8) 🧊  Магадан (MSK+8)"
         echo -e "X) 🔙  Назад"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
         read -p "Выбор [1-8, X]: " t_choice
@@ -266,7 +266,7 @@ function show_bbr_menu {
         echo -e "${BLUE}----------------------------------------------------------${NC}"
         echo -e "${GREEN}1) 🟢  Активировать BBR${NC}"
         echo -e "${RED}2) 🔴  Деактивировать BBR (возврат к Cubic)${NC}"
-        echo -e "${YELLOW}3) ℹ️   Показать текущий алгоритм (sysctl)${NC}"
+        echo -e "${YELLOW}3) 📋   Показать текущий алгоритм (sysctl)${NC}"
         echo -e "${RED}X) 🔙  Назад"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
         read -p "Ваш выбор [1-3, X]: " choice
@@ -384,7 +384,7 @@ function manage_ssl_menu {
         echo -e "1) ➕  Получить сертификат (Один домен или Multi-domain SAN)"
         echo -e "2) 📋  Список сохраненных сертификатов"
         echo -e "3) ❌  Отозвать и удалить сертификат"
-        echo -e "4) ⚙️   Изменить папку по умолчанию"
+        echo -e "4) 🔧   Изменить папку по умолчанию"
         echo -e "X) 🔙  Назад"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
         read -p "Выбор: " ssl_choice
@@ -515,7 +515,7 @@ function run_setup_menu {
     while true; do
         clear
         echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${CYAN}║${NC}                    ${GREEN}⚙️   НАСТРОЙКА И ОПТИМИЗАЦИЯ${NC}                           ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}                    ${GREEN}🔧   НАСТРОЙКА И ОПТИМИЗАЦИЯ${NC}                           ${CYAN}║${NC}"
         echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
         
         BBR_STATUS=$(get_bbr_status)
@@ -531,20 +531,20 @@ function run_setup_menu {
         echo ""
         echo -e "${BLUE}  ── СТАТУС ─────────────────────────────────────────────────────────────────${NC}"
         echo -e "   📈  BBR   [$(if [ "$BBR_STATUS" == "active" ]; then echo -e "${GREEN}АКТИВЕН${NC}"; else echo -e "${RED}ОТКЛЮЧЕН${NC}"; fi)]      🏓  ICMP  [$(if [ "$PING_STATUS" == "enabled" ]; then echo -e "${GREEN}РАЗРЕШЁН${NC}"; else echo -e "${RED}ЗАПРЕЩЁН${NC}"; fi)]"
-        echo -e "   🛡️   UFW   [$(if [ "$(get_ufw_status)" == "active" ]; then echo -e "${GREEN}АКТИВЕН${NC}"; else echo -e "${RED}ОТКЛЮЧЕН${NC}"; fi)]      🌐  IPv6  [${IPV6_LINE}]"
+        echo -e "   🔒   UFW   [$(if [ "$(get_ufw_status)" == "active" ]; then echo -e "${GREEN}АКТИВЕН${NC}"; else echo -e "${RED}ОТКЛЮЧЕН${NC}"; fi)]      🌐  IPv6  [${IPV6_LINE}]"
         echo -e "   🕒  Часовой пояс   ${YELLOW}$(get_timezone_status)${NC}"
 
         echo ""
         echo -e "${BLUE}  ── СЕТЬ ─────────────────────────────────────────────────────────────────${NC}"
         echo -e "   ${YELLOW}1${NC}  📈  BBR                  ${BLUE}Алгоритм управления перегрузкой TCP${NC}"
         echo -e "   ${YELLOW}2${NC}  🏓  ICMP                 ${BLUE}Ответы на ping: разрешить или запретить${NC}"
-        echo -e "   ${YELLOW}3${NC}  🛡️   Фаервол UFW          ${BLUE}Порты, правила, включение с защитой SSH${NC}"
+        echo -e "   ${YELLOW}3${NC}  🔒   Фаервол UFW          ${BLUE}Порты, правила, включение с защитой SSH${NC}"
         echo -e "   ${YELLOW}4${NC}  🌐  IPv6                 ${BLUE}Включение и отключение на уровне ядра${NC}"
         echo ""
         echo -e "${BLUE}  ── СЕРТИФИКАТЫ И ПРОЧЕЕ ─────────────────────────────────────────────────${NC}"
         echo -e "   ${YELLOW}5${NC}  🔐  SSL-сертификаты      ${BLUE}Выпуск, продление, удаление Let's Encrypt${NC}"
         echo -e "   ${YELLOW}6${NC}  🕒  Часовой пояс         ${BLUE}Смена часового пояса сервера${NC}"
-        echo -e "   ${YELLOW}7${NC}  ☁️   Cloudflare WARP      ${BLUE}Исходящий трафик через WARP${NC}"
+        echo -e "   ${YELLOW}7${NC}  📦   Cloudflare WARP      ${BLUE}Исходящий трафик через WARP${NC}"
         echo ""
         echo -e "   ${RED}X${NC}  🔙  Назад"
         echo ""

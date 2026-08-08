@@ -71,7 +71,7 @@ function awg_install {
     echo -e "${YELLOW}Требуется Docker — будет установлен, если его нет.${NC}\n"
 
     if awg_installed; then
-        echo -e "${YELLOW}⚠️  AmneziaWG уже установлен. Повторная установка перевыпустит"
+        echo -e "${YELLOW}❗  AmneziaWG уже установлен. Повторная установка перевыпустит"
         echo -e "    ключ сервера, и все выданные клиентские конфиги перестанут"
         echo -e "    работать.${NC}\n"
         read -p "$(echo -e "${RED}Введите ПЕРЕУСТАНОВИТЬ для подтверждения: ${NC}")" c
@@ -275,7 +275,7 @@ function awg_check_updates {
 function awg_uninstall {
     clear
     echo -e "${RED}======================================================${NC}"
-    echo -e "${RED}         🗑️   УДАЛЕНИЕ AMNEZIAWG  🗑️                  ${NC}"
+    echo -e "${RED}         🧨   УДАЛЕНИЕ AMNEZIAWG  🧨                  ${NC}"
     echo -e "${RED}======================================================${NC}"
     echo -e "${YELLOW}Будут удалены: контейнер сервера и его тома, конфигурация"
     echo -e "в ${AWG_DIR}, правила фаервола, правило UFW и запись форвардинга.${NC}"
@@ -313,7 +313,7 @@ function run_awg_menu {
         echo -e "${YELLOW}2) 👥  Клиенты (список и выдача конфигов)${NC}"
         echo -e "${YELLOW}3) 🔄  Проверить обновления${NC}"
         echo -e "${YELLOW}4) 📜  Журнал сервера${NC}"
-        echo -e "${RED}5) 🗑️   Удалить AmneziaWG${NC}"
+        echo -e "${RED}5) 🧨   Удалить AmneziaWG${NC}"
         echo -e "${RED}X) 🔙  Назад в главное меню${NC}"
         echo -e "${BLUE}------------------------------------------------------${NC}"
 

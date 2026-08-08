@@ -122,7 +122,7 @@ function run_install {
     echo -e "${GREEN}Повторный запуск безопасен: базы, настройки и GeoIP сохраняются.${NC}"
 
     if [ "$mode" != "3xui" ] && [ ! -f /etc/telemt/telemt.toml ]; then
-        echo -e "\n${YELLOW}⚠️  Панель Telemt не найдена. Бот установится, но будет"
+        echo -e "\n${YELLOW}❗  Панель Telemt не найдена. Бот установится, но будет"
         echo -e "    писать в журнал ошибки обращения к её API.${NC}"
     fi
 
@@ -160,7 +160,7 @@ function run_update {
     local dirty
     dirty=$(git status --porcelain -- bots/ 2>/dev/null)
     if [ -n "$dirty" ]; then
-        echo -e "${RED}⚠️  В bots/ есть несохранённые изменения:${NC}"
+        echo -e "${RED}❗  В bots/ есть несохранённые изменения:${NC}"
         echo "$dirty" | sed 's/^/    /'
         echo -e "${YELLOW}Обновление их СОТРЁТ.${NC}"
         read -p "$(echo -e "${RED}Введите СТЕРЕТЬ, чтобы продолжить: ${NC}")" c
@@ -214,7 +214,7 @@ function run_update {
 function show_settings {
     clear; load_conf
     echo -e "${CYAN}======================================================${NC}"
-    echo -e "${CYAN}            ⚙️   ТЕКУЩИЕ НАСТРОЙКИ  ⚙️                 ${NC}"
+    echo -e "${CYAN}            🔧   ТЕКУЩИЕ НАСТРОЙКИ  🔧                 ${NC}"
     echo -e "${CYAN}======================================================${NC}"
     echo -e " Режим             : ${YELLOW}${BOTS_MODE:-не установлен}${NC}"
     echo -e " Каталог кода      : ${YELLOW}$BOTS_DIR${NC}"
@@ -258,7 +258,7 @@ function manage_services {
 function run_remove {
     clear
     echo -e "${RED}======================================================${NC}"
-    echo -e "${RED}            🗑️  УДАЛЕНИЕ БОТОВ  🗑️                    ${NC}"
+    echo -e "${RED}            🧨  УДАЛЕНИЕ БОТОВ  🧨                    ${NC}"
     echo -e "${RED}======================================================${NC}"
     echo -e "Будут остановлены и удалены службы, окружение и настройки."
     echo -e "Также снимается публичная отдача карты: файл и блок в конфиге nginx."
@@ -312,18 +312,18 @@ while true; do
     echo -e "${CYAN}            🤖  TELEGRAM-БОТЫ  🤖                    ${NC}"
     echo -e "${CYAN}======================================================${NC}"
     echo -e " 🤝  3xui-telemt-bot : [$(unit_status 3xui-telemt-bot)]"
-    echo -e " ✈️   telemt-bot      : [$(unit_status telemt-bot)]"
-    echo -e " 🎛️   3xui-bot        : [$(unit_status 3xui-monitor)]"
-    echo -e " 🗺️   карта           : [$(map_status_line)]"
+    echo -e " 🛫   telemt-bot      : [$(unit_status telemt-bot)]"
+    echo -e " 📊   3xui-bot        : [$(unit_status 3xui-monitor)]"
+    echo -e " 🌍   карта           : [$(map_status_line)]"
     echo -e "${BLUE}------------------------------------------------------${NC}"
     echo -e "${GREEN}1) 🤝  Объединённый бот (Telemt | панели 3x-ui)${NC}"
     echo -e "${YELLOW}2) 🔀  Два отдельных бота (telemt-bot | 3xui-bot)${NC}"
-    echo -e "${YELLOW}3) ✈️   Только telemt-bot${NC}"
-    echo -e "${YELLOW}4) 🎛️   Только 3xui-bot${NC}"
+    echo -e "${YELLOW}3) 🛫   Только telemt-bot${NC}"
+    echo -e "${YELLOW}4) 📊   Только 3xui-bot${NC}"
     echo -e "${CYAN}5) 🔄  Обновить код ботов (с GitHub)${NC}"
-    echo -e "${GREEN}6) ⚙️   Показать текущие настройки${NC}"
-    echo -e "${GREEN}7) 🛠️   Управление службами (статус | старт | стоп | логи)${NC}"
-    echo -e "${RED}8) 🗑️   Удалить ботов${NC}"
+    echo -e "${GREEN}6) 🔧   Показать текущие настройки${NC}"
+    echo -e "${GREEN}7) 🧰   Управление службами (статус | старт | стоп | логи)${NC}"
+    echo -e "${RED}8) 🧨   Удалить ботов${NC}"
     echo -e "${RED}X) 🔙  Назад в главное меню${NC}"
     echo -e "${BLUE}------------------------------------------------------${NC}"
     read -p "$(echo -e "${CYAN}Ваш выбор: ${NC}")" choice

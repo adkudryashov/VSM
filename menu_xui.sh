@@ -15,7 +15,7 @@ XUI_PRO_REPO="https://raw.githubusercontent.com/mozaroc/3x-ui-pro/main"
 # прогнать диагностику.
 function warn_telemt_after_panel_change {
     if [ -f /etc/telemt/telemt.toml ]; then
-        echo -e "\n${YELLOW}⚠️  На сервере установлен стек telemt.${NC}"
+        echo -e "\n${YELLOW}❗  На сервере установлен стек telemt.${NC}"
         echo -e "${YELLOW}    Панель могла перегенерировать свои nginx-конфиги."
         echo -e "    Проверь маскировку: главное меню -> 'Стек telemt / MTProto'"
         echo -e "    -> 'Статус и диагностика'. При сбое — 'Восстановить маскировку'.${NC}"
@@ -105,11 +105,11 @@ function patch_xui_pro {
 function manage_adguard {
     while true; do
         clear
-        echo -e "${CYAN}--- 🛡️  ADGUARD HOME (DNS-over-HTTPS + блокировка рекламы) ---${NC}"
+        echo -e "${CYAN}--- 🔒  ADGUARD HOME (DNS-over-HTTPS + блокировка рекламы) ---${NC}"
         echo -e "${YELLOW}Ставится на домен панели, без отдельного домена и портов (через 443).${NC}"
         echo -e "${BLUE}------------------------------------------------------${NC}"
         echo -e "1) 📥  Установить или обновить AdGuard Home"
-        echo -e "2) 🗑️   Удалить AdGuard Home"
+        echo -e "2) 🧨   Удалить AdGuard Home"
         echo -e "X) 🔙  Назад"
         echo -e "${BLUE}------------------------------------------------------${NC}"
         read -p "Выбор: " ag_choice
@@ -151,7 +151,7 @@ function manage_backup {
         echo -e "${CYAN}--- 💾  БЭКАП / ВОССТАНОВЛЕНИЕ X-UI PRO ---------------${NC}"
         echo -e "1) 📦  Создать бэкап"
         echo -e "2) 📋  Список бэкапов"
-        echo -e "3) ♻️   Восстановить из бэкапа"
+        echo -e "3) 🔄   Восстановить из бэкапа"
         echo -e "X) 🔙  Назад"
         echo -e "${BLUE}------------------------------------------------------${NC}"
         read -p "Выбор: " b_choice
@@ -197,7 +197,7 @@ function manage_xui_credentials {
         echo -e "${YELLOW}Пункт 1 НЕ меняет пароль панели — он запоминает тот,${NC}"
         echo -e "${YELLOW}что уже действует, чтобы не искать его при каждом входе.${NC}"
         echo -e "${BLUE}------------------------------------------------------${NC}"
-        echo -e "1) ✏️   Записать или обновить логин и пароль"
+        echo -e "1) 📝   Записать или обновить логин и пароль"
         echo -e "2) 🧹  Стереть запись"
         echo -e "X) 🔙  Назад"
         echo -e "${BLUE}------------------------------------------------------${NC}"
@@ -252,13 +252,13 @@ function uninstall_xui_pro {
     # обещал снести сертификаты — их установщик не трогает вовсе, и человек
     # шёл выпускать заново то, что и так на месте. Зато он молчал о главном:
     # /etc/nginx удаляется целиком, а вместе с ним и маскировка стека telemt.
-    echo -e "${RED}⚠️  Будут удалены:"
+    echo -e "${RED}❗  Будут удалены:"
     echo -e "      • панель 3x-ui-pro с базой инбаундов и пользователей"
     echo -e "      • nginx целиком: пакет вычищается (purge), каталог /etc/nginx удаляется"
     echo -e "      • /var/www/html, страницы подписок и диагностики${NC}"
     echo -e "${GREEN}    Сертификаты Let's Encrypt в /etc/letsencrypt НЕ удаляются.${NC}"
     if [ -f /etc/telemt/telemt.toml ]; then
-        echo -e "\n${RED}⚠️  На сервере установлен стек telemt, и удаление панели его сломает:"
+        echo -e "\n${RED}❗  На сервере установлен стек telemt, и удаление панели его сломает:"
         echo -e "    вместе с /etc/nginx исчезнет conf.d/telemt-mask.conf, вместе с"
         echo -e "    /var/www/html — webroot маскировки, а за остановленным nginx"
         echo -e "    systemd унесёт и telemt (Requires=nginx.service)."
@@ -284,7 +284,7 @@ function uninstall_xui_pro {
             apt-mark unhold $held >/dev/null 2>&1
             local still; still=$(apt-mark showhold 2>/dev/null | grep -cE '^nginx')
             if [ "${still:-0}" -ne 0 ]; then
-                echo -e "${RED}⚠️  Фиксация снялась не полностью — удаление nginx может не пройти.${NC}"
+                echo -e "${RED}❗  Фиксация снялась не полностью — удаление nginx может не пройти.${NC}"
             fi
         fi
         # Через xui_installer_fetch, а не run_remote_script: это тот же файл
@@ -314,7 +314,7 @@ function manage_xui_service {
     while true; do
         clear
         echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${CYAN}║${NC}                    ${GREEN}🎛️   ПАНЕЛЬ X-UI (3x-ui-pro)${NC}                           ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}                    ${GREEN}📊   ПАНЕЛЬ X-UI (3x-ui-pro)${NC}                           ${CYAN}║${NC}"
         echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
 
         STATUS_XUI=$(get_service_status $SERVICE_NAME)
@@ -350,15 +350,15 @@ function manage_xui_service {
         echo -e "   ${YELLOW}3${NC}  🔑  Учётные данные      ${BLUE}Показать или записать логин и пароль${NC}"
         echo -e "   ${YELLOW}4${NC}  💾  Бэкап               ${BLUE}Создать, посмотреть список, восстановить${NC}"
         echo -e "   ${YELLOW}5${NC}  🚥  Управление службой  ${BLUE}Статус, старт, стоп, рестарт${NC}"
-        echo -e "   ${YELLOW}6${NC}  🖥️   Открыть панель      ${BLUE}Штатное меню апстрима (команда x-ui)${NC}"
+        echo -e "   ${YELLOW}6${NC}  💻   Открыть панель      ${BLUE}Штатное меню апстрима (команда x-ui)${NC}"
         echo ""
         echo -e "${BLUE}  ── ДОПОЛНИТЕЛЬНО ────────────────────────────────────────────────────────${NC}"
-        echo -e "   ${YELLOW}7${NC}  🛡️   AdGuard Home        ${BLUE}DNS-over-HTTPS и блокировка рекламы${NC}"
+        echo -e "   ${YELLOW}7${NC}  🔒   AdGuard Home        ${BLUE}DNS-over-HTTPS и блокировка рекламы${NC}"
         echo ""
         # Удаление уехало с 7 на 8 из-за нового пункта. Сдвиг безопасен именно
         # в эту сторону: кто по привычке нажмёт 7, попадёт на экран учёток, а
         # не на снос панели. Обратный порядок был бы недопустим.
-        echo -e "   ${RED}8${NC}  🗑️   Удалить X-UI Pro    ${BLUE}Панель, база и nginx целиком${NC}"
+        echo -e "   ${RED}8${NC}  🧨   Удалить X-UI Pro    ${BLUE}Панель, база и nginx целиком${NC}"
         echo -e "   ${RED}X${NC}  🔙  Назад"
         echo ""
 

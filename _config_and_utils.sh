@@ -55,10 +55,11 @@ C_DANGER="$RED"
 # читается на любой теме.
 C_SECRET="$BOLD"
 
-# Метка разрушающего пункта. Второй признак помимо позиции: правило проекта
+# Знак разрушающего пункта. Второй признак помимо позиции: правило проекта
 # запрещает двигать такие пункты к привычному месту, но позиция сама по себе —
-# защита слабая, если пункт всё-таки переехал.
-MARK_DANGER='!'
+# защита слабая, если пункт всё-таки переехал. Задаётся здесь и подставляется
+# самой ui_danger_item, а не вызывающим: иначе он снова разойдётся по файлам.
+MARK_DANGER='🧨'
 
 # Определите имена и пути
 SCANER_PATH="/root/RealiTLScanner-linux-64"
@@ -130,10 +131,12 @@ function ui_item {
     echo -e "   ${C_KEY}${key}${NC}  ${icon}  ${C_NAME}$(ui_pad "$name" "$width")${NC}${C_DESC}${desc}${NC}"
 }
 
-# Разрушающий пункт: красный и с меткой. Позиция — не единственный признак.
+# Разрушающий пункт: красный и со своим знаком. Знак подставляется здесь и
+# аргументом не принимается — иначе он снова разойдётся по девяти файлам, а
+# смысл метки как раз в том, что она всюду одна и та же.
 function ui_danger_item {
-    local key="$1" icon="$2" name="$3" desc="${4:-}" width="${5:-22}"
-    echo -e "   ${C_DANGER}${key}${NC}  ${icon}  ${C_DANGER}$(ui_pad "${MARK_DANGER} ${name}" "$width")${NC}${C_DESC}${desc}${NC}"
+    local key="$1" name="$2" desc="${3:-}" width="${4:-22}"
+    echo -e "   ${C_DANGER}${key}${NC}  ${MARK_DANGER}  ${C_DANGER}$(ui_pad "$name" "$width")${NC}${C_DESC}${desc}${NC}"
 }
 
 # Пара «имя — значение».
@@ -161,9 +164,9 @@ function manage_service_status_restart {
     SERVICE_NAME=$1
     
     echo -e "\n${CYAN}>>> Действия для службы $SERVICE_NAME${NC}"
-    echo -e "  1) ℹ️   Статус ${GREEN}(status)${NC}"
-    echo -e "  2) ▶️   Запустить ${GREEN}(start)${NC}"
-    echo -e "  3) ⏹️   Остановить ${RED}(stop)${NC}"
+    echo -e "  1) 📋   Статус ${GREEN}(status)${NC}"
+    echo -e "  2) 🟢   Запустить ${GREEN}(start)${NC}"
+    echo -e "  3) 🔴   Остановить ${RED}(stop)${NC}"
     echo -e "  4) 🔄  Перезапустить ${YELLOW}(restart)${NC}"
     echo -e "  5) 📄  Посмотреть логи в реальном времени ${CYAN}(logs)${NC}"
     echo -e "  X) 🔙  Назад"
@@ -179,8 +182,8 @@ function manage_service_status_restart {
         3) sudo systemctl stop $SERVICE_NAME && echo -e "${RED}🛑 Остановлено!${NC}" ;;
         4) sudo systemctl restart $SERVICE_NAME && echo -e "${YELLOW}🔄 Перезапущено!${NC}" ;;
         5) 
-            echo -e "${YELLOW}ℹ️  Открываю журнал (последние 50 строк + новые события).${NC}"
-            echo -e "${GREEN}ℹ️  Для ВЫХОДА обратно в меню нажмите Ctrl+C.${NC}"
+            echo -e "${YELLOW}📋  Открываю журнал (последние 50 строк + новые события).${NC}"
+            echo -e "${GREEN}📋  Для ВЫХОДА обратно в меню нажмите Ctrl+C.${NC}"
             sleep 2
             sudo journalctl -u $SERVICE_NAME -n 50 -f
             ;;
@@ -534,7 +537,7 @@ function upstream_fingerprint {
     local now; now=$(date '+%F')
     local new; new=$(sha256sum "$file" 2>/dev/null | awk '{print $1}') || new=""
     if [ -z "$new" ]; then
-        echo -e "${YELLOW}⚠️  Не удалось посчитать отпечаток ${url} — сверка пропущена.${NC}"
+        echo -e "${YELLOW}❗  Не удалось посчитать отпечаток ${url} — сверка пропущена.${NC}"
         return 0
     fi
 
@@ -559,7 +562,7 @@ function upstream_fingerprint {
         return 0
     fi
 
-    echo -e "\n${RED}⚠️  СТОРОННИЙ СКРИПТ ИЗМЕНИЛСЯ С ПРОШЛОГО ЗАПУСКА${NC}"
+    echo -e "\n${RED}❗  СТОРОННИЙ СКРИПТ ИЗМЕНИЛСЯ С ПРОШЛОГО ЗАПУСКА${NC}"
     echo -e "${YELLOW}   $url${NC}"
     echo -e "${YELLOW}   было  ${old}  (${when})${NC}"
     echo -e "${YELLOW}   стало ${new}  (${now})${NC}"
@@ -618,7 +621,7 @@ function xui_installer_fetch {
     local left
     left=$(grep -cE '^[[:space:]]*check_cpu([[:space:]]|$)' "$out" 2>/dev/null) || left=0
     if [ "${left:-0}" -ne 0 ]; then
-        echo -e "${YELLOW}⚠️  Проверка CPU снята не полностью: осталось вызовов — ${left}.${NC}"
+        echo -e "${YELLOW}❗  Проверка CPU снята не полностью: осталось вызовов — ${left}.${NC}"
         echo -e "${YELLOW}   На хостере с эмулированным QEMU-процессором установщик${NC}"
         echo -e "${YELLOW}   оборвётся. Вызов у автора изменился — нужен новый шаблон.${NC}"
     fi
