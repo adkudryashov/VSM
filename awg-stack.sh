@@ -67,8 +67,9 @@ AWG_CONF=/etc/vsm/awg.conf
 AWG_TOOL=/usr/local/bin/awg-tool     # НЕ в /tmp: он очищается при перезагрузке
 AWG_DNS_NET=awg-dns-net
 AWG_DNS_SUBNET=172.29.172.0/24
-AWG_DNS_IP=172.29.172.254            # адрес попадает в каждый выданный конфиг
+AWG_DNS_IP=172.29.172.254            # из туннеля недостижим — см. HANDOFF §3б
 AWG_TUN_SUBNET=10.99.0.0/24
+AWG_IFACE=awg0                       # имя задаёт образ; правила фаервола ищем по нему
 AWG_SYSCTL=/etc/sysctl.d/99-vsm-awg.conf
 
 log()  { echo -e "\e[1;32m[этап]\e[0m $*"; }
@@ -105,6 +106,48 @@ wait_for_apt() {
     return 0
 }
 
+# Правила фаервола контейнера копятся при каждом его запуске.
+#
+# Entrypoint образа добавляет их через `iptables -A`, а его shutdown снимает
+# только `ip rule` и сам интерфейс — правила остаются. Контейнер поднят с
+# `--restart unless-stopped`, так что дубли множит любой перезапуск, не только
+# наша переустановка. Замерено на стенде после нескольких прогонов: 28 лишних
+# правил четырёх видов — MASQUERADE, INPUT, и две штуки FORWARD.
+#
+# Вреда в работе не замечено: правила одинаковые и решение не меняют. Но список
+# растёт без предела, читать `iptables -S` становится нечем, и это ровно тот
+# случай, когда «не мешает» однажды кончается.
+#
+# Снимаем ВСЕ правила, поминающие интерфейс, а не «все кроме одного»: entrypoint
+# при старте добавит ровно один комплект сам. Ключ отбора — имя интерфейса
+# туннеля, больше его не использует никто.
+prune_awg_rules() {
+    local table chain rule removed=0
+    for chain in INPUT FORWARD; do
+        table=filter
+        while :; do
+            rule="$(iptables -t "$table" -S "$chain" 2>/dev/null \
+                    | grep -m1 -F " ${AWG_IFACE}" | sed "s/^-A ${chain} //")" || rule=""
+            if [[ -z "$rule" ]]; then break; fi
+            # Намеренное разбиение на слова: rule — это спецификация правила.
+            # shellcheck disable=SC2086
+            if ! iptables -t "$table" -D "$chain" $rule 2>/dev/null; then break; fi
+            removed=$((removed + 1))
+        done
+    done
+    while :; do
+        rule="$(iptables -t nat -S POSTROUTING 2>/dev/null \
+                | grep -m1 -F " ${AWG_IFACE}" | sed 's/^-A POSTROUTING //')" || rule=""
+        if [[ -z "$rule" ]]; then break; fi
+        # shellcheck disable=SC2086
+        if ! iptables -t nat -D POSTROUTING $rule 2>/dev/null; then break; fi
+        removed=$((removed + 1))
+    done
+    if [[ "$removed" -gt 0 ]]; then
+        log "  снято прежних правил ${AWG_IFACE}: ${removed}"
+    fi
+}
+
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
         --mode)    MODE="$2";        shift 2 ;;
@@ -135,6 +178,10 @@ if [[ "$MODE" == "uninstall" ]]; then
         OLD_PORT="${AWG_PORT:-}"
     fi
     docker rm -f awg-server awg-dns >/dev/null 2>&1 || true
+    # После остановки контейнера: его правила фаервола переживают удаление,
+    # потому что снимает их не он. Иначе на машине навсегда остаётся MASQUERADE
+    # для подсети туннеля, которого больше нет.
+    prune_awg_rules
     docker network rm "$AWG_DNS_NET" >/dev/null 2>&1 || true
     docker volume rm awg-state awg-log >/dev/null 2>&1 || true
     rm -rf "$AWG_DIR"
@@ -384,6 +431,9 @@ docker run -d --name awg-dns --restart unless-stopped \
 # ---------------------------------------------------------------------------
 log "Этап 8: сервер"
 docker rm -f awg-server >/dev/null 2>&1 || true
+# Снимаем правила прежнего запуска ДО старта нового контейнера: свой комплект он
+# добавит сам, а прежний иначе останется лежать рядом навсегда.
+prune_awg_rules
 docker run -d --name awg-server --restart unless-stopped \
     --network host \
     --cap-add NET_ADMIN --device /dev/net/tun:/dev/net/tun \
