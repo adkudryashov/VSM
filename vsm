@@ -235,6 +235,10 @@ fi
     LOAD_AVG=$(awk '{print $1", "$2", "$3}' /proc/loadavg)
     OS_NAME=$(grep "PRETTY_NAME" /etc/os-release | cut -d'"' -f2)
     ARCH=$(uname -m)
+    # Разрядность отдельно от архитектуры: x86_64 и aarch64 говорят о наборе
+    # команд, а не о разрядности userspace — на 32-битном образе поверх
+    # 64-битного ядра uname -m всё равно скажет x86_64.
+    ARCH_BITS=$(getconf LONG_BIT 2>/dev/null) || ARCH_BITS=""
     KERNEL=$(uname -r)
     TCP_CC=$(sysctl net.ipv4.tcp_congestion_control | awk '{print $3}')
 
@@ -293,19 +297,43 @@ fi
     # Выравнивание через ui_pad, а НЕ через printf %-13s: printf считает байты,
     # а кириллица в UTF-8 занимает два байта на букву, и колонки разъезжались
     # ровно на длину русской подписи. ${#s} в bash считает символы.
+    # Две ячейки в строке, у каждой свой значок.
+    #
+    # Значок в выравнивание не входит — его ширина в ячейках зависит от
+    # терминала. Колонки отсчитываются от подписи, поэтому съехать может только
+    # сам значок, но не таблица за ним. Ширины: подпись 14, значение 21, вторая
+    # подпись 14 — в сумме с отступами ровно 78, как у разделителей.
+    #
+    # Строки, где значение длинное (модель процессора, IPv6, организация),
+    # занимают всю ширину: пара для них не влезает, а обрезать модель, как было
+    # раньше, значит показывать «Intel(R) Xeon(R) Platinum 81» вместо ответа на
+    # вопрос, ради которого её и смотрят.
+    _row2() { # подпись1 значение1 цвет1 подпись2 значение2 цвет2
+        echo -e "   ${3}$(ui_pad "$1" 15)${NC}${C_DESC}$(ui_pad "$2" 21)${NC}${6}$(ui_pad "$4" 15)${NC}${C_DESC}${5}${NC}"
+    }
+    _row1() { # подпись значение
+        echo -e "   ${C_NAME}$(ui_pad "$1" 15)${NC}${C_DESC}${2}${NC}"
+    }
+
     echo ""
     ui_section "СЕРВЕР"
-    echo -e "   ${C_NAME}$(ui_pad 'Процессор' 14)${NC}${C_DESC}$(ui_pad "${CPU_MODEL:0:31}" 33)${NC}${C_NAME}$(ui_pad 'Ядра' 9)${NC}${C_DESC}${CPU_CORES} @ ${CPU_FREQ} MHz${NC}"
-    echo -e "   ${C_NAME}$(ui_pad 'Память' 14)${NC}${C_DESC}$(ui_pad "${RAM_TOTAL} ГБ (занято $(printf '%.1f' "$MEM_USED"))" 33)${NC}${C_NAME}$(ui_pad 'Кэш L3' 9)${NC}${C_DESC}${CPU_CACHE}${NC}"
-    echo -e "   ${C_NAME}$(ui_pad 'Диск' 14)${NC}${C_DESC}$(ui_pad "${D_TOTAL} (занято ${D_USED})" 33)${NC}${C_NAME}$(ui_pad 'Нагрузка' 9)${NC}${C_DESC}${LOAD_AVG}${NC}"
-    echo -e "   ${C_NAME}$(ui_pad 'ОС' 14)${NC}${C_DESC}$(ui_pad "${OS_NAME} (${ARCH})" 33)${NC}${C_NAME}$(ui_pad 'Ядро' 9)${NC}${C_DESC}${KERNEL}${NC}"
-    echo -e "   ${C_NAME}$(ui_pad 'Виртуализация' 14)${NC}${C_DESC}$(ui_pad "${VIRT}" 33)${NC}${C_NAME}$(ui_pad 'TCP CC' 9)${NC}${C_DESC}${TCP_CC}${NC}"
-    # AES-NI и VM-x красятся по состоянию, а не по роли: это не значение, а
-    # признак «есть или нет», и цвет здесь несёт смысл.
-    echo -e "   ${C_NAME}$(ui_pad 'AES-NI' 14)${NC}${AES_C}$(ui_pad "$AES_NI" 33)${NC}${C_NAME}$(ui_pad 'VM-x' 9)${NC}${VM_C}${VM_X}${NC}"
-    echo -e "   ${C_NAME}$(ui_pad 'Аптайм' 14)${NC}${C_DESC}$(ui_pad "${UPTIME}" 33)${NC}${C_NAME}$(ui_pad 'IPv4' 9)${NC}${C_DESC}${IPV4:-—}${NC}"
+    _row1 "💻  Процессор"   "$CPU_MODEL"
+    _row2 "🧠  Ядра"        "${CPU_CORES} @ ${CPU_FREQ} MHz"                        "$C_NAME" \
+          "💽  Кэш L3"      "$CPU_CACHE"                                            "$C_NAME"
+    _row2 "🐏  Память"      "${RAM_TOTAL} ГБ (занято $(printf '%.1f' "$MEM_USED"))" "$C_NAME" \
+          "💾  Диск"        "${D_TOTAL} (занято ${D_USED})"                         "$C_NAME"
+    _row2 "📈  Нагрузка"    "$LOAD_AVG"                                             "$C_NAME" \
+          "⏳  Аптайм"      "$UPTIME"                                               "$C_NAME"
+    _row2 "🐧  ОС"          "${OS_NAME:0:21}"                                       "$C_NAME" \
+          "🧱  Архитектура" "${ARCH}${ARCH_BITS:+ (${ARCH_BITS} бит)}"              "$C_NAME"
+    _row2 "🔩  Ядро"        "$KERNEL"                                               "$C_NAME" \
+          "🚀  TCP CC"      "$TCP_CC"                                               "$C_NAME"
+    # AES-NI и VM-x красятся по состоянию: это не значение, а признак «есть или
+    # нет», и цвет здесь несёт смысл, а не роль.
+    echo -e "   ${C_NAME}$(ui_pad '📦  Виртуализация' 15)${NC}${C_DESC}$(ui_pad "$VIRT" 21)${NC}${C_NAME}$(ui_pad '🔒  AES-NI' 15)${NC}${AES_C}${AES_NI}${NC}"
+    echo -e "   ${C_NAME}$(ui_pad '🧩  VM-x/AMD-V' 15)${NC}${VM_C}$(ui_pad "$VM_X" 21)${NC}${C_NAME}$(ui_pad '🌐  IPv4' 15)${NC}${C_DESC}${IPV4:-—}${NC}"
     if [ -n "$IPV6" ]; then
-        ui_kv 'IPv6' "$IPV6"
+        _row1 "🌐  IPv6" "$IPV6"
     fi
     # Гео приходит открытым текстом от стороннего API. Печатаем через printf
     # %s, а не echo -e: подмена ответа на пути не должна разворачивать
@@ -316,12 +344,19 @@ fi
     # строки оставались единственными крашеными, и коды лезли в вывод текстом.
     # Данные по-прежнему идут через %s и не интерпретируются.
     if [ -n "$COUNTRY" ]; then
-        printf "   %b%s%b%s%b%s%b%s\n" \
-            "$C_NAME" "$(ui_pad 'Страна' 14)" "$NC" "$(ui_pad "$COUNTRY" 33)" \
-            "$C_NAME" "$(ui_pad 'Локация' 9)" "$NC" "$LOC"
+        printf "   %b%s%b%b%s%b%b%s%b%b%s%b\n" \
+            "$C_NAME" "$(ui_pad '🌍  Страна' 15)" "$NC" \
+            "$C_DESC" "$(ui_pad "$COUNTRY" 21)" "$NC" \
+            "$C_NAME" "$(ui_pad '📍  Локация' 15)" "$NC" \
+            "$C_DESC" "$LOC" "$NC"
+    fi
+    if [ -n "$REG" ] && [ "$REG" != "null" ]; then
+        printf "   %b%s%b%b%s%b\n" \
+            "$C_NAME" "$(ui_pad '🧭  Регион' 15)" "$NC" "$C_DESC" "$REG" "$NC"
     fi
     if [ -n "$ORG" ]; then
-        printf "   %b%s%b%s\n" "$C_NAME" "$(ui_pad 'Организация' 14)" "$NC" "$ORG"
+        printf "   %b%s%b%b%s%b\n" \
+            "$C_NAME" "$(ui_pad '🏢  Организация' 15)" "$NC" "$C_DESC" "$ORG" "$NC"
     fi
 
     # СТАТУС ПРИЛОЖЕНИЙ
