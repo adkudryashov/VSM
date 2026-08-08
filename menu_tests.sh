@@ -193,17 +193,17 @@ function run_tests_menu {
         ui_section "ГДЕ МЫ И КАК НАС ВИДНО"
         ui_item "1"  "🌍" "IP region"         "Как сервисы определяют регион сервера"
         ui_item "2"  "🧪" "Доступность из РФ" "DNS, датацентры, радар ТСПУ"
-        ui_item "5"  "🔒" "IPQuality"         "Проверка адреса на блокировки"
-        ui_item "9"  "🔎" "DPI Detector"      "Анализ приёмов цензуры на канале"
+        ui_item "3"  "🔒" "IPQuality"         "Проверка адреса на блокировки"
+        ui_item "4"  "🔎" "DPI Detector"      "Анализ приёмов цензуры на канале"
         echo ""
         ui_section "СКОРОСТЬ И ЖЕЛЕЗО"
-        ui_item "3"  "🚀" "iPerf3"            "Замер до серверов в РФ"
-        ui_item "4"  "📊" "YABS"              "Комплексный бенчмарк сервера"
-        ui_item "6"  "📡" "Параметры сервера" "Характеристики и скорость канала"
-        ui_item "7"  "💻" "Процессор"         "Тест sysbench"
+        ui_item "5"  "🚀" "iPerf3"            "Замер до серверов в РФ"
+        ui_item "6"  "📊" "YABS"              "Комплексный бенчмарк сервера"
+        ui_item "7"  "📡" "Параметры сервера" "Характеристики и скорость канала"
+        ui_item "8"  "💻" "Процессор"         "Тест sysbench"
         echo ""
         ui_section "РАЗВЕДКА SNI"
-        ui_item "8"  "🔍" "RealiTLScanner"    "Поиск подходящих SNI для REALITY"
+        ui_item "9"  "🔍" "RealiTLScanner"    "Поиск подходящих SNI для REALITY"
         ui_item "10" "🛰" "SNI Scan"          "Скан подсети на пригодные имена"
         echo ""
         ui_item "X"  "🔙" "Назад"
@@ -237,26 +237,26 @@ function run_tests_menu {
                 run_remote_script "https://ipregion.vrnt.xyz"
                 ;;
             2) run_censorcheck ;;
-            3)
+            5)
 			# --- ПРОВЕРКА И УСТАНОВКА IPERF3 ---
 ensure_packages iperf3 || echo -e "${YELLOW}   Тест скорости может не работать.${NC}"
                 echo -e "${CYAN}>>> Тест iPerf3 (серверы РФ)...${NC}"
                 run_remote_script "https://github.com/itdoginfo/russian-iperf3-servers/raw/main/speedtest.sh"
                 ;;
-            4)
+            6)
                 echo -e "${CYAN}>>> Запуск YABS...${NC}"
                 run_remote_script "https://yabs.sh" -4
                 ;;
-            5)
+            3)
                 echo -e "${CYAN}>>> Проверка IP сервера на блокировки зарубежными сервисами...${NC}"
                  run_remote_script "https://Check.Place" -EI
                 ;;
-            6)
+            7)
                 echo -e "${CYAN}>>> Параметры сервера (характеристики | скорость)...${NC}"
                 run_remote_script "https://bench.sh"
                 ;;
 
-            7)
+            8)
                 echo -e "${CYAN}>>> Запуск теста на процессор...${NC}"
                 # Проверка sysbench прямо перед запуском
     if ! ensure_packages sysbench; then
@@ -265,8 +265,8 @@ ensure_packages iperf3 || echo -e "${YELLOW}   Тест скорости мож�
     fi
 				sysbench cpu run --threads=1
                 ;;	
-            8) run_scanner ;;
-            9)
+            9) run_scanner ;;
+            4)
                 run_dpi_detector
                 ;;
             10)

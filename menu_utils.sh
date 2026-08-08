@@ -24,17 +24,17 @@ function run_utils_menu {
         ui_item "1" "📈" "Ресурсы"        "htop: процессы, память, нагрузка"
         ui_item "2" "💾" "Место на диске" "ncdu: что именно занимает место"
         ui_item "3" "🚦" "Сетевой трафик" "nethogs: кто и сколько передаёт"
-        ui_item "6" "🔓" "Активные порты" "ss: кто слушает и откуда подключён"
+        ui_item "4" "🔓" "Активные порты" "ss: кто слушает и откуда подключён"
         echo ""
         ui_section "СЕТЬ"
-        ui_item "4" "🌍" "Внешний адрес"  "IPv4 и IPv6 сервера снаружи"
-        ui_item "5" "📡" "Пинг и маршрут" "ping и mtr до произвольного узла"
-        ui_item "9" "🔎" "Привязка домена" "Смотрит ли домен на этот сервер"
+        ui_item "5" "🌍" "Внешний адрес"  "IPv4 и IPv6 сервера снаружи"
+        ui_item "6" "📡" "Пинг и маршрут" "ping и mtr до произвольного узла"
+        ui_item "7" "🔎" "Привязка домена" "Смотрит ли домен на этот сервер"
         echo ""
         ui_section "ОБСЛУЖИВАНИЕ"
         ui_item "8" "🧹" "Очистка"        "Кэш пакетов, журналы, временные файлы"
         echo ""
-        ui_danger_item "7" "Завершить процесс" "kill: снимает выбранный процесс"
+        ui_danger_item "9" "Завершить процесс" "kill: снимает выбранный процесс"
         ui_item "X" "🔙" "Назад"
         echo ""
         
@@ -76,13 +76,13 @@ function run_utils_menu {
                     echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1
                 fi
                 ;;
-            4)
+            5)
                 echo -e "\n${CYAN}--- Проверка IP ---${NC}"
                 echo -e "${YELLOW}IPv4:${NC} $(curl -4 -s -m 4 ifconfig.me || echo 'Недоступен')"
                 echo -e "${YELLOW}IPv6:${NC} $(curl -6 -s -m 4 ifconfig.me || echo 'Недоступен')"
                 read -p "Нажмите Enter..."
                 ;;
-            5)
+            6)
                 echo -e "\n${CYAN}--- Пинг и Трассировка ---${NC}"
                 read -p "Введите IP или домен (например, 8.8.8.8 или google.com): " target
                 if [ -z "$target" ]; then continue; fi
@@ -98,7 +98,7 @@ function run_utils_menu {
                 esac
                 read -p "Нажмите Enter..."
                 ;;
-            6)
+            4)
                 echo -e "\n${CYAN}--- Активные порты (ss) ---${NC}"
                 echo -e "1) Только TCP-порты"
                 echo -e "2) Только UDP-порты"
@@ -114,7 +114,7 @@ function run_utils_menu {
                 echo ""
                 read -p "Нажмите Enter..."
                 ;;
-            7)
+            9)
                 echo -e "\n${CYAN}--- Завершение процессов ---${NC}"
                 echo -e "1) Найти процесс по имени (узнать PID)"
                 echo -e "2) Убить по точному PID (kill -9)"
@@ -159,7 +159,7 @@ function run_utils_menu {
                 esac
                 read -p "Нажмите Enter..."
                 ;;
-            9)
+            7)
                 echo -e "\n${CYAN}--- Проверка привязки домена ---${NC}"
                 read -p "Введите домен (например, sub.domain.com): " check_domain
                 if [ -n "$check_domain" ]; then
