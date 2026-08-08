@@ -204,12 +204,39 @@ function awg_clients {
             # https://www.gstatic.com/generate_204 отдаёт 204 за 0.3 с.
             # Запрос уходит ВНУТРИ туннеля, то есть местному провайдеру он не
             # виден — ради чего резолвер и задумывался.
-            echo -e "\n${YELLOW}--- конфиг ниже, сохраните его сейчас: повторно он не выдаётся ---${NC}\n"
-            docker exec -e AWG_ENDPOINT="${endpoint}:${AWG_PORT}" \
+            # Конфиг собираем ДО печати заголовка и разбираем код возврата.
+            #
+            # Раньше «конфиг ниже, сохраните его сейчас» печаталось первым, а
+            # под ним оказывалось «peer already exists» — то есть отказ выдавали
+            # за конфиг. Человек, доверившись заголовку, копировал сообщение об
+            # ошибке. Поймано владельцем.
+            #
+            # Стандартный поток и поток ошибок разделены: awg-peer пишет конфиг
+            # в stdout, а свои события журнала — в stderr, и слитые вместе они
+            # попадают внутрь конфига. Клиент отвечает на такой конфиг невнятным
+            # «Configuration parsing error».
+            local cfg err rc
+            err=$(mktemp) || err=/tmp/awg-peer.err
+            cfg=$(docker exec -e AWG_ENDPOINT="${endpoint}:${AWG_PORT}" \
                         -e AWG_CLIENT_DNS="${AWG_CLIENT_DNS:-1.1.1.1}" \
                         -e AWG_CLIENT_ALLOWED="0.0.0.0/0, ::/0" \
-                        awg-server awg-peer add "$name"
-            echo -e "\n${YELLOW}--- конец конфига ---${NC}"
+                        awg-server awg-peer add "$name" 2>"$err")
+            rc=$?
+            if [ "$rc" -ne 0 ] || [ -z "$cfg" ]; then
+                echo -e "\n${C_DANGER}❌ Конфиг не выдан (код ${rc}).${NC}"
+                sed 's/^/    /' "$err" >&2
+                if grep -q 'already exists' "$err" 2>/dev/null; then
+                    echo -e "${C_WARN}    Имя занято прежним пиром. Удалить его:${NC}"
+                    echo -e "${C_DESC}      docker exec awg-server awg-peer rm ${name}${NC}"
+                fi
+                rm -f "$err"
+                read -p "Нажмите Enter..."
+                return
+            fi
+            rm -f "$err"
+            echo -e "\n${C_WARN}--- конфиг ниже, сохраните его сейчас: повторно он не выдаётся ---${NC}\n"
+            printf '%s\n' "$cfg"
+            echo -e "\n${C_WARN}--- конец конфига ---${NC}"
             read -p "Нажмите Enter..."
             ;;
         [Xx]) return ;;
