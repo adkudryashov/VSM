@@ -108,6 +108,32 @@ function ui_section {
     echo -e "${C_HEAD}  ── ${title} ${dashes// /─}${NC}"
 }
 
+# Рамка заголовка экрана.
+#
+# Раньше её рисовали литералами в каждом файле, и ширина расходилась: где-то
+# 54 символа, где-то 74. Здесь она одна и считается от терминала.
+#
+# Значок в заголовке учитывается как один символ, а рисуется как два, поэтому
+# центрирование смещается на одну ячейку. Мириться с этим дешевле, чем считать
+# ширину значков: точной ширины в терминале не знает никто, кроме самого
+# терминала.
+function ui_title {
+    local title="$1" width inner left right bar
+    local LC_ALL=C.UTF-8
+    width=$(ui_cols)
+    inner=$(( width - 2 ))
+    printf -v bar '%*s' "$inner" ''
+    bar="${bar// /═}"
+    left=$(( (inner - ${#title}) / 2 ))
+    right=$(( inner - ${#title} - left ))
+    if [ "$left" -lt 0 ]; then left=0; fi
+    if [ "$right" -lt 0 ]; then right=0; fi
+    echo -e "${C_HEAD}╔${bar}╗${NC}"
+    printf "%b║%b%*s%b%s%b%*s%b║%b\n" \
+        "$C_HEAD" "$NC" "$left" '' "$C_OK" "$title" "$NC" "$right" '' "$C_HEAD" "$NC"
+    echo -e "${C_HEAD}╚${bar}╝${NC}"
+}
+
 function ui_hr {
     local width dashes
     width=$(ui_cols)
