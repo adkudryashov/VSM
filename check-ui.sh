@@ -96,22 +96,30 @@ done
 # Счёт ведётся в пределах ЭКРАНА, а не файла: в одном файле их несколько, и
 # нумерация в каждом своя. Границей считаем clear или ui_title — с них экран и
 # начинается. Без этого проверка ругалась на первый же файл с двумя экранами.
+# Один проход awk на файл, а не цикл по строкам с grep внутри.
+#
+# Первая редакция форкала два процесса на КАЖДУЮ строку девяти файлов, и вся
+# проверка стала занимать две минуты вместо секунды. Проверку, которую положено
+# гонять перед каждым коммитом, столько ждать никто не будет — а значит её
+# перестанут запускать, и смысла в ней не останется.
 say "4. Клавиши пунктов идут по возрастанию"
 found=0
 for f in vsm menu_*.sh; do
-    prev=-1
-    while IFS= read -r line; do
-        case "$line" in
-            *clear*|*ui_title*) prev=-1; continue ;;
-        esac
-        k=$(grep -oE '^\s*ui_(danger_)?item +"[0-9]+"' <<< "$line" | grep -oE '[0-9]+') || k=""
-        if [[ ! "$k" =~ ^[0-9]+$ ]]; then continue; fi
-        if [ "$k" -le "$prev" ]; then
-            bad "$f: клавиша $k идёт после $prev"
-            found=1
-        fi
-        prev="$k"
-    done < "$f"
+    while IFS= read -r hit; do
+        [ -n "$hit" ] || continue
+        bad "$hit"
+        found=1
+    done < <(awk -v fname="$f" '
+        BEGIN { prev = -1 }
+        /clear|ui_title/ { prev = -1; next }
+        match($0, /ui_(danger_)?item +"[0-9]+"/) {
+            k = substr($0, RSTART, RLENGTH)
+            gsub(/[^0-9]/, "", k)
+            k = k + 0
+            if (k <= prev) print fname ": клавиша " k " идёт после " prev
+            prev = k
+        }
+    ' "$f")
 done
 [ "$found" -eq 0 ] && ok "порядок не нарушен"
 
