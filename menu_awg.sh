@@ -298,24 +298,25 @@ function run_awg_menu {
     while true; do
         load_awg_conf
         clear
-        echo -e "${CYAN}======================================================${NC}"
-        echo -e "${CYAN}          🔐  AMNEZIAWG  🔐                            ${NC}"
-        echo -e "${CYAN}======================================================${NC}"
-        echo -e "    Узел:        [$(awg_status_line)]"
+        ui_title "🔐  AMNEZIAWG"
+        echo ""
+        echo -e "   ${C_NAME}$(ui_pad '🚥  Узел' 17)${NC}$(awg_status_line)"
         if awg_installed; then
-            echo -e "    Версия:      ${YELLOW}AmneziaWG ${AWG_VERSION:-3.0}${NC}"
-            echo -e "    Порт:        ${YELLOW}${AWG_PORT}/udp${NC}   профиль: ${YELLOW}${AWG_PROFILE}${NC}"
-            echo -e "    Форвардинг:  [$(awg_forward_line)]"
-            echo -e "    DNS клиентам: ${YELLOW}${AWG_CLIENT_DNS:-1.1.1.1}${NC}   ${BLUE}запрос идёт внутри туннеля${NC}"
+            ui_kv '🏷  Версия'      "AmneziaWG ${AWG_VERSION:-3.0}" 17
+            echo -e "   ${C_NAME}$(ui_pad '🔌  Порт' 17)${NC}${C_DESC}$(ui_pad "${AWG_PORT}/udp" 20)${NC}${C_NAME}$(ui_pad '🎭  Профиль' 17)${NC}${C_DESC}${AWG_PROFILE}${NC}"
+            echo -e "   ${C_NAME}$(ui_pad '🔀  Форвардинг' 17)${NC}$(awg_forward_line)"
+            ui_kv '🌐  DNS клиентам' "${AWG_CLIENT_DNS:-1.1.1.1} — запрос идёт внутри туннеля" 17
         fi
-        echo -e "${BLUE}------------------------------------------------------${NC}"
-        echo -e "${YELLOW}1) 📥  Установить AmneziaWG (2.0 или 3.0)${NC}"
-        echo -e "${YELLOW}2) 👥  Клиенты (список и выдача конфигов)${NC}"
-        echo -e "${YELLOW}3) 🔄  Проверить обновления${NC}"
-        echo -e "${YELLOW}4) 📜  Журнал сервера${NC}"
-        echo -e "${RED}5) 🧨   Удалить AmneziaWG${NC}"
-        echo -e "${RED}X) 🔙  Назад в главное меню${NC}"
-        echo -e "${BLUE}------------------------------------------------------${NC}"
+        echo ""
+        ui_section "AMNEZIAWG"
+        ui_item "1" "📥" "Установить"   "AmneziaWG 2.0 или 3.0, свой UDP-порт"
+        ui_item "2" "👥" "Клиенты"      "Список пиров и выдача конфигов"
+        ui_item "3" "🔄" "Обновления"   "Сверка образа и релиза по отпечатку"
+        ui_item "4" "📜" "Журнал"       "Последние записи сервера"
+        echo ""
+        ui_danger_item "5" "Удалить AmneziaWG" "Контейнер, тома, правила, конфиги"
+        ui_item "X" "🔙" "Назад"
+        echo ""
 
         # "|| return" обязателен: при закрытом stdin read возвращается мгновенно
         # и пустым, и цикл меню занимает ядро целиком — поймано на прогоне

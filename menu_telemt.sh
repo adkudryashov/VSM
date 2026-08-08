@@ -871,57 +871,61 @@ function run_telemt_menu {
     while true; do
         clear
         load_stack_conf
-        echo -e "${CYAN}======================================================${NC}"
-        echo -e "${CYAN}        🛫   СТЕК TELEMT / MTPROTO  🛫                ${NC}"
-        echo -e "${CYAN}======================================================${NC}"
+        ui_title "🛫  СТЕК TELEMT / MTPROTO"
+        echo ""
         local tp_url; tp_url=$(telemt_panel_url)
-        echo -e "    telemt:         [$(stack_status_line)]"
-        echo -e "    telemt_panel:   [$(panel_status_line)]${tp_url:+  ${CYAN}${tp_url}${NC}}"
+        echo -e "   ${C_NAME}$(ui_pad '✈  telemt' 20)${NC}$(stack_status_line)"
+        echo -e "   ${C_NAME}$(ui_pad '🖥  telemt_panel' 20)${NC}$(panel_status_line)"
+        [ -n "$tp_url" ] && ui_kv '🌐  Адрес панели' "$tp_url" 20
         # Учётки telemt_panel печатаются здесь, а не в главном меню: то
         # открывается при каждом входе по SSH, и его скриншот лежит в публичном
         # README. printf, а не echo -e: пароль приходит аргументом и не
-        # разбирается на escape-последовательности.
+        # разбирается на escape-последовательности. Значения жирным, а не
+        # цветом: серый и жёлтый на светлом терминале одинаково плохо читаются,
+        # а это ровно та строка, ради которой сюда и заходят.
         if [ -n "$PANEL_ADMIN_USER" ] || [ -n "$PANEL_ADMIN_PASS" ]; then
-            printf "      ${BLUE}логин${NC} ${YELLOW}%s${NC}   ${BLUE}пароль${NC} ${YELLOW}%s${NC}\n" \
-                "$(_secret_clean "$PANEL_ADMIN_USER")" "$(_secret_clean "$PANEL_ADMIN_PASS")"
+            printf "   %b%s%b%b%s%b\n" "$C_NAME" "$(ui_pad '👤  Логин' 20)" "$NC" \
+                "$C_SECRET" "$(_secret_clean "$PANEL_ADMIN_USER")" "$NC"
+            printf "   %b%s%b%b%s%b\n" "$C_NAME" "$(ui_pad '🔑  Пароль' 20)" "$NC" \
+                "$C_SECRET" "$(_secret_clean "$PANEL_ADMIN_PASS")" "$NC"
         fi
-        echo -e "    Маскировка:     [$(mask_status_line)]"
-        echo -e "    MTProxyL:       [$(mtproxyl_status_line)]"
+        echo -e "   ${C_NAME}$(ui_pad '🎭  Маскировка' 20)${NC}$(mask_status_line)"
+        echo -e "   ${C_NAME}$(ui_pad '🔒  MTProxyL' 20)${NC}$(mtproxyl_status_line)"
         if mtproxyl_is_installed; then
-            echo -e "    ${BLUE}Запуск его менеджера — команда${NC} ${CYAN}mtproxyl${NC}${BLUE}, из любой точки системы.${NC}"
+            ui_kv '⌨  Его менеджер' 'команда mtproxyl из любой точки системы' 20
         fi
         # Раньше домены печатались через слэш, и по строке было не понять, какой
         # из них за что отвечает. Формулировки те же, что в ask_domains, чтобы
         # назначение домена описывалось везде одинаково.
         if [ -n "$DOMAIN_PANEL" ]; then
-            # Ширина по длинному из двух: домены разной длины, и без
-            # выравнивания пояснения разъезжаются. Имена доменов — латиница,
-            # поэтому printf с шириной здесь считает ровно то, что видно.
             # Домены вводит человек, а печатаются они при каждой отрисовке —
             # чистим от управляющих символов, как и остальные адреса.
             local dp dr
             dp=$(_addr_clean "$DOMAIN_PANEL"); dr=$(_addr_clean "$DOMAIN_REALITY")
-            local dw=${#dp}
-            [ ${#dr} -gt "$dw" ] && dw=${#dr}
-            echo -e "    Домены:"
-            printf "      ${YELLOW}%-${dw}s${NC}  панель 3x-ui, она же цель self-SNI маскировки\n" "$dp"
-            printf "      ${YELLOW}%-${dw}s${NC}  SNI-роутинг REALITY\n" "$dr"
+            echo ""
+            ui_section "ДОМЕНЫ"
+            echo -e "   🎯  ${C_NAME}$(ui_pad "$dp" 34)${NC}${C_DESC}панель 3x-ui, она же цель self-SNI${NC}"
+            echo -e "   🛡  ${C_NAME}$(ui_pad "$dr" 34)${NC}${C_DESC}SNI-роутинг REALITY${NC}"
         fi
-        echo -e "${BLUE}--- УСТАНОВКА ----------------------------------------${NC}"
-        echo -e "${RED}1) 📦  Установить весь стек с нуля (СТИРАЕТ 3x-ui!)${NC}"
-        echo -e "${GREEN}2) ➕  Добавить telemt к существующей 3x-ui-pro${NC}"
-        echo -e "${BLUE}--- ЭКСПЛУАТАЦИЯ -------------------------------------${NC}"
-        echo -e "${CYAN}3) 🩺  Статус и диагностика (проверка маскировки)${NC}"
-        echo -e "${CYAN}4) 🔧  Восстановить конфиги nginx (маска + доступ к панели)${NC}"
-        echo -e "${CYAN}5) 🔬  Сверить TLS маски и панели (+ PQ)${NC}"
-        echo -e "${CYAN}6) 🔑  Показать учётные данные${NC}"
-        echo -e "${CYAN}7) 🔧   Управление службами (старт | стоп | логи)${NC}"
-        echo -e "${BLUE}--- ДОПОЛНИТЕЛЬНО ------------------------------------${NC}"
-        echo -e "${YELLOW}8) 🔒   MTProxyL (лимитер | обход | тюнинг)${NC}"
-        echo -e "${YELLOW}9) 🔬  Пересборка nginx с OpenSSL 3.5 (PQ TLS)${NC}"
-        echo -e "${RED}10) 🧨   Удалить стек telemt${NC}"
-        echo -e "${RED}X) 🔙  Назад в главное меню${NC}"
-        echo -e "${BLUE}------------------------------------------------------${NC}"
+        echo ""
+        ui_section "УСТАНОВКА"
+        ui_danger_item "1" "Установить весь стек" "СТИРАЕТ существующую 3x-ui"
+        ui_item "2" "➕" "Добавить telemt"     "К уже работающей 3x-ui-pro"
+        echo ""
+        ui_section "ЭКСПЛУАТАЦИЯ"
+        ui_item "3" "🩺" "Диагностика"        "Состояние стека и проверка маскировки"
+        ui_item "4" "🔧" "Восстановить nginx"  "Маска и доступ к панели заново"
+        ui_item "5" "🔬" "Сверить TLS"         "Отпечатки маски и панели, PQ"
+        ui_item "6" "🔑" "Учётные данные"      "Логин и пароль telemt_panel"
+        ui_item "7" "🚥" "Управление службами" "Старт, стоп, журналы"
+        echo ""
+        ui_section "ДОПОЛНИТЕЛЬНО"
+        ui_item "8" "🔒" "MTProxyL"            "Лимитер, обход, тонкая настройка"
+        ui_item "9" "🧱" "Пересборка nginx"    "OpenSSL 3.5 и постквантовый TLS"
+        echo ""
+        ui_danger_item "10" "Удалить стек telemt" "telemt, панель, маска, конфиги"
+        ui_item "X" "🔙" "Назад"
+        echo ""
 
         read -p "Ваш выбор [1-10, X]: " choice
         case $choice in

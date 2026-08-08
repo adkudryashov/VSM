@@ -155,21 +155,22 @@ function get_warp_cron_status {
 function run_warp_menu {
     while true; do
         clear
-        echo -e "${CYAN}======================================================${NC}"
-        echo -e "${CYAN}             📦  УПРАВЛЕНИЕ CLOUDFLARE WARP 📦             ${NC}"
-        echo -e "${CYAN}======================================================${NC}"
-        echo -e "📦 Статус:        [$(get_warp_status)]"
-        echo -e "🔌 Порт (SOCKS5): [${YELLOW}$(get_warp_port)${NC}]"
-        echo -e "🔄 Авторестарт:   [$(get_warp_cron_status)]"
-        echo -e "${BLUE}------------------------------------------------------${NC}"
-        echo -e "${GREEN}1) 🚀  Установить WARP (режим SOCKS5)${NC}"
-        echo -e "${YELLOW}2) 🔧   Изменить порт прокси${NC}"
-        echo -e "${YELLOW}3) 🔄  Настроить расписание автоперезапуска${NC}"
-        echo -e "${YELLOW}4) 🛑  Управление службой (старт | стоп)${NC}"
-        echo -e "${YELLOW}5) 📄  Просмотр логов (в реальном времени)${NC}"
-        echo -e "${RED}6) 🧨   Удалить WARP полностью${NC}"
-        echo -e "${RED}X) 🔙  Назад в предыдущее меню${NC}"
-        echo -e "${BLUE}------------------------------------------------------${NC}"
+        ui_title "📦  CLOUDFLARE WARP"
+        echo ""
+        echo -e "   ${C_NAME}$(ui_pad '🚥  Статус' 20)${NC}$(get_warp_status)"
+        ui_kv '🔌  Порт SOCKS5'   "$(get_warp_port)" 20
+        echo -e "   ${C_NAME}$(ui_pad '🔄  Авторестарт' 20)${NC}$(get_warp_cron_status)"
+        echo ""
+        ui_section "CLOUDFLARE WARP"
+        ui_item "1" "🚀" "Установить"      "Клиент WARP в режиме SOCKS5"
+        ui_item "2" "🔧" "Порт прокси"     "Сменить порт локального SOCKS5"
+        ui_item "3" "🔄" "Автоперезапуск"  "Расписание перезапуска службы"
+        ui_item "4" "🚥" "Служба"          "Старт, стоп, состояние"
+        ui_item "5" "📄" "Журнал"          "Записи службы в реальном времени"
+        echo ""
+        ui_danger_item "6" "Удалить WARP"  "Клиент, настройки и расписание"
+        ui_item "X" "🔙" "Назад"
+        echo ""
         
         read -p "Ваш выбор: " choice
         case $choice in

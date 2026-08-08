@@ -514,39 +514,43 @@ function manage_ssl_menu {
 function run_setup_menu {
     while true; do
         clear
-        echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${CYAN}║${NC}                    ${GREEN}🔧   НАСТРОЙКА И ОПТИМИЗАЦИЯ${NC}                           ${CYAN}║${NC}"
-        echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
-        
+        ui_title "🔧  НАСТРОЙКА И ОПТИМИЗАЦИЯ"
+
         BBR_STATUS=$(get_bbr_status)
         PING_STATUS=$(get_ping_status)
-        
+
+        # Текст и цвет раздельно: сцепленную строку ui_pad не выровняет, он
+        # посчитает escape-коды за символы. Этот дефект проект ловил трижды.
+        if [ "$BBR_STATUS" == "active" ]; then BBR_T="АКТИВЕН"; BBR_C="$C_OK"; else BBR_T="ОТКЛЮЧЕН"; BBR_C="$C_DANGER"; fi
+        if [ "$PING_STATUS" == "enabled" ]; then PNG_T="РАЗРЕШЁН"; PNG_C="$C_OK"; else PNG_T="ЗАПРЕЩЁН"; PNG_C="$C_DANGER"; fi
+        if [ "$(get_ufw_status)" == "active" ]; then UFW_T="АКТИВЕН"; UFW_C="$C_OK"; else UFW_T="ОТКЛЮЧЕН"; UFW_C="$C_DANGER"; fi
         # IPv6 читаем тем же способом, что и ipv6-menu: отключение делается
         # через sysctl disable_ipv6, поэтому смотрим именно на него.
         if [ "$(sysctl -n net.ipv6.conf.all.disable_ipv6 2>/dev/null)" = "1" ]; then
-            IPV6_LINE="${RED}ОТКЛЮЧЁН${NC}"
+            IP6_T="ОТКЛЮЧЁН"; IP6_C="$C_DANGER"
         else
-            IPV6_LINE="${GREEN}ВКЛЮЧЁН${NC}"
+            IP6_T="ВКЛЮЧЁН"; IP6_C="$C_OK"
         fi
-        echo ""
-        echo -e "${BLUE}  ── СТАТУС ─────────────────────────────────────────────────────────────────${NC}"
-        echo -e "   📈  BBR   [$(if [ "$BBR_STATUS" == "active" ]; then echo -e "${GREEN}АКТИВЕН${NC}"; else echo -e "${RED}ОТКЛЮЧЕН${NC}"; fi)]      🏓  ICMP  [$(if [ "$PING_STATUS" == "enabled" ]; then echo -e "${GREEN}РАЗРЕШЁН${NC}"; else echo -e "${RED}ЗАПРЕЩЁН${NC}"; fi)]"
-        echo -e "   🔒   UFW   [$(if [ "$(get_ufw_status)" == "active" ]; then echo -e "${GREEN}АКТИВЕН${NC}"; else echo -e "${RED}ОТКЛЮЧЕН${NC}"; fi)]      🌐  IPv6  [${IPV6_LINE}]"
-        echo -e "   🕒  Часовой пояс   ${YELLOW}$(get_timezone_status)${NC}"
 
         echo ""
-        echo -e "${BLUE}  ── СЕТЬ ─────────────────────────────────────────────────────────────────${NC}"
-        echo -e "   ${YELLOW}1${NC}  📈  BBR                  ${BLUE}Алгоритм управления перегрузкой TCP${NC}"
-        echo -e "   ${YELLOW}2${NC}  🏓  ICMP                 ${BLUE}Ответы на ping: разрешить или запретить${NC}"
-        echo -e "   ${YELLOW}3${NC}  🔒   Фаервол UFW          ${BLUE}Порты, правила, включение с защитой SSH${NC}"
-        echo -e "   ${YELLOW}4${NC}  🌐  IPv6                 ${BLUE}Включение и отключение на уровне ядра${NC}"
+        ui_section "СОСТОЯНИЕ"
+        echo -e "   ${C_NAME}$(ui_pad '📈  BBR' 17)${NC}${BBR_C}$(ui_pad "$BBR_T" 20)${NC}${C_NAME}$(ui_pad '🏓  ICMP' 17)${NC}${PNG_C}${PNG_T}${NC}"
+        echo -e "   ${C_NAME}$(ui_pad '🔒  UFW' 17)${NC}${UFW_C}$(ui_pad "$UFW_T" 20)${NC}${C_NAME}$(ui_pad '🌐  IPv6' 17)${NC}${IP6_C}${IP6_T}${NC}"
+        ui_kv '🕒  Часовой пояс' "$(get_timezone_status)" 17
+
         echo ""
-        echo -e "${BLUE}  ── СЕРТИФИКАТЫ И ПРОЧЕЕ ─────────────────────────────────────────────────${NC}"
-        echo -e "   ${YELLOW}5${NC}  🔐  SSL-сертификаты      ${BLUE}Выпуск, продление, удаление Let's Encrypt${NC}"
-        echo -e "   ${YELLOW}6${NC}  🕒  Часовой пояс         ${BLUE}Смена часового пояса сервера${NC}"
-        echo -e "   ${YELLOW}7${NC}  📦   Cloudflare WARP      ${BLUE}Исходящий трафик через WARP${NC}"
+        ui_section "СЕТЬ"
+        ui_item "1" "📈" "BBR"             "Алгоритм управления перегрузкой TCP"
+        ui_item "2" "🏓" "ICMP"            "Ответы на ping: разрешить или запретить"
+        ui_item "3" "🔒" "Фаервол UFW"     "Порты, правила, включение с защитой SSH"
+        ui_item "4" "🌐" "IPv6"            "Включение и отключение на уровне ядра"
         echo ""
-        echo -e "   ${RED}X${NC}  🔙  Назад"
+        ui_section "СЕРТИФИКАТЫ И ПРОЧЕЕ"
+        ui_item "5" "🔐" "SSL-сертификаты" "Выпуск, продление, удаление Let's Encrypt"
+        ui_item "6" "🕒" "Часовой пояс"    "Смена часового пояса сервера"
+        ui_item "7" "📦" "Cloudflare WARP" "Исходящий трафик через WARP"
+        echo ""
+        ui_item "X" "🔙" "Назад"
         echo ""
 
         read -p "Ваш выбор [1-7, X]: " choice

@@ -96,20 +96,18 @@ function show_access_info {
     local reveal=0
     while true; do
         clear
-        echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${CYAN}║${NC}                      ${GREEN}🔑  ДОСТУПЫ И ДОМЕНЫ${NC}                                ${CYAN}║${NC}"
-        echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
+        ui_title "🔑  ДОСТУПЫ И ДОМЕНЫ"
 
         local url_xui url_tp
         url_xui=$(xui_panel_url)
         url_tp=$(telemt_panel_url)
 
         echo ""
-        echo -e "${BLUE}  ── ПАНЕЛЬ 3X-UI ─────────────────────────────────────────────────────────${NC}"
+        ui_section "ПАНЕЛЬ 3X-UI"
         if [ -n "$url_xui" ]; then
-            echo -e "   Адрес     ${CYAN}${url_xui}${NC}"
+            ui_kv '🌐  Адрес' "$url_xui" 17
         else
-            echo -e "   Адрес     ${YELLOW}панель не установлена${NC}"
+            echo -e "   ${C_NAME}$(ui_pad '🌐  Адрес' 17)${NC}${C_WARN}панель не установлена${NC}"
         fi
         # Пароль панели прочитать с сервера нельзя: установщик печатает его
         # один раз и не сохраняет, панель держит bcrypt-хэш. /etc/vsm/xui.conf
@@ -117,32 +115,38 @@ function show_access_info {
         local xu xp
         xu=$(xui_admin_user); xp=$(xui_admin_pass)
         if [ -n "$xu" ] || [ -n "$xp" ]; then
-            echo -e "   Логин     ${YELLOW}${xu:-—}${NC}"
+            ui_secret '👤  Логин' "${xu:-—}" 17
             if [ "$reveal" -eq 1 ]; then
-                printf "   Пароль    \033[0;33m%s\033[0m\n" "$xp"
+                # printf, а не echo -e: пароль приходит аргументом и его
+                # содержимое не разворачивается. Цвет берётся из палитры через
+                # %b, а не вписывается байтами ESC в формат — иначе он проходит
+                # мимо NO_COLOR и мимо снятия цвета без терминала.
+                printf "   %b%s%b%b%s%b\n" "$C_NAME" "$(ui_pad '🔑  Пароль' 17)" "$NC" \
+                    "$C_SECRET" "$xp" "$NC"
             else
-                echo -e "   Пароль    ${BLUE}скрыт, показать — P${NC}"
+                ui_kv '🔑  Пароль' 'скрыт, показать — P' 17
             fi
         else
-            echo -e "   Учётные данные ${BLUE}не записаны — пункт «Панель X-UI»${NC}"
+            ui_kv '🔑  Учётные данные' 'не записаны — пункт «Панель X-UI»' 20
         fi
 
         echo ""
-        echo -e "${BLUE}  ── ПАНЕЛЬ TELEMT_PANEL ──────────────────────────────────────────────────${NC}"
+        ui_section "ПАНЕЛЬ TELEMT_PANEL"
         if [ -n "$url_tp" ]; then
-            echo -e "   Адрес     ${CYAN}${url_tp}${NC}"
+            ui_kv '🌐  Адрес' "$url_tp" 17
         else
-            echo -e "   Адрес     ${YELLOW}стек telemt не установлен${NC}"
+            echo -e "   ${C_NAME}$(ui_pad '🌐  Адрес' 17)${NC}${C_WARN}стек telemt не установлен${NC}"
         fi
         local tu tpass
         tu=$(_cfg_val /etc/vsm/telemt.conf PANEL_ADMIN_USER)
         tpass=$(_cfg_val /etc/vsm/telemt.conf PANEL_ADMIN_PASS)
         if [ -n "$tu" ]; then
-            echo -e "   Логин     ${YELLOW}${tu}${NC}"
+            ui_secret '👤  Логин' "$tu" 17
             if [ "$reveal" -eq 1 ]; then
-                printf "   Пароль    \033[0;33m%s\033[0m\n" "$tpass"
+                printf "   %b%s%b%b%s%b\n" "$C_NAME" "$(ui_pad '🔑  Пароль' 17)" "$NC" \
+                    "$C_SECRET" "$tpass" "$NC"
             else
-                echo -e "   Пароль    ${BLUE}скрыт, показать — P${NC}"
+                ui_kv '🔑  Пароль' 'скрыт, показать — P' 17
             fi
         fi
 
@@ -151,8 +155,8 @@ function show_access_info {
             awg_port=$(_cfg_val /etc/vsm/awg.conf AWG_PORT)
             awg_profile=$(_cfg_val /etc/vsm/awg.conf AWG_PROFILE)
             echo ""
-            echo -e "${BLUE}  ── AMNEZIAWG ────────────────────────────────────────────────────────────${NC}"
-            echo -e "   Порт      ${YELLOW}${awg_port}/udp${NC}          Профиль мимикрии   ${YELLOW}${awg_profile}${NC}"
+            ui_section "AMNEZIAWG"
+            echo -e "   ${C_NAME}$(ui_pad '🔐  Порт' 17)${NC}${C_DESC}$(ui_pad "${awg_port}/udp" 20)${NC}${C_NAME}$(ui_pad '🎭  Профиль' 17)${NC}${C_DESC}${awg_profile}${NC}"
         fi
 
         local d_panel d_reality
@@ -160,23 +164,23 @@ function show_access_info {
         d_reality=$(_cfg_val /etc/vsm/telemt.conf DOMAIN_REALITY)
         if [ -n "$d_panel" ] || [ -n "$d_reality" ]; then
             echo ""
-            echo -e "${BLUE}  ── ДОМЕНЫ ───────────────────────────────────────────────────────────────${NC}"
+            ui_section "ДОМЕНЫ"
             if [ -n "$d_panel" ]; then
-                echo -e "   ${YELLOW}${d_panel}${NC}   ${BLUE}панель 3x-ui, она же цель self-SNI маскировки${NC}"
+                echo -e "   🎯  ${C_NAME}$(ui_pad "$d_panel" 34)${NC}${C_DESC}панель 3x-ui, она же цель self-SNI${NC}"
             fi
             if [ -n "$d_reality" ]; then
-                echo -e "   ${YELLOW}${d_reality}${NC}  ${BLUE}SNI-роутинг REALITY${NC}"
+                echo -e "   🛡  ${C_NAME}$(ui_pad "$d_reality" 34)${NC}${C_DESC}SNI-роутинг REALITY${NC}"
             fi
         fi
 
         echo ""
-        echo -e "${BLUE}  ─────────────────────────────────────────────────────────────────────────${NC}"
+        ui_hr
         if [ "$reveal" -eq 1 ]; then
-            echo -e "   ${YELLOW}P${NC}  Скрыть пароли"
+            ui_item "P" "🙈" "Скрыть пароли"
         else
-            echo -e "   ${YELLOW}P${NC}  Показать пароли"
+            ui_item "P" "👁" "Показать пароли"
         fi
-        echo -e "   ${RED}X${NC}  Назад"
+        ui_item "X" "🔙" "Назад"
         echo ""
 
         # "|| break" обязателен: при закрытом stdin read возвращается мгновенно
