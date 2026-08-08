@@ -128,6 +128,12 @@ function ui_hr {
 # check-ui.sh.
 function ui_item {
     local key="$1" icon="$2" name="$3" desc="${4:-}" width="${5:-22}"
+    # Без описания имя не дополняется: иначе строка кончается двумя десятками
+    # пробелов, которые видны при выделении мышью и в любом diff вывода.
+    if [ -z "$desc" ]; then
+        echo -e "   ${C_KEY}${key}${NC}  ${icon}  ${C_NAME}${name}${NC}"
+        return
+    fi
     echo -e "   ${C_KEY}${key}${NC}  ${icon}  ${C_NAME}$(ui_pad "$name" "$width")${NC}${C_DESC}${desc}${NC}"
 }
 
@@ -136,6 +142,10 @@ function ui_item {
 # смысл метки как раз в том, что она всюду одна и та же.
 function ui_danger_item {
     local key="$1" name="$2" desc="${3:-}" width="${4:-22}"
+    if [ -z "$desc" ]; then
+        echo -e "   ${C_DANGER}${key}${NC}  ${MARK_DANGER}  ${C_DANGER}${name}${NC}"
+        return
+    fi
     echo -e "   ${C_DANGER}${key}${NC}  ${MARK_DANGER}  ${C_DANGER}$(ui_pad "$name" "$width")${NC}${C_DESC}${desc}${NC}"
 }
 
