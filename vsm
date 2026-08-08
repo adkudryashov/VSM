@@ -75,20 +75,9 @@ function check_for_updates {
 # терминала; разовый показ по запросу это снимает.
 # ----------------------------------------------------------------------
 
-# Дополняет строку пробелами до нужной ширины В СИМВОЛАХ.
-#
-# printf %-Ns здесь не годится: он считает байты, а кириллица в UTF-8 занимает
-# два байта на букву — колонки разъезжались ровно на длину русской подписи.
-# ${#s} в bash при UTF-8 локали считает символы.
-function _pad {
-    # Локаль задаём принудительно. ${#s} считает символы только при UTF-8
-    # локали, иначе байты: при LANG=C «Процессор» даёт 18 вместо 9, и вся
-    # шапка съезжает. Проверено на стенде — с этой строкой 9 в обоих случаях.
-    local LC_ALL=C.UTF-8
-    local s="$1" w="$2" n=${#1}
-    printf '%s' "$s"
-    if [ "$n" -lt "$w" ]; then printf '%*s' $((w - n)) ''; fi
-}
+# Выравнивание, ширина терминала и примитивы отрисовки живут в
+# _config_and_utils.sh: подменю нужны те же самые, а копия — это две копии,
+# которые однажды разойдутся.
 
 # Значение из файла конфигурации. Кавычки снимаются разворачиванием параметра,
 # а не через tr: в конфиг они попадают из printf %q при записи, а вложенные
@@ -225,7 +214,7 @@ fi
     fi
 
     # AES-NI / Virtualization
-    # Текст и цвет храним раздельно: ANSI-коды внутри значения _pad считает
+    # Текст и цвет храним раздельно: ANSI-коды внутри значения ui_pad считает
     # символами, и колонка справа съезжает ровно на их длину.
     if grep -qw aes /proc/cpuinfo; then AES_NI="✓ Включено"; AES_C="$GREEN"; else AES_NI="✗ Выключено"; AES_C="$RED"; fi
     if grep -Eowq "vmx|svm" /proc/cpuinfo; then VM_X="✓ Включено"; VM_C="$GREEN"; else VM_X="✗ Выключено"; VM_C="$RED"; fi
@@ -301,31 +290,31 @@ fi
     # модель процессора, и AES-NI, и виртуализация, и организация. Две
     # колонки дают полный состав вдвое короче.
     #
-    # Выравнивание через _pad, а НЕ через printf %-13s: printf считает байты,
+    # Выравнивание через ui_pad, а НЕ через printf %-13s: printf считает байты,
     # а кириллица в UTF-8 занимает два байта на букву, и колонки разъезжались
     # ровно на длину русской подписи. ${#s} в bash считает символы.
     echo ""
     echo -e "${BLUE}  ── СЕРВЕР ─────────────────────────────────────────────────────────────────${NC}"
-    echo -e "   ${BLUE}$(_pad 'Процессор' 14)${NC}$(_pad "${CPU_MODEL:0:31}" 33)${BLUE}$(_pad 'Ядра' 9)${NC}${CPU_CORES} @ ${CPU_FREQ} MHz"
-    echo -e "   ${BLUE}$(_pad 'Память' 14)${NC}$(_pad "${RAM_TOTAL} ГБ (занято $(printf '%.1f' "$MEM_USED"))" 33)${BLUE}$(_pad 'Кэш L3' 9)${NC}${CPU_CACHE}"
-    echo -e "   ${BLUE}$(_pad 'Диск' 14)${NC}$(_pad "${D_TOTAL} (занято ${D_USED})" 33)${BLUE}$(_pad 'Нагрузка' 9)${NC}${LOAD_AVG}"
-    echo -e "   ${BLUE}$(_pad 'ОС' 14)${NC}$(_pad "${OS_NAME} (${ARCH})" 33)${BLUE}$(_pad 'Ядро' 9)${NC}${KERNEL}"
-    echo -e "   ${BLUE}$(_pad 'Виртуализация' 14)${NC}$(_pad "${VIRT}" 33)${BLUE}$(_pad 'TCP CC' 9)${NC}${TCP_CC}"
-    echo -e "   ${BLUE}$(_pad 'AES-NI' 14)${NC}${AES_C}$(_pad "$AES_NI" 33)${NC}${BLUE}$(_pad 'VM-x' 9)${NC}${VM_C}${VM_X}${NC}"
-    echo -e "   ${BLUE}$(_pad 'Аптайм' 14)${NC}$(_pad "${UPTIME}" 33)${BLUE}$(_pad 'IPv4' 9)${NC}${IPV4:-—}"
+    echo -e "   ${BLUE}$(ui_pad 'Процессор' 14)${NC}$(ui_pad "${CPU_MODEL:0:31}" 33)${BLUE}$(ui_pad 'Ядра' 9)${NC}${CPU_CORES} @ ${CPU_FREQ} MHz"
+    echo -e "   ${BLUE}$(ui_pad 'Память' 14)${NC}$(ui_pad "${RAM_TOTAL} ГБ (занято $(printf '%.1f' "$MEM_USED"))" 33)${BLUE}$(ui_pad 'Кэш L3' 9)${NC}${CPU_CACHE}"
+    echo -e "   ${BLUE}$(ui_pad 'Диск' 14)${NC}$(ui_pad "${D_TOTAL} (занято ${D_USED})" 33)${BLUE}$(ui_pad 'Нагрузка' 9)${NC}${LOAD_AVG}"
+    echo -e "   ${BLUE}$(ui_pad 'ОС' 14)${NC}$(ui_pad "${OS_NAME} (${ARCH})" 33)${BLUE}$(ui_pad 'Ядро' 9)${NC}${KERNEL}"
+    echo -e "   ${BLUE}$(ui_pad 'Виртуализация' 14)${NC}$(ui_pad "${VIRT}" 33)${BLUE}$(ui_pad 'TCP CC' 9)${NC}${TCP_CC}"
+    echo -e "   ${BLUE}$(ui_pad 'AES-NI' 14)${NC}${AES_C}$(ui_pad "$AES_NI" 33)${NC}${BLUE}$(ui_pad 'VM-x' 9)${NC}${VM_C}${VM_X}${NC}"
+    echo -e "   ${BLUE}$(ui_pad 'Аптайм' 14)${NC}$(ui_pad "${UPTIME}" 33)${BLUE}$(ui_pad 'IPv4' 9)${NC}${IPV4:-—}"
     if [ -n "$IPV6" ]; then
-        echo -e "   ${BLUE}$(_pad 'IPv6' 14)${NC}${IPV6}"
+        echo -e "   ${BLUE}$(ui_pad 'IPv6' 14)${NC}${IPV6}"
     fi
     # Гео приходит открытым текстом от стороннего API. Печатаем через printf
     # %s, а не echo -e: подмена ответа на пути не должна разворачивать
     # управляющие последовательности в терминале root.
     if [ -n "$COUNTRY" ]; then
         printf "   [0;34m%s[0m%s[0;34m%s[0m%s
-"             "$(_pad 'Страна' 14)" "$(_pad "$COUNTRY" 33)" "$(_pad 'Локация' 9)" "$LOC"
+"             "$(ui_pad 'Страна' 14)" "$(ui_pad "$COUNTRY" 33)" "$(ui_pad 'Локация' 9)" "$LOC"
     fi
     if [ -n "$ORG" ]; then
         printf "   [0;34m%s[0m%s
-" "$(_pad 'Организация' 14)" "$ORG"
+" "$(ui_pad 'Организация' 14)" "$ORG"
     fi
 
     # СТАТУС ПРИЛОЖЕНИЙ
