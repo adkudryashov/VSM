@@ -213,9 +213,30 @@ function run_warp_menu {
                 fi
                 read -p "Нажмите Enter..." ;;
             2)
+                # Проверка установки — соседние пункты её делают, этот забыл.
+                #
+                # На сервере без WARP пункт вываливал сырое «warp-cli: command
+                # not found» и следом бодро печатал «✅ Порт: …», потому что
+                # успех не проверялся. Тот самый рапорт об успехе поверх
+                # ничего не сделанного. Найдено приёмкой обработчиков.
+                if ! command -v warp-cli &> /dev/null; then
+                    echo -e "${RED}❌ WARP не установлен — менять порт нечему.${NC}"
+                    echo -e "${YELLOW}   Сначала пункт 1«Установить».${NC}"
+                    read -p "Нажмите Enter..."; continue
+                fi
                 read -p "Новый порт: " new_port
-                warp-cli --accept-tos proxy port "$new_port" && systemctl restart warp-svc
-                echo -e "${GREEN}✅ Порт: $new_port${NC}"; sleep 1 ;;
+                if ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -lt 1024 ] || [ "$new_port" -gt 65535 ]; then
+                    echo -e "${RED}❌ Порт должен быть числом от 1024 до 65535.${NC}"
+                    read -p "Нажмите Enter..."; continue
+                fi
+                # Успех проверяем, а не предполагаем: warp-cli отвергает порт
+                # молча чаще, чем хотелось бы.
+                if warp-cli --accept-tos proxy port "$new_port" && systemctl restart warp-svc; then
+                    echo -e "${GREEN}✅ Порт: $new_port${NC}"
+                else
+                    echo -e "${RED}❌ Не удалось задать порт ${new_port}.${NC}"
+                fi
+                read -p "Нажмите Enter..." ;;
             3) setup_warp_cron ;;
             4)
                 if systemctl is-active --quiet warp-svc; then
