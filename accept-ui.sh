@@ -111,6 +111,52 @@ drive menu_awg.sh    '4\n\nX\n'     'iface=awg0'             'AWG: журнал 
 drive menu_telemt.sh '6\n\nX\n'     'УЧЁТНЫЕ ДАННЫЕ СТЕКА'   'telemt: учётные данные (клавиша 6)'
 
 # ---------------------------------------------------------------------------
+# 3б. Обработчики действий внутри подменю
+#
+# Переделка оформления шла по ГЛАВНЫМ экранам, а `clear 2>/dev/null` был
+# прогнан слепым sed по девяти файлам. Значит обработчики трогали, но не
+# открывали ни разу.
+#
+# Здесь открывается каждый экран второго уровня и проверяется, что оболочка не
+# сыплет ошибками. Ничего не подтверждается: там, где обработчик спрашивает
+# подтверждение, ввод обрывается пустой строкой и выходом.
+#
+# Признака в выводе не требуем — экраны разные, и половина зависит от того,
+# что установлено. Ищем ровно поломку.
+# ---------------------------------------------------------------------------
+say "3б. Обработчики действий второго уровня"
+screen() { # файл ввод описание
+    local out; out=$(printf '%b' "$2" | timeout 60 bash "${BIN}/$1" 2>&1)
+    local hits; hits=$(grep -inE "$ERRPAT" <<< "$out" | head -2)
+    if [ -n "$hits" ]; then
+        bad "$3"
+        sed 's/^/      /' <<< "$hits"
+    else
+        ok "$3"
+    fi
+}
+screen menu_xui.sh    '4\nX\nX\nX\n'      'X-UI: бэкапы (4)'
+screen menu_xui.sh    '5\n1\n\nX\nX\n'    'X-UI: служба, статус (5→1)'
+screen menu_xui.sh    '7\nX\nX\nX\n'      'X-UI: AdGuard (7)'
+screen menu_telemt.sh '3\n\nX\n'          'telemt: диагностика (3)'
+screen menu_telemt.sh '7\n1\n1\n\nX\nX\n' 'telemt: служба telemt, статус (7→1→1)'
+screen menu_telemt.sh '8\nX\nX\n'         'telemt: MTProxyL (8)'
+screen menu_telemt.sh '9\n\n\nX\n'        'telemt: экран пересборки nginx (9, без подтверждения)'
+screen menu_awg.sh    '3\n\nX\n'          'AWG: проверка обновлений (3)'
+screen menu_bots.sh   '6\n\nX\n'          'боты: настройки (6)'
+screen menu_bots.sh   '7\nX\nX\n'         'боты: управление службами (7)'
+screen menu_setup.sh  '1\nX\nX\n'         'настройка: BBR (1)'
+screen menu_setup.sh  '2\nX\nX\n'         'настройка: ICMP (2)'
+screen menu_setup.sh  '3\nX\nX\n'         'настройка: UFW (3, без включения)'
+screen menu_setup.sh  '5\nX\nX\n'         'настройка: SSL (5)'
+screen menu_setup.sh  '6\nX\nX\n'         'настройка: часовой пояс (6)'
+screen menu_warp.sh   '2\n\nX\n'          'WARP: порт (2)'
+screen menu_warp.sh   '4\nX\nX\n'         'WARP: служба (4)'
+screen menu_utils.sh  '2\n4\n\nX\n'       'утилиты: ncdu, свой путь (2→4)'
+screen menu_utils.sh  '7\n\n\nX\n'        'утилиты: привязка домена (7)'
+screen menu_utils.sh  '8\nX\nX\n'         'утилиты: очистка (8, без подтверждения)'
+
+# ---------------------------------------------------------------------------
 # 4. Конвертер в mihomo — с контрольными случаями
 #
 # У каждой отрицательной проверки есть положительная пара. Без неё проверка
