@@ -1,5 +1,6 @@
 #!/bin/bash
-source /usr/local/bin/_config_and_utils.sh
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/common.sh" || {
+    echo "Не найдена lib/common.sh — переустановите VSM: bash install.sh"; exit 1; }
 
 # ----------------------------------------------------------------------
 # НАСТРОЙКИ СЕРВЕРА И ФУНКЦИИ ПРОВЕРКИ
@@ -326,6 +327,154 @@ function show_ping_menu {
     fi
     sleep 2
 }
+
+# ----------------------------------------------------------------------
+# IPv6: ВКЛЮЧЕНИЕ, ОТКЛЮЧЕНИЕ, АВТОЗАГРУЗКА
+#
+# Раньше это был отдельный исполняемый файл ipv6-menu, и он оставался
+# единственным исключением сразу по трём счётам: единственное меню без
+# префикса menu_, единственное со своей копией get_ipv6_status_code (она есть
+# в общем файле) и единственное, не переведённое на примитивы ui_*. Проверка
+# checks/ui.sh его поэтому и не покрывала — FILES перечисляет vsm и menu_*.sh,
+# так что эмодзи с вариационным селектором в «⚙️ Настроить автозагрузку»
+# пережил всю переделку оформления.
+#
+# Самостоятельным меню он никогда и не был: попасть сюда можно только отсюда,
+# пунктом 4.
+# ----------------------------------------------------------------------
+
+function ipv6_addresses {
+    ip -6 a show scope global 2>/dev/null \
+        | grep 'inet6' | grep -v -i 'fe80' | grep -v -i 'fd' \
+        | awk '{print $2, $4, $7}'
+}
+
+# Отключение IPv6 рвёт текущую сессию, если админ пришёл по IPv6.
+#
+# Той же природы, что и ufw_enable_safely: там управление теряется от
+# фаервола, здесь — от sysctl, и чинить в обоих случаях нечем, кроме консоли
+# хостера. Спрашиваем ДО действия и по факту, а не по общему предупреждению:
+# первое поле SSH_CONNECTION — адрес клиента, двоеточие в нём бывает только у
+# IPv6.
+function ipv6_session_is_v6 {
+    local client
+    client="$(awk '{print $1}' <<<"${SSH_CONNECTION:-}" 2>/dev/null)"
+    [[ "$client" == *:* ]]
+}
+
+function ipv6_off {
+    if ipv6_session_is_v6; then
+        echo -e "\n${C_DANGER}❗  Вы подключены по IPv6 — отключение оборвёт эту сессию.${NC}"
+        echo -e "${C_WARN}    Вернуть доступ можно будет только через консоль хостера.${NC}"
+        read -p "$(echo -e "${C_DANGER}Введите ОТКЛЮЧИТЬ для подтверждения: ${NC}")" confirm
+        if [ "$confirm" != "ОТКЛЮЧИТЬ" ]; then
+            echo -e "${C_NAME}Отменено.${NC}"; return
+        fi
+    fi
+    echo -e "\n${C_WARN}>>> Отключение IPv6...${NC}"
+    sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1 > /dev/null
+    sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1 > /dev/null
+    # Печатаем факт из ядра, а не намерение: sysctl -w молчит об отказе, если
+    # ключа нет вовсе (ядро собрано без IPv6).
+    if [ "$(get_ipv6_status_code)" = "1" ]; then
+        echo -e "${C_OK}✅ IPv6 выключен в текущей сессии.${NC}"
+    else
+        echo -e "${C_DANGER}❌ Ядро сообщает disable_ipv6=$(get_ipv6_status_code) — выключить не удалось.${NC}"
+    fi
+}
+
+function ipv6_on {
+    echo -e "\n${C_WARN}>>> Включение IPv6...${NC}"
+    sudo sysctl -w net.ipv6.conf.all.disable_ipv6=0 > /dev/null
+    sudo sysctl -w net.ipv6.conf.default.disable_ipv6=0 > /dev/null
+    if command -v netplan > /dev/null; then sudo netplan apply > /dev/null 2>&1; fi
+    if [ "$(get_ipv6_status_code)" = "0" ]; then
+        echo -e "${C_OK}✅ IPv6 включён в текущей сессии.${NC}"
+    else
+        echo -e "${C_DANGER}❌ Ядро сообщает disable_ipv6=$(get_ipv6_status_code) — включить не удалось.${NC}"
+    fi
+}
+
+function ipv6_autostart_config {
+    echo -e "\n${C_HEAD}Настройка автозагрузки при старте сервера:${NC}"
+    echo -e "   ${C_KEY}1${NC}  Всегда ОТКЛЮЧАТЬ IPv6"
+    echo -e "   ${C_KEY}2${NC}  Всегда ВКЛЮЧАТЬ IPv6 (по умолчанию)"
+    read -p "Ваш выбор: " auto_choice
+
+    # Ключ lo обязателен в этом списке.
+    #
+    # Раньше чистились только all и default, а net.ipv6.conf.lo.disable_ipv6
+    # оставался. Меню при этом писало «блокировка удалена», и после
+    # перезагрузки IPv6-localhost (::1) оказывался отключён — при формально
+    # включённом IPv6. Ломается это на службах, которые ждут ::1, и связать
+    # поломку с пунктом меню уже невозможно.
+    #
+    # Строку с lo пишут установщики образов у части хостеров, так что
+    # встречается она регулярно.
+    for k in all default lo; do
+        sudo sed -i "/net\.ipv6\.conf\.${k}\.disable_ipv6/d" /etc/sysctl.conf
+    done
+
+    if [[ "$auto_choice" == "1" ]]; then
+        for k in all default lo; do
+            echo "net.ipv6.conf.${k}.disable_ipv6 = 1" | sudo tee -a /etc/sysctl.conf > /dev/null
+        done
+        echo -e "${C_OK}✅ Настроено: IPv6 будет автоматически отключаться при загрузке.${NC}"
+    else
+        echo -e "${C_OK}✅ Настроено: IPv6 будет включаться при загрузке (блокировка удалена).${NC}"
+    fi
+    # Печатаем факт, а не намерение: пусть видно, что осталось в файле.
+    local left
+    left=$(grep -c 'disable_ipv6' /etc/sysctl.conf 2>/dev/null || echo 0)
+    echo -e "${C_DESC}   Записей disable_ipv6 в /etc/sysctl.conf: ${left}${NC}"
+}
+
+function show_ipv6_menu {
+    while true; do
+        clear 2>/dev/null
+        ui_title "🌐  УПРАВЛЕНИЕ IPv6"
+
+        local st_t st_c addrs
+        if [ "$(get_ipv6_status_code)" = "1" ]; then
+            st_t="ОТКЛЮЧЁН (на уровне ядра)"; st_c="$C_DANGER"
+        else
+            st_t="ВКЛЮЧЁН"; st_c="$C_OK"
+        fi
+
+        echo ""
+        ui_section "СОСТОЯНИЕ"
+        echo -e "   ${C_NAME}$(ui_pad '🌐  Ядро' 17)${NC}${st_c}${st_t}${NC}"
+        addrs=$(ipv6_addresses)
+        if [ -z "$addrs" ]; then
+            echo -e "   ${C_NAME}$(ui_pad '📡  Адреса' 17)${NC}${C_WARN}нет активных${NC}"
+        else
+            echo -e "   ${C_NAME}$(ui_pad '📡  Адреса' 17)${NC}${C_DESC}$(head -1 <<<"$addrs")${NC}"
+            tail -n +2 <<<"$addrs" | while read -r line; do
+                echo -e "   ${C_NAME}$(ui_pad '' 17)${NC}${C_DESC}${line}${NC}"
+            done
+        fi
+
+        echo ""
+        ui_section "ДЕЙСТВИЯ"
+        ui_item "1" "🔴" "Отключить сейчас" "sysctl, до перезагрузки"
+        ui_item "2" "🟢" "Включить сейчас"  "sysctl, до перезагрузки"
+        ui_item "3" "⚙" "Автозагрузка"     "Что делать при старте сервера"
+        echo ""
+        ui_item "X" "🔙" "Назад"
+        echo ""
+
+        read -p "Ваш выбор [1-3, X]: " choice
+        case $choice in
+            1) ipv6_off ;;
+            2) ipv6_on ;;
+            3) ipv6_autostart_config ;;
+            [Xx]) return ;;
+            *) echo -e "${C_DANGER}❌ Неверный ввод.${NC}"; sleep 1; continue ;;
+        esac
+        read -p "Нажмите Enter для продолжения..."
+    done
+}
+
 # ----------------------------------------------------------------------
 # SSL: УПРАВЛЕНИЕ СЕРТИФИКАТАМИ
 # ----------------------------------------------------------------------
@@ -558,11 +707,11 @@ function run_setup_menu {
             1) show_bbr_menu ;;
             2) show_ping_menu ;;
             3) show_ufw_menu ;;
-            4) bash /usr/local/bin/ipv6-menu ;;
+            4) show_ipv6_menu ;;
             5) manage_ssl_menu ;;
             6) set_timezone_menu ;;
             7)
-            bash /usr/local/bin/menu_warp.sh
+            bash "$VSM_ROOT/menus/warp.sh"
             ;;
             [Xx]) return ;;
         esac

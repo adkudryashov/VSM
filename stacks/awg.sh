@@ -76,7 +76,7 @@ warn() { echo -e "\e[1;33m[!]\e[0m    $*"; }
 die()  { echo -e "\e[1;31m[СБОЙ]\e[0m $*" >&2; exit 1; }
 
 # Повторяет команду раз в секунду, пока та не вернёт 0. Двойник функции из
-# telemt-stack.sh: установщик самодостаточен и утилиты меню не подключает.
+# stacks/telemt.sh: установщик самодостаточен и утилиты меню не подключает.
 wait_until() {
     local tries="$1"; shift
     local i
@@ -87,7 +87,7 @@ wait_until() {
     return 1
 }
 
-# Ожидание освобождения блокировки dpkg. Двойник из telemt-stack.sh; возвращает
+# Ожидание освобождения блокировки dpkg. Двойник из stacks/telemt.sh; возвращает
 # 0 и по таймауту — прежнее `return 1` в соседней копии убивало установщик
 # молча, и копии приведены к одному поведению.
 wait_for_apt() {
@@ -552,7 +552,7 @@ awg_listens()  { ss -lunp 2>/dev/null | grep -q ":${AWG_PORT}\b"; }
 die_unaccepted() {
     warn "Контейнеры остались подняты для разбора, но VSM их своими не считает:"
     warn "  конфигурация ${AWG_CONF} не записана."
-    warn "  Убрать: bash awg-stack.sh --mode uninstall"
+    warn "  Убрать: bash stacks/awg.sh --mode uninstall"
     die "$1"
 }
 
@@ -594,7 +594,7 @@ if wait_until 20 awg_iface_up; then
     dedupe_awg_rules
 else
     warn "Контейнер не сообщил о поднятом интерфейсе за 20 с — дедуп правил пропущен."
-    warn "  Повторить: bash awg-stack.sh --mode dedupe"
+    warn "  Повторить: bash stacks/awg.sh --mode dedupe"
 fi
 RESTARTS="$(docker inspect -f '{{.RestartCount}}' awg-server 2>/dev/null)" || RESTARTS=0
 if [[ "${RESTARTS:-0}" -gt 0 ]]; then

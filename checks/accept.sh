@@ -2,7 +2,7 @@
 #
 # Приёмка меню. Запускается НА СЕРВЕРЕ, где VSM установлен.
 #
-# Зачем отдельно от check-ui.sh: та читает исходники, эта запускает. За сессию
+# Зачем отдельно от checks/ui.sh: та читает исходники, эта запускает. За сессию
 # переделки оформления одиннадцать дефектов нашлись так — пять в живом
 # терминале, ноль статикой. Читать код оказалось недостаточно.
 #
@@ -10,20 +10,27 @@
 # все клавиши подряд на живом сервере значит снести стек — установка, удаление
 # и правка фаервола исключены поимённо, а не по догадке.
 #
-# Запуск: bash accept-ui.sh
+# Запуск: bash checks/accept.sh
 # Возврат: 0 — чисто, 1 — есть находки.
 
-cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" || exit 1
+# Приёмка лежит в checks/, а гоняет весь репозиторий — поднимаемся на уровень
+# выше. Два dirname: первый снимает имя файла, второй каталог checks.
+cd "$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")" || exit 1
 
-BIN=/usr/local/bin
+# Меню запускаются ИЗ РЕПОЗИТОРИЯ, а не из /usr/local/bin.
+#
+# Прежде здесь стоял BIN=/usr/local/bin, потому что install.sh раскладывал туда
+# ссылку на каждый файл. Теперь ссылка ровно одна — vsm, — а меню находят друг
+# друга по своему расположению. Заодно приёмку стало можно гонять на копии
+# репозитория, не устанавливая её в систему.
 FAIL=0
 say()  { echo -e "\033[0;36m$*\033[0m"; }
 bad()  { echo -e "\033[0;31m  ✗ $*\033[0m"; FAIL=1; }
 ok()   { echo -e "\033[0;32m  ✓ $*\033[0m"; }
 note() { echo -e "\033[0;90m    $*\033[0m"; }
 
-MENUS=(vsm menu_xui.sh menu_telemt.sh menu_awg.sh menu_bots.sh
-       menu_setup.sh menu_tests.sh menu_utils.sh menu_warp.sh)
+MENUS=(vsm menus/xui.sh menus/telemt.sh menus/awg.sh menus/bots.sh
+       menus/setup.sh menus/tests.sh menus/utils.sh menus/warp.sh)
 
 # Признаки того, что скрипт сломался, а не отработал. Ищем в выводе, потому что
 # код возврата у меню ничего не значит: цикл завершается по X и возвращает 0
@@ -38,7 +45,7 @@ ERRPAT='command not found|unbound variable|syntax error|No such file or director
 # ---------------------------------------------------------------------------
 say "1. Экраны открываются без ошибок оболочки"
 for m in "${MENUS[@]}"; do
-    out=$(printf 'X\nX\nX\n' | timeout 40 bash "${BIN}/${m}" 2>&1)
+    out=$(printf 'X\nX\nX\n' | timeout 40 bash "$m" 2>&1)
     hits=$(grep -inE "$ERRPAT" <<< "$out" | head -3)
     if [ -n "$hits" ]; then
         bad "$m"
@@ -83,7 +90,7 @@ done
 say "3. Безопасные пункты открываются и делают своё"
 drive() { # файл ввод признак описание
     local f="$1" keys="$2" want="$3" desc="$4" out
-    out=$(printf '%b' "$keys" | timeout 40 bash "${BIN}/${f}" 2>&1)
+    out=$(printf '%b' "$keys" | timeout 40 bash "$f" 2>&1)
     if grep -qiE "$ERRPAT" <<< "$out"; then
         bad "$desc: ошибка оболочки"
         grep -inE "$ERRPAT" <<< "$out" | head -2 | sed 's/^/      /'
@@ -103,12 +110,12 @@ drive() { # файл ввод признак описание
 #
 # Отсюда правило для этого файла: признак обязан быть строкой, которой в
 # списке пунктов НЕТ.
-drive menu_utils.sh  '4\n3\n\nX\n'  'Netid|LISTEN|UNCONN'    'утилиты: порты (клавиша 4)'
-drive menu_utils.sh  '5\n\nX\n'     'Проверка IP'            'утилиты: внешний адрес (клавиша 5)'
-drive menu_xui.sh    '3\nX\nX\n'    'УЧЁТНЫЕ ДАННЫЕ ПАНЕЛИ'  'X-UI: учётные данные (клавиша 3)'
-drive menu_awg.sh    '2\nX\nX\n'    'LABEL.*PUBLIC_KEY'      'AWG: клиенты (клавиша 2)'
-drive menu_awg.sh    '4\n\nX\n'     'iface=awg0'             'AWG: журнал (клавиша 4)'
-drive menu_telemt.sh '6\n\nX\n'     'УЧЁТНЫЕ ДАННЫЕ СТЕКА'   'telemt: учётные данные (клавиша 6)'
+drive menus/utils.sh  '4\n3\n\nX\n'  'Netid|LISTEN|UNCONN'    'утилиты: порты (клавиша 4)'
+drive menus/utils.sh  '5\n\nX\n'     'Проверка IP'            'утилиты: внешний адрес (клавиша 5)'
+drive menus/xui.sh    '3\nX\nX\n'    'УЧЁТНЫЕ ДАННЫЕ ПАНЕЛИ'  'X-UI: учётные данные (клавиша 3)'
+drive menus/awg.sh    '2\nX\nX\n'    'LABEL.*PUBLIC_KEY'      'AWG: клиенты (клавиша 2)'
+drive menus/awg.sh    '4\n\nX\n'     'iface=awg0'             'AWG: журнал (клавиша 4)'
+drive menus/telemt.sh '6\n\nX\n'     'УЧЁТНЫЕ ДАННЫЕ СТЕКА'   'telemt: учётные данные (клавиша 6)'
 
 # ---------------------------------------------------------------------------
 # 3б. Обработчики действий внутри подменю
@@ -126,7 +133,7 @@ drive menu_telemt.sh '6\n\nX\n'     'УЧЁТНЫЕ ДАННЫЕ СТЕКА'   '
 # ---------------------------------------------------------------------------
 say "3б. Обработчики действий второго уровня"
 screen() { # файл ввод описание
-    local out; out=$(printf '%b' "$2" | timeout 60 bash "${BIN}/$1" 2>&1)
+    local out; out=$(printf '%b' "$2" | timeout 60 bash "$1" 2>&1)
     local hits; hits=$(grep -inE "$ERRPAT" <<< "$out" | head -2)
     if [ -n "$hits" ]; then
         bad "$3"
@@ -135,26 +142,27 @@ screen() { # файл ввод описание
         ok "$3"
     fi
 }
-screen menu_xui.sh    '4\nX\nX\nX\n'      'X-UI: бэкапы (4)'
-screen menu_xui.sh    '5\n1\n\nX\nX\n'    'X-UI: служба, статус (5→1)'
-screen menu_xui.sh    '7\nX\nX\nX\n'      'X-UI: AdGuard (7)'
-screen menu_telemt.sh '3\n\nX\n'          'telemt: диагностика (3)'
-screen menu_telemt.sh '7\n1\n1\n\nX\nX\n' 'telemt: служба telemt, статус (7→1→1)'
-screen menu_telemt.sh '8\nX\nX\n'         'telemt: MTProxyL (8)'
-screen menu_telemt.sh '9\n\n\nX\n'        'telemt: экран пересборки nginx (9, без подтверждения)'
-screen menu_awg.sh    '3\n\nX\n'          'AWG: проверка обновлений (3)'
-screen menu_bots.sh   '6\n\nX\n'          'боты: настройки (6)'
-screen menu_bots.sh   '7\nX\nX\n'         'боты: управление службами (7)'
-screen menu_setup.sh  '1\nX\nX\n'         'настройка: BBR (1)'
-screen menu_setup.sh  '2\nX\nX\n'         'настройка: ICMP (2)'
-screen menu_setup.sh  '3\nX\nX\n'         'настройка: UFW (3, без включения)'
-screen menu_setup.sh  '5\nX\nX\n'         'настройка: SSL (5)'
-screen menu_setup.sh  '6\nX\nX\n'         'настройка: часовой пояс (6)'
-screen menu_warp.sh   '2\n\nX\n'          'WARP: порт (2)'
-screen menu_warp.sh   '4\nX\nX\n'         'WARP: служба (4)'
-screen menu_utils.sh  '2\n4\n\nX\n'       'утилиты: ncdu, свой путь (2→4)'
-screen menu_utils.sh  '7\n\n\nX\n'        'утилиты: привязка домена (7)'
-screen menu_utils.sh  '8\nX\nX\n'         'утилиты: очистка (8, без подтверждения)'
+screen menus/xui.sh    '4\nX\nX\nX\n'      'X-UI: бэкапы (4)'
+screen menus/xui.sh    '5\n1\n\nX\nX\n'    'X-UI: служба, статус (5→1)'
+screen menus/xui.sh    '7\nX\nX\nX\n'      'X-UI: AdGuard (7)'
+screen menus/telemt.sh '3\n\nX\n'          'telemt: диагностика (3)'
+screen menus/telemt.sh '7\n1\n1\n\nX\nX\n' 'telemt: служба telemt, статус (7→1→1)'
+screen menus/telemt.sh '8\nX\nX\n'         'telemt: MTProxyL (8)'
+screen menus/telemt.sh '9\n\n\nX\n'        'telemt: экран пересборки nginx (9, без подтверждения)'
+screen menus/awg.sh    '3\n\nX\n'          'AWG: проверка обновлений (3)'
+screen menus/bots.sh   '6\n\nX\n'          'боты: настройки (6)'
+screen menus/bots.sh   '7\nX\nX\n'         'боты: управление службами (7)'
+screen menus/setup.sh  '1\nX\nX\n'         'настройка: BBR (1)'
+screen menus/setup.sh  '2\nX\nX\n'         'настройка: ICMP (2)'
+screen menus/setup.sh  '3\nX\nX\n'         'настройка: UFW (3, без включения)'
+screen menus/setup.sh  '4\nX\nX\n'         'настройка: IPv6 (4, без переключения)'
+screen menus/setup.sh  '5\nX\nX\n'         'настройка: SSL (5)'
+screen menus/setup.sh  '6\nX\nX\n'         'настройка: часовой пояс (6)'
+screen menus/warp.sh   '2\n\nX\n'          'WARP: порт (2)'
+screen menus/warp.sh   '4\nX\nX\n'         'WARP: служба (4)'
+screen menus/utils.sh  '2\n4\n\nX\n'       'утилиты: ncdu, свой путь (2→4)'
+screen menus/utils.sh  '7\n\n\nX\n'        'утилиты: привязка домена (7)'
+screen menus/utils.sh  '8\nX\nX\n'         'утилиты: очистка (8, без подтверждения)'
 
 # ---------------------------------------------------------------------------
 # 4. Конвертер в mihomo — с контрольными случаями
@@ -166,7 +174,7 @@ screen menu_utils.sh  '8\nX\nX\n'         'утилиты: очистка (8, б
 # способен сработать в плюс.
 # ---------------------------------------------------------------------------
 say "4. Конвертер awg2mihomo"
-CONV=./awg2mihomo.sh
+CONV=./tools/awg2mihomo.sh
 GOOD=$(printf '[Interface]\nPrivateKey = kkk\nAddress = 10.99.0.5/32\nDNS = 1.1.1.1, 8.8.8.8\nMTU = 1280\nJc = 4\nS1 = 7\nH1 = 1-2\nI1 = <b 0xaa><t>\n[Peer]\nPublicKey = ppp\nPresharedKey = sss\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = example.com:51820\nPersistentKeepalive = 25\n')
 
 t_ok() { # описание ввод ожидаемая-подстрока

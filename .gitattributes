@@ -1,0 +1,11 @@
+# Скрипты всегда с LF, независимо от core.autocrlf у разработчика.
+#
+# Разработка идёт с Windows, где autocrlf=true. Один checkout с переводом строк
+# в CRLF — и на сервере скрипт умирает с «bad interpreter: /bin/bash^M», причём
+# сообщение не указывает на настоящую причину. Здесь это закрыто на уровне
+# репозитория, а не настроек рабочей машины.
+*.sh    text eol=lf
+vsm     text eol=lf
+*.py    text eol=lf
+*.toml  text eol=lf
+*.md    text eol=lf

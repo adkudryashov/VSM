@@ -4,18 +4,61 @@
 # ГЛАВНЫЙ ФАЙЛ МЕНЮ
 # ======================================================================
 
-# Подключаем все общие переменные и функции
-source /usr/local/bin/_config_and_utils.sh
-
-# Каталог репозитория вычисляется от самого скрипта, а не задан жёстко.
-# При запуске через симлинк /usr/local/bin/vsm readlink -f приводит к
-# реальному файлу внутри репозитория.
+# Подключаем все общие переменные и функции.
 #
-# Иначе установка под прежним именем (/root/VPS-main-menu), обновившись до
-# версии с жёстким /root/VSM, теряла бы свой каталог: проверка обновлений
-# молча выключалась, а пункт обновления просто выходил из меню — починить
-# изнутри было уже нельзя.
-VSM_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+# Путь относительный, от собственного расположения: /usr/local/bin/vsm — это
+# символическая ссылка, и readlink -f внутри common.sh приводит к настоящему
+# файлу в каталоге репозитория. Прежде здесь стоял жёсткий
+# /usr/local/bin/_config_and_utils.sh, и репозиторий было невозможно запустить,
+# не установив: ни одно меню не открывалось до install.sh.
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/common.sh" || {
+    echo "Не найдена lib/common.sh — переустановите VSM: bash install.sh"; exit 1; }
+
+# Каталог репозитория. common.sh уже вычислил его как VSM_ROOT — здесь только
+# прежнее имя, под которым он используется ниже по файлу.
+#
+# Считается от самого скрипта, а не задан жёстко: иначе установка под прежним
+# именем (/root/VPS-main-menu), обновившись до версии с жёстким /root/VSM,
+# теряла бы свой каталог — проверка обновлений молча выключалась, а пункт
+# обновления просто выходил из меню, и починить изнутри было уже нельзя.
+VSM_DIR="$VSM_ROOT"
+
+# ----------------------------------------------------------------------
+# РАЗОВАЯ УБОРКА ПОСЛЕ ПЕРЕЕЗДА НА КАТАЛОЖНУЮ РАСКЛАДКУ
+#
+# Прежние версии раскладывали в /usr/local/bin ссылку на КАЖДЫЙ файл корня —
+# меню, установщики, библиотеки, проверки разработчика. После переезда в
+# lib/menus/stacks/tools все эти ссылки указывают в никуда.
+#
+# Снять их обязан именно новый код, и вот почему. Обновление идёт старым
+# обработчиком: он делает git reset --hard, затем своим циклом по маске
+# "$VSM_DIR"/*.sh пытается пересоздать ссылки — а в корне после переезда ни
+# одного .sh не осталось, — и заканчивается `exec bash "$0"`. Вот на этом exec
+# управление и переходит сюда, к новому файлу. Другого места, где можно
+# исправить последствия, просто нет: старый код уже отработал, а меню без
+# ссылок открывалось бы с ошибками на каждом пункте.
+#
+# Метка нужна, чтобы обход /usr/local/bin шёл один раз за жизнь установки, а не
+# при каждом входе по SSH: меню открывается из ~/.bashrc.
+VSM_LAYOUT_MARK="/etc/vsm/.layout-dirs"
+if [ ! -f "$VSM_LAYOUT_MARK" ]; then
+    _cleaned=0
+    for _link in /usr/local/bin/*; do
+        [ -L "$_link" ] || continue
+        [ "$_link" = "/usr/local/bin/vsm" ] && continue
+        case "$(readlink "$_link")" in
+            "$VSM_DIR"/*)
+                rm -f "$_link"; _cleaned=$((_cleaned + 1)) ;;
+        esac
+    done
+    mkdir -p /etc/vsm 2>/dev/null && chmod 700 /etc/vsm 2>/dev/null
+    : > "$VSM_LAYOUT_MARK" 2>/dev/null
+    if [ "$_cleaned" -gt 0 ]; then
+        echo "Переезд на каталожную раскладку: снято ссылок прежней раскладки — ${_cleaned}."
+        sleep 1
+    fi
+    unset _cleaned _link
+fi
 
 function check_for_updates {
     # Переходим в физическую папку репозитория, чтобы Git видел .git
@@ -76,7 +119,7 @@ function check_for_updates {
 # ----------------------------------------------------------------------
 
 # Выравнивание, ширина терминала и примитивы отрисовки живут в
-# _config_and_utils.sh: подменю нужны те же самые, а копия — это две копии,
+# lib/common.sh: подменю нужны те же самые, а копия — это две копии,
 # которые однажды разойдутся.
 
 # Значение из файла конфигурации. Кавычки снимаются разворачиванием параметра,
@@ -497,13 +540,13 @@ while true; do
 
     case $choice in
         0) show_access_info ;;
-        1) /usr/local/bin/menu_xui.sh ;;
-        2) /usr/local/bin/menu_awg.sh ;;
-        3) /usr/local/bin/menu_telemt.sh ;;
-        4) /usr/local/bin/menu_bots.sh ;;
-        5) /usr/local/bin/menu_tests.sh ;;
-        6) /usr/local/bin/menu_setup.sh ;;
-        7) /usr/local/bin/menu_utils.sh ;;
+        1) "$VSM_DIR/menus/xui.sh" ;;
+        2) "$VSM_DIR/menus/awg.sh" ;;
+        3) "$VSM_DIR/menus/telemt.sh" ;;
+        4) "$VSM_DIR/menus/bots.sh" ;;
+        5) "$VSM_DIR/menus/tests.sh" ;;
+        6) "$VSM_DIR/menus/setup.sh" ;;
+        7) "$VSM_DIR/menus/utils.sh" ;;
         8)
            echo -e "${YELLOW}>>> Принудительное обновление через Git...${NC}"
            cd "$VSM_DIR" || exit
@@ -522,11 +565,28 @@ while true; do
                #
                # bash -n не ловит ошибки времени выполнения, но ловит ровно тот
                # класс, который делает файл незапускаемым целиком.
+               #
+               # Обход именно поиском по каталогам, а не маской по корню.
+               # Маска "$VSM_DIR"/*.sh после переезда в lib/menus/stacks/tools
+               # находила бы только install.sh с uninstall.sh — то есть проверка
+               # молча признавала бы годной любую версию, включая заведомо
+               # сломанную, и откат не срабатывал бы никогда. Ровно тот отказ,
+               # с которым борется весь этот блок: успех отрапортован поверх
+               # нерабочей системы.
                VSM_BROKEN=""
-               for f in "$VSM_DIR"/*.sh "$VSM_DIR/vsm" "$VSM_DIR/ipv6-menu"; do
+               while IFS= read -r f; do
                    [ -f "$f" ] || continue
-                   bash -n "$f" 2>/dev/null || VSM_BROKEN="${VSM_BROKEN} $(basename "$f")"
-               done
+                   bash -n "$f" 2>/dev/null || VSM_BROKEN="${VSM_BROKEN} ${f#"$VSM_DIR"/}"
+               done < <(find "$VSM_DIR" -path "$VSM_DIR/.git" -prune -o \
+                             \( -name '*.sh' -o -name 'vsm' \) -type f -print 2>/dev/null)
+               # Отдельно — наличие общей библиотеки. Разбор синтаксиса ничего
+               # не скажет о версии, где файлы просто лежат не там: каждый из
+               # них по отдельности разбирается прекрасно, а меню при запуске
+               # умирает на первой же строке source. Здесь нужна проверка
+               # фактом, а не разбором.
+               if [ -z "$VSM_BROKEN" ] && [ ! -f "$VSM_DIR/lib/common.sh" ]; then
+                   VSM_BROKEN=" lib/common.sh не на месте — раскладка репозитория не та"
+               fi
                if [ -n "$VSM_BROKEN" ]; then
                    echo -e "${RED}❌ В новой версии не разбираются:${NC}${VSM_BROKEN}"
                    echo -e "${YELLOW}>>> Откатываюсь на прежнюю версию, меню останется рабочим.${NC}"
@@ -538,14 +598,31 @@ while true; do
                    read -p "Нажмите Enter..."
                    continue
                fi
-               chmod +x "$VSM_DIR"/*.sh "$VSM_DIR/vsm" "$VSM_DIR/ipv6-menu" 2>/dev/null
-			   for file in "$VSM_DIR"/*.sh "$VSM_DIR/vsm" "$VSM_DIR/ipv6-menu"; do
-			       [ -f "$file" ] || continue
-			       case "$(basename "$file")" in install.sh|uninstall.sh) continue ;; esac
-			       ln -sf "$file" "/usr/local/bin/$(basename "$file")"
-			   done
-			   # Убираем ссылки на упразднённые модули (Hysteria2, MTProxy)
-			   rm -f /usr/local/bin/menu_hysteria.sh /usr/local/bin/menu_mtproxy.sh
+               # Права — по каталогам. lib/ намеренно пропущен: эти файлы
+               # сорсятся, и бит исполнения на них лишний.
+               chmod +x "$VSM_DIR/vsm" 2>/dev/null
+               for d in menus stacks tools checks; do
+                   [ -d "$VSM_DIR/$d" ] && chmod +x "$VSM_DIR/$d"/*.sh 2>/dev/null
+               done
+
+               # Ссылка ровно одна. Меню и установщики находят друг друга по
+               # своему расположению через VSM_ROOT из lib/common.sh, и в PATH
+               # им делать нечего. Прежний цикл уносил в /usr/local/bin все
+               # двадцать файлов корня, включая библиотеки и проверки
+               # разработчика.
+               ln -sf "$VSM_DIR/vsm" /usr/local/bin/vsm
+
+               # Уборка за прежними раскладками: и за файловой (menus/xui.sh и
+               # соседи лежали в корне), и за упразднёнными модулями Hysteria2
+               # с MTProxy, чьи ссылки переживали любое обновление.
+               for link in /usr/local/bin/*; do
+                   [ -L "$link" ] || continue
+                   [ "$link" = "/usr/local/bin/vsm" ] && continue
+                   case "$(readlink "$link")" in
+                       "$VSM_DIR"/*) rm -f "$link" ;;
+                   esac
+                   [ -e "$link" ] || rm -f "$link"
+               done
 			   # Код ботов лежит в этом же репозитории: без перезапуска службы
 			   # продолжили бы работать на старой версии.
 			   for unit in 3xui-telemt-bot telemt-bot 3xui-monitor; do

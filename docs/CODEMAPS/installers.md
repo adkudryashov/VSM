@@ -2,11 +2,11 @@
 
 # Установщики
 
-Запускаются меню, но пригодны и отдельно. **Не подключают `_config_and_utils.sh`** —
+Запускаются меню, но пригодны и отдельно. **Не подключают `lib/common.sh`** —
 общие помощники продублированы осознанно, это дешевле связности. У обоих
 `set -euo pipefail`, поэтому каждая подстановка команды требует `|| true`.
 
-## `telemt-stack.sh` (477 строк)
+## `stacks/telemt.sh` (477 строк)
 
 Режимы: `--mode full` (ставит и панель) | `--mode addon` (панель уже есть).
 
@@ -36,7 +36,7 @@
 Секрет и пароль **переиспользуются**: читаются из существующего конфига до
 генерации новых.
 
-## `bots-stack.sh` (377 строк)
+## `stacks/bots.sh` (377 строк)
 
 ```
 0  migrate_old_layout   переносит .db и geoip из прежней раскладки в bots/data
@@ -50,7 +50,7 @@
 
 ## Генераторы nginx
 
-`_nginx_mask.sh` (292):
+`lib/nginx_mask.sh` (292):
 ```
 nginx_mask_panel_vhost   ищет vhost домена в sites-available | sites-enabled
 nginx_mask_tls_block     вырезает server{} с ssl_certificate (не блок :80!)
@@ -61,7 +61,7 @@ nginx_mask_install       атомарная подмена через mv + nginx
 nginx_mask_apply         полный цикл, единственная точка входа
 ```
 
-`_nginx_panel_proxy.sh` (311):
+`lib/nginx_panel_proxy.sh` (311):
 ```
 panel_proxy_gen_prefix   openssl rand -hex 16
 panel_proxy_render       location + proxy_pass + sub_filter для <base href>
@@ -76,7 +76,7 @@ panel_proxy_remove       снятие при удалении стека
 Блок панели живёт в `sites-enabled` и **не переживает патч 3x-ui-pro** —
 переприменяется пунктом 4. Маска в `conf.d` переживает.
 
-## `rebuild-nginx-openssl35.sh` (608)
+## `stacks/nginx-openssl35.sh` (608)
 
 Читает `configure`-флаги текущего nginx, пересобирает с OpenSSL 3.5 в
 `/opt/openssl-3.5`, подменяет `/usr/sbin/nginx` с бэкапом и откатом, делает
@@ -102,7 +102,7 @@ panel_proxy_remove       снятие при удалении стека
 DRY_RUN=1       показать решения отбора и итоговые флаги, ничего не меняя
 ```
 
-## `awg-stack.sh` (393)
+## `stacks/awg.sh` (393)
 
 Ставит AmneziaWG **2.0 или 3.0** контейнером рядом со стеком: `--awg-version`,
 по образу на версию из того же семейства. Самодостаточен: общий слой

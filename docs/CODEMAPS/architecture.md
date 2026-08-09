@@ -7,28 +7,47 @@
 
 ## Слои
 
-```
-vsm ──────────────► главное меню (статусы, адреса, диспетчер)
- │
- ├─ menu_xui.sh ──► панель 3x-ui-pro
- ├─ menu_telemt.sh► стек telemt: маска, панель, MTProxyL
- ├─ menu_awg.sh ──► AmneziaWG 3.0 (контейнер, свой UDP-порт)
- ├─ menu_bots.sh ─► Telegram-боты (4 режима)
- ├─ menu_tests.sh► проверки сети и производительности
- ├─ menu_setup.sh► BBR, ICMP, UFW, TZ, SSL, WARP
- ├─ menu_utils.sh► htop, ncdu, порты, очистка
- └─ ipv6-menu ───► IPv6 вкл/выкл + автозагрузка
+В корне репозитория лежат ровно три файла: `vsm`, `install.sh`, `uninstall.sh`.
+Всё остальное разложено по каталогам, и в `/usr/local/bin` уходит **одна**
+ссылка — `vsm`. Меню и установщики находят друг друга по своему расположению
+через `VSM_ROOT`, который задаёт `lib/common.sh`.
 
-общий слой (source из всех меню):
- _config_and_utils.sh  цвета, статусы служб, адреса панелей, учётки, apt
- _nginx_mask.sh        генератор self-SNI vhost
- _nginx_panel_proxy.sh доступ к telemt_panel через 443
+```
+vsm ─────────────────────► главное меню (статусы, адреса, диспетчер)
+ │
+ ├─ menus/xui.sh ────────► панель 3x-ui-pro
+ ├─ menus/telemt.sh ─────► стек telemt: маска, панель, MTProxyL
+ ├─ menus/awg.sh ────────► AmneziaWG 2.0/3.0 (контейнер, свой UDP-порт)
+ ├─ menus/bots.sh ───────► Telegram-боты (4 режима)
+ ├─ menus/tests.sh ──────► проверки сети и производительности
+ ├─ menus/setup.sh ──────► BBR, ICMP, UFW, IPv6, TZ, SSL, WARP
+ ├─ menus/utils.sh ──────► htop, ncdu, порты, очистка
+ └─ menus/warp.sh ───────► Cloudflare WARP (вызывается из setup)
+
+общий слой (source из всех меню — одной строкой lib/common.sh):
+ lib/common.sh   точка подключения; задаёт VSM_ROOT и VSM_LIB
+ lib/ui.sh       палитра и примитивы вывода (ui_item, ui_pad, ui_title…)
+ lib/config.sh   статусы служб, IPv6 из ядра, адреса панелей, учётки
+ lib/deps.sh     apt, установка пакетов, отпечатки чужих установщиков
+ lib/nginx_mask.sh        генератор self-SNI vhost
+ lib/nginx_panel_proxy.sh доступ к telemt_panel через 443
 
 установщики (самодостаточные, НЕ подключают общий слой):
- telemt-stack.sh   стек telemt, режимы full | addon
- awg-stack.sh      AmneziaWG 3.0, режимы install | uninstall
- bots-stack.sh     боты
+ stacks/telemt.sh           стек telemt, режимы full | addon
+ stacks/awg.sh              AmneziaWG, режимы install | uninstall | dedupe
+ stacks/bots.sh             боты
+ stacks/nginx-openssl35.sh  пересборка nginx с OpenSSL 3.5 (PQ TLS)
+
+прочее:
+ tools/awg2mihomo.sh  конвертер клиентского конфига AWG в формат clash-meta
+ checks/ui.sh         статика оформления (~4 с), гоняется перед коммитом
+ checks/accept.sh     приёмка: запускает меню на живом сервере
+ bots/                исходники Telegram-ботов
 ```
+
+Почему `lib/` не получает бит исполнения: эти файлы сорсятся, а не
+запускаются. Почему `checks/` не попадает в `/usr/local/bin`: это инструмент
+разработчика, на боевом сервере ему в PATH делать нечего.
 
 ## Self-SNI маскировка — суть системы
 
@@ -42,7 +61,7 @@ vsm ──────────────► главное меню (ст�
 
 Критерий целости — **не** «служба active», а совпадение отпечатка сертификата,
 ALPN, шифра и группы обмена между 7444 и 443. Проверяется пунктом
-«Сверить TLS маски и панели» (`check_tls_parity` в `menu_telemt.sh`).
+«Сверить TLS маски и панели» (`check_tls_parity` в `menus/telemt.sh`).
 
 ## Маршрутизация 443
 
@@ -105,7 +124,7 @@ ALPN, шифра и группы обмена между 7444 и 443. Прове
 
 ## Оформление меню
 
-Собрано из примитивов в `_config_and_utils.sh`, а не из литералов в каждом
+Собрано из примитивов в `lib/common.sh`, а не из литералов в каждом
 файле: `ui_title`, `ui_section`, `ui_item`, `ui_danger_item`, `ui_kv`,
 `ui_secret`, `ui_pad`, `ui_cols`, `ui_narrow`.
 
@@ -117,7 +136,7 @@ ALPN, шифра и группы обмена между 7444 и 443. Прове
 | `C_OK` / `C_WARN` / `C_DANGER` | состояние: цвет здесь несёт смысл, а не роль |
 | `C_SECRET` | учётные данные — **жирным, не цветом** |
 
-Три правила, каждое написано кровью и стережётся `check-ui.sh`:
+Три правила, каждое написано кровью и стережётся `checks/ui.sh`:
 
 1. **Эмодзи с вариационным селектором (`U+FE0F`) запрещены** — рендерятся в
    одну или две ячейки в зависимости от терминала. В исходном меню их было 77

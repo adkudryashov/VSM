@@ -7,11 +7,11 @@
 ## Главное меню — `vsm` (426 строк)
 
 ```
-0 → show_access_info     5 → menu_tests.sh
-1 → menu_xui.sh          6 → menu_setup.sh
-2 → menu_awg.sh          7 → menu_utils.sh
-3 → menu_telemt.sh       8 → git pull + ln -sf + exec (обновление)
-4 → menu_bots.sh         X → выход в оболочку
+0 → show_access_info     5 → menus/tests.sh
+1 → menus/xui.sh          6 → menus/setup.sh
+2 → menus/awg.sh          7 → menus/utils.sh
+3 → menus/telemt.sh       8 → git pull + ln -sf + exec (обновление)
+4 → menus/bots.sh         X → выход в оболочку
 ```
 
 Шапка: две строки сводки (ОС, ресурсы, аптайм, TCP CC, страна, адреса,
@@ -27,7 +27,7 @@
 профиль AmneziaWG, домены с назначением. Пароли скрыты до нажатия P,
 печатаются один раз, экран чистится на выходе.
 
-## Управление X-UI — `menu_xui.sh` (335 строк)
+## Управление X-UI — `menus/xui.sh` (335 строк)
 
 ```
 1 install_xui_pro        xui_installer_fetch: отпечаток + снятие check_cpu;
@@ -47,12 +47,12 @@
 `warn_telemt_after_panel_change` вызывается после 1 и 2: патч чистит
 `sites-enabled`, а там живёт блок доступа к telemt_panel.
 
-## Стек telemt — `menu_telemt.sh` (898 строк)
+## Стек telemt — `menus/telemt.sh` (898 строк)
 
 ```
 УСТАНОВКА
-1 run_install full     СТЕРЕТЬ → telemt-stack.sh --mode full
-2 run_install addon    → telemt-stack.sh --mode addon
+1 run_install full     СТЕРЕТЬ → stacks/telemt.sh --mode full
+2 run_install addon    → stacks/telemt.sh --mode addon
 
 ЭКСПЛУАТАЦИЯ
 3 run_diagnostics      службы, порты, HTTP-коды, сквозной self-SNI тест
@@ -64,12 +64,12 @@
 
 ДОПОЛНИТЕЛЬНО
 8  run_mtproxyl        сторонний лимитер, режим Reanimator
-9  run_rebuild_nginx   rebuild-nginx-openssl35.sh, 20–40 минут; читает rc и
+9  run_rebuild_nginx   stacks/nginx-openssl35.sh, 20–40 минут; читает rc и
                        печатает фактическое состояние nginx/telemt/telemt-panel
 10 uninstall_stack     УДАЛИТЬ; снимает блок панели и ACL на ключ LE
 ```
 
-## Telegram-боты — `menu_bots.sh` (343 строки)
+## Telegram-боты — `menus/bots.sh` (343 строки)
 
 ```
 1 combined   3xui-telemt-bot     ─┐
@@ -82,9 +82,9 @@
 8 run_remove   УДАЛИТЬ; снимает карту из nginx и /var/www/telemt-map
 ```
 
-Все четыре режима вызывают `bots-stack.sh --bots <режим>`.
+Все четыре режима вызывают `stacks/bots.sh --bots <режим>`.
 
-## Настройка — `menu_setup.sh` (554 строки)
+## Настройка — `menus/setup.sh` (554 строки)
 
 ```
 1 show_bbr_menu     enable_bbr / disable_bbr, sysctl.conf
@@ -92,7 +92,7 @@
 3 show_ufw_menu     ufw_enable_safely — разрешает SSH ДО включения
 4 set_timezone_menu
 5 manage_ssl_menu   certbot --standalone; trap INT TERM HUP → restore_stopped_services
-6 menu_warp.sh
+6 menus/warp.sh
 ```
 
 `ufw_enable_safely` объединяет источники SSH-порта: `$SSH_CONNECTION`,
@@ -100,17 +100,23 @@
 
 ## Прочее
 
-- `menu_tests.sh` (261) — IP region, доступность из РФ, iPerf3, YABS, IPQuality, sysbench, RealiTLScanner, DPI Detector, SNI Scan
-- `menu_utils.sh` (190) — htop, ncdu, nethogs, внешний IP, ping/mtr, порты, kill, очистка, проверка домена
-- `menu_warp.sh` (256) — Cloudflare WARP в режиме SOCKS5
-- `ipv6-menu` (122) — вкл/выкл в текущей сессии + автозагрузка через sysctl.conf
+- `menus/tests.sh` (261) — IP region, доступность из РФ, iPerf3, YABS, IPQuality, sysbench, RealiTLScanner, DPI Detector, SNI Scan
+- `menus/utils.sh` (190) — htop, ncdu, nethogs, внешний IP, ping/mtr, порты, kill, очистка, проверка домена
+- `menus/warp.sh` (256) — Cloudflare WARP в режиме SOCKS5
 
-## `menu_awg.sh` — AmneziaWG 3.0
+IPv6 отдельным файлом больше не живёт: `show_ipv6_menu` внутри
+`menus/setup.sh`, пункт 4. Прежний `ipv6-menu` был единственным меню без
+префикса, со своей копией `get_ipv6_status_code` и не переведённым на `ui_*`
+оформлением — проверка `checks/ui.sh` его поэтому и не покрывала. Отключение
+теперь спрашивает подтверждение, если админ подключён по IPv6: sysctl оборвёт
+эту же сессию.
+
+## `menus/awg.sh` — AmneziaWG 3.0
 
 ```
 шапка   статус ПО ФАКТУ: запущен / порт не слушает / перезапускался N раз,
         отдельной строкой форвардинг — его отсутствие ничем другим не видно
-1 awg_install        выбор версии 2.0 / 3.0, затем awg-stack.sh --mode install;
+1 awg_install        выбор версии 2.0 / 3.0, затем stacks/awg.sh --mode install;
                      профиль мимикрии спрашивается только для 3.0 — пакета I1,
                      который он описывает, в 2.0 нет; повтор требует
                      ПЕРЕУСТАНОВИТЬ

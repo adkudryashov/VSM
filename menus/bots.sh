@@ -1,7 +1,6 @@
 #!/bin/bash
-[ -f /usr/local/bin/_config_and_utils.sh ] || {
-    echo "Не найден /usr/local/bin/_config_and_utils.sh — переустановите меню."; exit 1; }
-source /usr/local/bin/_config_and_utils.sh
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/common.sh" || {
+    echo "Не найдена lib/common.sh — переустановите VSM: bash install.sh"; exit 1; }
 
 # ----------------------------------------------------------------------
 # TELEGRAM-БОТЫ
@@ -11,12 +10,8 @@ source /usr/local/bin/_config_and_utils.sh
 # Код общий для всех трёх, запускаются прямо из bots/.
 # ----------------------------------------------------------------------
 
-# Каталог репозитория — от расположения скрипта, а не жёстко: при запуске
-# через симлинк readlink -f приводит к реальному файлу. Иначе установка
-# под прежним именем после обновления не нашла бы свои скрипты.
-REPO_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-STACK_SCRIPT="$REPO_DIR/bots-stack.sh"
-BOTS_DIR="$REPO_DIR/bots"
+STACK_SCRIPT="$VSM_ROOT/stacks/bots.sh"
+BOTS_DIR="$VSM_ROOT/bots"
 DATA_DIR="$BOTS_DIR/data"
 ENV_FILE="$BOTS_DIR/.env"
 CONF="/etc/vsm/bots.conf"
@@ -154,8 +149,8 @@ function run_update {
     echo -e "${CYAN}          🔄  ОБНОВЛЕНИЕ КОДА БОТОВ  🔄              ${NC}"
     echo -e "${CYAN}======================================================${NC}"
 
-    cd "$REPO_DIR" || { echo -e "${RED}❌ Нет $REPO_DIR${NC}"; read -p "Enter..."; return; }
-    [ -d .git ] || { echo -e "${RED}❌ $REPO_DIR не git-репозиторий.${NC}"; read -p "Enter..."; return; }
+    cd "$VSM_ROOT" || { echo -e "${RED}❌ Нет $VSM_ROOT${NC}"; read -p "Enter..."; return; }
+    [ -d .git ] || { echo -e "${RED}❌ $VSM_ROOT не git-репозиторий.${NC}"; read -p "Enter..."; return; }
 
     local dirty
     dirty=$(git status --porcelain -- bots/ 2>/dev/null)

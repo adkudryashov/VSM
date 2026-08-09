@@ -12,7 +12,7 @@ TARGET_DIR="/root/VSM"
 
 # 1. Удаление символических ссылок из /usr/local/bin
 # Перебором по цели ссылки: поимённый список отставал от install.sh и
-# оставлял битые ссылки на menu_xui.sh, menu_telemt.sh, telemt-stack.sh и др.
+# оставлял битые ссылки на menus/xui.sh, menus/telemt.sh, stacks/telemt.sh и др.
 echo -e "${YELLOW}>>> Удаление системных ссылок...${NC}"
 removed=0
 for link in /usr/local/bin/*; do

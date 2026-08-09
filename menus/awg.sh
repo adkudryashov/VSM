@@ -1,5 +1,6 @@
 #!/bin/bash
-source /usr/local/bin/_config_and_utils.sh
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/common.sh" || {
+    echo "Не найдена lib/common.sh — переустановите VSM: bash install.sh"; exit 1; }
 
 # ----------------------------------------------------------------------
 # AMNEZIAWG 2.0 / 3.0: УСТАНОВКА, КЛИЕНТЫ, ОБНОВЛЕНИЯ
@@ -8,8 +9,7 @@ source /usr/local/bin/_config_and_utils.sh
 # слушает свой UDP-порт в host-режиме, nginx и сертификаты не трогает.
 # ----------------------------------------------------------------------
 
-REPO_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-AWG_SCRIPT="$REPO_DIR/awg-stack.sh"
+AWG_SCRIPT="$VSM_ROOT/stacks/awg.sh"
 AWG_CONF="/etc/vsm/awg.conf"
 AWG_DIR="/etc/vsm/awg"
 
@@ -282,7 +282,7 @@ function awg_clients {
             # Скрипт переносит всё сам и отказывается конвертировать 3.0,
             # которую mihomo не понимает вовсе.
             if [ "$ch" = "2" ]; then
-                local conv; conv="$REPO_DIR/awg2mihomo.sh"
+                local conv; conv="$VSM_ROOT/tools/awg2mihomo.sh"
                 if [ ! -f "$conv" ]; then
                     echo -e "\n${C_DANGER}❌ Не найден ${conv} — обнови VSM (install.sh).${NC}"
                     echo -e "${C_WARN}   Конфиг ниже выдан в обычном формате, пир уже создан.${NC}"
@@ -420,7 +420,7 @@ function awg_check_updates {
         echo -e "${GREEN}✅ Всё соответствует зафиксированным версиям.${NC}"
     else
         echo -e "${YELLOW}Версии не фиксируются автоматически — это решение владельца.${NC}"
-        echo -e "${YELLOW}Обновление означает правку пиннинга в awg-stack.sh и повторную${NC}"
+        echo -e "${YELLOW}Обновление означает правку пиннинга в stacks/awg.sh и повторную${NC}"
         echo -e "${YELLOW}установку. Проверьте, что изменилось у автора, прежде чем идти.${NC}"
     fi
     read -p "Нажмите Enter..."

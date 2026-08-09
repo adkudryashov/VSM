@@ -15,9 +15,9 @@
 # перенос делает скрипт, а не человек.
 #
 # Запуск:
-#   bash awg2mihomo.sh <файл>       конфиг из файла
-#   bash awg2mihomo.sh -            конфиг со стандартного ввода
-#   ... | bash awg2mihomo.sh        то же
+#   bash tools/awg2mihomo.sh <файл>       конфиг из файла
+#   bash tools/awg2mihomo.sh -            конфиг со стандартного ввода
+#   ... | bash tools/awg2mihomo.sh        то же
 #
 # Возврат: 0 — конфиг выдан, 1 — отказ с объяснением.
 

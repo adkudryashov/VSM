@@ -19,10 +19,10 @@
 владельца — запоминать отпечаток и предупреждать при изменении, а не
 фиксировать версии.
 
-`upstream_fingerprint` в `_config_and_utils.sh` считает sha256 и сверяет с
+`upstream_fingerprint` в `lib/common.sh` считает sha256 и сверяет с
 `/etc/vsm/upstream.sha256`. Незнакомый адрес запоминается молча, совпадение
 проходит без слова, расхождение печатает оба отпечатка и не блокирует —
-блокировать решено не было. Своя минимальная копия живёт в `telemt-stack.sh`:
+блокировать решено не было. Своя минимальная копия живёт в `stacks/telemt.sh`:
 установщик самодостаточен, как и с `wait_for_apt`.
 
 Покрыты пути 3x-ui-pro и ipregion. AmneziaWG пиннится иначе и жёстче: релиз
@@ -48,8 +48,8 @@ digest. Остальные апстримы — следующим заходо�
 | Источник | Что | Где используется |
 |---|---|---|
 | [P3TERX/GeoLite.mmdb](https://github.com/P3TERX/GeoLite.mmdb) | GeoLite2 City / ASN / Country, `releases/latest` | `update_geoip.sh`, переопределяется `GEOIP_BASE_URL` |
-| [Loyalsoldier/geoip](https://github.com/Loyalsoldier/geoip) | база для RealiTLScanner | `menu_tests.sh` |
-| [openssl/openssl](https://github.com/openssl/openssl) | исходники 3.5.x | `rebuild-nginx-openssl35.sh` |
+| [Loyalsoldier/geoip](https://github.com/Loyalsoldier/geoip) | база для RealiTLScanner | `menus/tests.sh` |
+| [openssl/openssl](https://github.com/openssl/openssl) | исходники 3.5.x | `stacks/nginx-openssl35.sh` |
 
 Прежний источник GeoIP (`git.io`) отключён GitHub в 2022 — базы не скачивались
 вовсе, а скрипт рапортовал об успехе.

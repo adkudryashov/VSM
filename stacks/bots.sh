@@ -6,7 +6,7 @@ set -euo pipefail
 #
 # Встроен в VSM (пункт "Telegram-боты"), запускается локально.
 # Неинтерактивный: параметры приходят через переменные окружения, спрашивает
-# пользователя menu_bots.sh.
+# пользователя menus/bots.sh.
 #
 # РЕЖИМЫ (--bots):
 #   combined — один бот 3xui-telemt-bot с обеими функциями (по умолчанию)
@@ -25,8 +25,15 @@ set -euo pipefail
 #   MAP_DOMAIN          домен для карты (пусто — nginx не трогать)
 # ============================================================================
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BOTS_DIR="$REPO_DIR/bots"
+# readlink -f обязателен, а два dirname — потому что скрипт лежит в stacks/,
+# а код ботов в bots/ рядом с ним на уровень выше.
+#
+# Раньше здесь стоял простой dirname без разыменования. Выстрелить не успело —
+# звали всегда по настоящему пути, — но install.sh раскладывал в /usr/local/bin
+# и этот файл тоже, и запуск по ссылке дал бы BOTS_DIR=/usr/local/bin/bots,
+# которого нет.
+VSM_ROOT="$(cd "$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")" && pwd)"
+BOTS_DIR="$VSM_ROOT/bots"
 DATA_DIR="$BOTS_DIR/data"
 VENV="$BOTS_DIR/venv"
 ENV_FILE="$BOTS_DIR/.env"
@@ -348,7 +355,7 @@ fi
 
 umask 077
 {
-    echo "# Создан bots-stack.sh. Права 600 — внутри токены ботов."
+    echo "# Создан stacks/bots.sh. Права 600 — внутри токены ботов."
     echo "COMBINED_BOT_TOKEN=$COMBINED_BOT_TOKEN"
     echo "TELEMT_BOT_TOKEN=$TELEMT_BOT_TOKEN"
     echo "XUI_BOT_TOKEN=$XUI_BOT_TOKEN"

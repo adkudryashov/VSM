@@ -3,8 +3,8 @@
 # ======================================================================
 # ДОСТУП К telemt_panel ЧЕРЕЗ 443 ДОМЕНА ПАНЕЛИ
 #
-# Сорсится теми же двумя потребителями, что и _nginx_mask.sh:
-# telemt-stack.sh (set -euo pipefail, свои log/warn/die) и menu_telemt.sh
+# Сорсится теми же двумя потребителями, что и lib/nginx_mask.sh:
+# stacks/telemt.sh (set -euo pipefail, свои log/warn/die) и menus/telemt.sh
 # (интерактивное меню без set -e). Поэтому здесь нет ни цветов, ни read, ни
 # exit, а ветвления записаны полной формой if/fi: голое "[ -n "$x" ] && cmd"
 # под set -e роняет вызывающего.

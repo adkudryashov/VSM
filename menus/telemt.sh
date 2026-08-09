@@ -1,38 +1,35 @@
 #!/bin/bash
-source /usr/local/bin/_config_and_utils.sh
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/common.sh" || {
+    echo "Не найдена lib/common.sh — переустановите VSM: bash install.sh"; exit 1; }
 
 # ----------------------------------------------------------------------
 # TELEMT / MTPROTO: УПРАВЛЕНИЕ СТЕКОМ
 # 3x-ui-pro + telemt (self-SNI маскировка) + telemt_panel + MEKO
 # ----------------------------------------------------------------------
 
-# Каталог репозитория — от расположения скрипта, а не жёстко: при запуске
-# через симлинк readlink -f приводит к реальному файлу. Иначе установка
-# под прежним именем после обновления не нашла бы свои скрипты.
-REPO_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-STACK_SCRIPT="$REPO_DIR/telemt-stack.sh"
-REBUILD_SCRIPT="$REPO_DIR/rebuild-nginx-openssl35.sh"
+STACK_SCRIPT="$VSM_ROOT/stacks/telemt.sh"
+REBUILD_SCRIPT="$VSM_ROOT/stacks/nginx-openssl35.sh"
 STACK_CONF="/etc/vsm/telemt.conf"
 STACK_CREDS="/etc/vsm/telemt-credentials.txt"
 
-# Генератор self-SNI vhost общий с telemt-stack.sh, он же задаёт MASK_VHOST.
+# Генератор self-SNI vhost общий с stacks/telemt.sh, он же задаёт MASK_VHOST.
 # Раньше это были две копии одного heredoc, и одинаковый дефект приходилось
 # бы чинить дважды.
-if [ -f "$REPO_DIR/_nginx_mask.sh" ]; then
+if [ -f "$VSM_LIB/nginx_mask.sh" ]; then
     # shellcheck disable=SC1091
-    source "$REPO_DIR/_nginx_mask.sh"
+    source "$VSM_LIB/nginx_mask.sh"
 else
-    echo -e "${RED}❌ Не найден $REPO_DIR/_nginx_mask.sh — обнови VSM (install.sh).${NC}"
+    echo -e "${RED}❌ Не найден $VSM_LIB/nginx_mask.sh — обнови VSM (install.sh).${NC}"
     exit 1
 fi
 
 # Генератор блока доступа к telemt_panel через 443 домена панели — тоже общий
 # с установщиком.
-if [ -f "$REPO_DIR/_nginx_panel_proxy.sh" ]; then
+if [ -f "$VSM_LIB/nginx_panel_proxy.sh" ]; then
     # shellcheck disable=SC1091
-    source "$REPO_DIR/_nginx_panel_proxy.sh"
+    source "$VSM_LIB/nginx_panel_proxy.sh"
 else
-    echo -e "${RED}❌ Не найден $REPO_DIR/_nginx_panel_proxy.sh — обнови VSM (install.sh).${NC}"
+    echo -e "${RED}❌ Не найден $VSM_LIB/nginx_panel_proxy.sh — обнови VSM (install.sh).${NC}"
     exit 1
 fi
 
@@ -254,7 +251,7 @@ function restore_mask {
 
     echo -e "\n${CYAN}>>> Восстановление self-SNI vhost...${NC}"
 
-    # Сборка, проверка nginx -t и откат при неудаче — в _nginx_mask.sh,
+    # Сборка, проверка nginx -t и откат при неудаче — в lib/nginx_mask.sh,
     # общем с установщиком.
     local mask_ok=0 proxy_ok=0
     if nginx_mask_apply "$DOMAIN_PANEL" "$TELEMT_MASK_PORT"; then

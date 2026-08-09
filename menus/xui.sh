@@ -1,5 +1,6 @@
 #!/bin/bash
-source /usr/local/bin/_config_and_utils.sh
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/common.sh" || {
+    echo "Не найдена lib/common.sh — переустановите VSM: bash install.sh"; exit 1; }
 
 # ----------------------------------------------------------------------
 # X-UI PRO (3x-ui-pro): УПРАВЛЕНИЕ (Вынесенный блок)

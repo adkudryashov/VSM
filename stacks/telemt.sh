@@ -60,7 +60,7 @@ wait_until() {
 }
 
 # Ожидание освобождения блокировки dpkg. Двойник функции из
-# _config_and_utils.sh: этот скрипт самодостаточен и утилиты меню не
+# lib/common.sh: этот скрипт самодостаточен и утилиты меню не
 # подключает, поэтому небольшое повторение здесь дешевле связности.
 #
 # Нужно потому, что стек ставят на только что созданный VPS, где первые минуты
@@ -78,7 +78,7 @@ wait_for_apt() {
         # слова «продолжаю» скрипт завершался, не дойдя ни до одного die. Текст
         # прямо противоречил поведению, а на вызове перед выдачей доступа к
         # сертификату это ещё и происходило до сохранения секрета в telemt.conf.
-        # Дубль этой функции в bots-stack.sh с самого начала делал break, то
+        # Дубль этой функции в stacks/bots.sh с самого начала делал break, то
         # есть действительно продолжал, — приводим копии к одному поведению.
         [ "$waited" -ge "$limit" ] && { warn "apt занят дольше ${limit} с, продолжаю без ожидания."; return 0; }
     done
@@ -87,20 +87,26 @@ wait_for_apt() {
 
 [[ "$(id -u)" -eq 0 ]] || die "Запускай под root."
 
-# Генератор self-SNI vhost общий с menu_telemt.sh: раньше он был двумя копиями
-# одного heredoc, и одинаковый дефект пришлось бы чинить дважды. Путь считаем
-# от своего расположения, а не жёстко: при запуске через симлинк из
-# /usr/local/bin readlink -f приводит к реальному файлу в каталоге репозитория.
-SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-[[ -f "$SCRIPT_DIR/_nginx_mask.sh" ]] || \
-    die "Не найден $SCRIPT_DIR/_nginx_mask.sh — обнови VSM (install.sh) и повтори."
+# Генератор self-SNI vhost общий с menus/telemt.sh: раньше он был двумя копиями
+# одного heredoc, и одинаковый дефект пришлось бы чинить дважды.
+#
+# Пути считаем от своего расположения, а не жёстко. readlink -f обязателен:
+# файл могут запустить по ссылке. Два dirname — потому что скрипт лежит в
+# stacks/, а библиотеки в lib/: первый снимает имя файла, второй — каталог
+# stacks. Свой lib/common.sh здесь не сорсится намеренно: установщик работает
+# под set -euo pipefail со своими log/warn/die, а меню — без set -e, и общий
+# файл пришлось бы писать под оба режима сразу.
+VSM_ROOT="$(cd "$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")" && pwd)"
+VSM_LIB="$VSM_ROOT/lib"
+[[ -f "$VSM_LIB/nginx_mask.sh" ]] || \
+    die "Не найден $VSM_LIB/nginx_mask.sh — обнови VSM (install.sh) и повтори."
 # shellcheck disable=SC1091
-. "$SCRIPT_DIR/_nginx_mask.sh"
+. "$VSM_LIB/nginx_mask.sh"
 
-[[ -f "$SCRIPT_DIR/_nginx_panel_proxy.sh" ]] || \
-    die "Не найден $SCRIPT_DIR/_nginx_panel_proxy.sh — обнови VSM (install.sh) и повтори."
+[[ -f "$VSM_LIB/nginx_panel_proxy.sh" ]] || \
+    die "Не найден $VSM_LIB/nginx_panel_proxy.sh — обнови VSM (install.sh) и повтори."
 # shellcheck disable=SC1091
-. "$SCRIPT_DIR/_nginx_panel_proxy.sh"
+. "$VSM_LIB/nginx_panel_proxy.sh"
 
 : "${DOMAIN_PANEL:?Не задан DOMAIN_PANEL}"
 : "${DOMAIN_REALITY:?Не задан DOMAIN_REALITY}"
@@ -224,7 +230,7 @@ if [[ "$MODE" == "full" ]]; then
     chmod +x x-ui-latest.sh
 
     # Отпечаток стороннего установщика. Двойник upstream_fingerprint из
-    # _config_and_utils.sh: этот скрипт самодостаточен и утилиты меню не
+    # lib/common.sh: этот скрипт самодостаточен и утилиты меню не
     # подключает — как и с wait_for_apt, поведение копий обязано совпадать.
     #
     # Нужно потому, что файл берётся с ветки main без пиннинга и выполняется от
@@ -284,7 +290,7 @@ PANEL_WEBPATH="$(/usr/local/x-ui/x-ui setting -show true 2>&1 | grep -oP 'webBas
 # Приводим к виду /путь/ ПРЯМО ЗДЕСЬ, а не в местах вывода. Панель отдаёт путь
 # и без крайних слэшей, а ниже к нему дописывается panel/: из "/abc" вышло бы
 # склеенное "/abcpanel/" — адрес выглядит достоверно и ведёт в 404. Ту же
-# нормализацию делает xui_panel_url в _config_and_utils.sh.
+# нормализацию делает xui_panel_url в lib/common.sh.
 #
 # Полная форма if/fi, а не "[[ ... ]] && присваивание": под set -e ложное
 # условие в таком виде возвращает 1 и роняет установщик молча — ровно тот
@@ -309,7 +315,7 @@ if ! grep -qE '^\s*include\s+/etc/nginx/conf\.d/\*\.conf;' /etc/nginx/nginx.conf
     sed -i '0,/^http\s*{/s//http {\n    include \/etc\/nginx\/conf.d\/*.conf;/' /etc/nginx/nginx.conf
 fi
 
-# Сборка, проверка и откат при неудаче — в _nginx_mask.sh. Откат тут не
+# Сборка, проверка и откат при неудаче — в lib/nginx_mask.sh. Откат тут не
 # роскошь: битый файл в conf.d не даёт nginx стартовать вообще, и упасть,
 # оставив его на диске, значит уронить панель при ближайшем рестарте.
 nginx_mask_apply "$DOMAIN_PANEL" "$TELEMT_MASK_PORT" || \
@@ -471,7 +477,7 @@ fi
 # ---------------------------------------------------------------------------
 # printf %q — значения переживают повторный source без риска инъекции.
 {
-    echo "# Создано telemt-stack.sh, не редактируй вручную."
+    echo "# Создано stacks/telemt.sh, не редактируй вручную."
     printf 'DOMAIN_PANEL=%q\n'     "$DOMAIN_PANEL"
     printf 'DOMAIN_REALITY=%q\n'   "$DOMAIN_REALITY"
     printf 'TELEMT_PORT=%q\n'      "$TELEMT_PORT"
