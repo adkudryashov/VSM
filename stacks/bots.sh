@@ -78,6 +78,24 @@ MAP_DOMAIN="${MAP_DOMAIN:-$(conf_get MAP_DOMAIN)}"
 MAP_PATH="${MAP_PATH:-$(conf_get MAP_PATH)}"
 MAP_PATH="${MAP_PATH:-telemt-map-$(openssl rand -hex 12)}"
 
+# --- Настройки сторожа -------------------------------------------------------
+# Читаются из bots.conf и пишутся обратно, потому что и .env, и сам bots.conf
+# этот скрипт создаёт ЗАНОВО при каждом запуске. Без переноса переустановка
+# любого режима бота молча гасила бы сторож и стирала настройки проверки — а
+# заметить это можно было бы только по тому, что тревоги перестали приходить.
+WATCHDOG_ENABLED="${WATCHDOG_ENABLED:-$(conf_get WATCHDOG_ENABLED)}"
+WATCHDOG_ENABLED="${WATCHDOG_ENABLED:-false}"
+RU_CHECK_ENABLED="${RU_CHECK_ENABLED:-$(conf_get RU_CHECK_ENABLED)}"
+RU_CHECK_ENABLED="${RU_CHECK_ENABLED:-false}"
+RU_CHECK_INTERVAL_MINUTES="${RU_CHECK_INTERVAL_MINUTES:-$(conf_get RU_CHECK_INTERVAL_MINUTES)}"
+RU_CHECK_INTERVAL_MINUTES="${RU_CHECK_INTERVAL_MINUTES:-60}"
+RU_CHECK_PROBES="${RU_CHECK_PROBES:-$(conf_get RU_CHECK_PROBES)}"
+RU_CHECK_PROBES="${RU_CHECK_PROBES:-10}"
+RU_CHECK_TOKEN="${RU_CHECK_TOKEN:-$(conf_get RU_CHECK_TOKEN)}"
+
+RU_CHECK_PORT="${RU_CHECK_PORT:-$(conf_get RU_CHECK_PORT)}"
+RU_CHECK_SNI="${RU_CHECK_SNI:-$(conf_get RU_CHECK_SNI)}"
+
 # Домен панели из конфига стека — нужен, чтобы отказаться вешать карту на цель
 # self-SNI маскировки. Читаем в подоболочке и только одно значение.
 conf_get_stack() {
@@ -85,6 +103,15 @@ conf_get_stack() {
     # shellcheck disable=SC1091
     ( . /etc/vsm/telemt.conf 2>/dev/null; printf '%s' "${!1:-}" )
 }
+
+# Порт и SNI для проверки доступности берём из конфига стека, а не спрашиваем:
+# это те же значения, по которым к прокси ходят настоящие клиенты, и вводить их
+# руками значит однажды ошибиться и проверять не тот адрес.
+#
+# Стоит ПОСЛЕ определения conf_get_stack: в bash функция обязана быть объявлена
+# до вызова, а не просто присутствовать в файле.
+if [[ -z "$RU_CHECK_PORT" ]]; then RU_CHECK_PORT="$(conf_get_stack TELEMT_PORT)"; fi
+if [[ -z "$RU_CHECK_SNI"  ]]; then RU_CHECK_SNI="$(conf_get_stack DOMAIN_PANEL)"; fi
 
 want_combined() { [[ "$MODE" == "combined" ]]; }
 want_telemt()   { [[ "$MODE" == "both" || "$MODE" == "telemt" ]]; }
@@ -198,6 +225,14 @@ COLLECT_INTERVAL_MINUTES=1
 ACTIVITY_RETENTION_HOURS=0
 MAP_HTML_PATH=$MAP_FILE
 WEB_URL=${MAP_DOMAIN:+https://$MAP_DOMAIN/$MAP_PATH/}
+
+WATCHDOG_ENABLED=$WATCHDOG_ENABLED
+RU_CHECK_ENABLED=$RU_CHECK_ENABLED
+RU_CHECK_INTERVAL_MINUTES=$RU_CHECK_INTERVAL_MINUTES
+RU_CHECK_PROBES=$RU_CHECK_PROBES
+RU_CHECK_TOKEN=$RU_CHECK_TOKEN
+RU_CHECK_PORT=$RU_CHECK_PORT
+RU_CHECK_SNI=$RU_CHECK_SNI
 EOF
 chmod 600 "$ENV_FILE"
 
@@ -363,6 +398,15 @@ umask 077
     echo "MAP_DOMAIN=$MAP_DOMAIN"
     printf 'MAP_PATH=%q\n' "$MAP_PATH"
     echo "BOTS_MODE=$MODE"
+    # Настройки сторожа переносим сюда же: этот файл тоже создаётся заново, и
+    # без записи они терялись бы при первой же переустановке режима.
+    echo "WATCHDOG_ENABLED=$WATCHDOG_ENABLED"
+    echo "RU_CHECK_ENABLED=$RU_CHECK_ENABLED"
+    echo "RU_CHECK_INTERVAL_MINUTES=$RU_CHECK_INTERVAL_MINUTES"
+    echo "RU_CHECK_PROBES=$RU_CHECK_PROBES"
+    printf 'RU_CHECK_TOKEN=%q\n' "$RU_CHECK_TOKEN"
+    echo "RU_CHECK_PORT=$RU_CHECK_PORT"
+    echo "RU_CHECK_SNI=$RU_CHECK_SNI"
 } > "$CONF"
 chmod 600 "$CONF"
 

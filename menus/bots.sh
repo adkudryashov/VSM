@@ -235,6 +235,176 @@ function show_settings {
     read -p "Нажмите Enter для возврата..."
 }
 
+# ----------------------------------------------------------------------
+# СТОРОЖ TELEMT
+#
+# Значение пишется в ДВА файла. bots.conf — источник правды: оттуда его берёт
+# stacks/bots.sh, который при каждой установке создаёт .env заново. .env —
+# то, что бот читает прямо сейчас. Записать только в .env значит потерять
+# настройку при первой переустановке режима; только в bots.conf — не увидеть
+# её до следующей установки.
+# ----------------------------------------------------------------------
+function _wd_set {
+    local key="$1" value="$2" file
+    for file in "$CONF" "$ENV_FILE"; do
+        [ -f "$file" ] || continue
+        if grep -q "^${key}=" "$file"; then
+            sed -i "s|^${key}=.*|${key}=${value}|" "$file"
+        else
+            printf '%s=%s\n' "$key" "$value" >> "$file"
+        fi
+    done
+}
+
+function _wd_get {
+    local key="$1"
+    [ -f "$CONF" ] || { echo ""; return; }
+    grep -m1 -oP "^${key}=\K.*" "$CONF" 2>/dev/null | tr -d "'\""
+}
+
+function _wd_restart {
+    local units; units=$(installed_units)
+    if [ -z "$units" ]; then
+        echo -e "${YELLOW}Боты не установлены — настройка сохранена и применится при установке.${NC}"
+        return
+    fi
+    echo -e "${YELLOW}>>> Перезапускаю службы, чтобы настройка вступила в силу...${NC}"
+    for u in $units; do systemctl restart "$u" 2>/dev/null; done
+    sleep 3
+    # По факту, а не по коду возврата: служба умеет упасть сразу после старта.
+    for u in $units; do
+        if [ "$(systemctl is-active "$u")" = "active" ]; then
+            echo -e "${GREEN}✓ $u работает${NC}"
+        else
+            echo -e "${RED}✗ $u не поднялась — journalctl -u $u -n 20${NC}"
+        fi
+    done
+}
+
+function manage_watchdog {
+    while true; do
+        clear 2>/dev/null
+        ui_title "🛡  СТОРОЖ TELEMT"
+
+        local wd ru iv pr tok port sni wd_t wd_c ru_t ru_c
+        wd=$(_wd_get WATCHDOG_ENABLED); ru=$(_wd_get RU_CHECK_ENABLED)
+        iv=$(_wd_get RU_CHECK_INTERVAL_MINUTES); pr=$(_wd_get RU_CHECK_PROBES)
+        tok=$(_wd_get RU_CHECK_TOKEN); port=$(_wd_get RU_CHECK_PORT); sni=$(_wd_get RU_CHECK_SNI)
+        if [ "$wd" = "true" ]; then wd_t="ВКЛЮЧЁН"; wd_c="$C_OK"; else wd_t="ВЫКЛЮЧЕН"; wd_c="$C_DANGER"; fi
+        if [ "$ru" = "true" ]; then ru_t="ВКЛЮЧЕНА"; ru_c="$C_OK"; else ru_t="ВЫКЛЮЧЕНА"; ru_c="$C_DESC"; fi
+
+        echo ""
+        ui_section "СОСТОЯНИЕ"
+        echo -e "   ${C_NAME}$(ui_pad '🛡  Сторож' 24)${NC}${wd_c}${wd_t}${NC}"
+        echo -e "   ${C_NAME}$(ui_pad '🇷🇺  Доступность из РФ' 24)${NC}${ru_c}${ru_t}${NC}"
+        if [ "$ru" = "true" ]; then
+            ui_kv '⏱  Интервал' "${iv:-60} мин" 24
+            ui_kv '📡  Зондов за прогон' "${pr:-10}" 24
+            ui_kv '🔑  Токен Globalping' "$([ -n "$tok" ] && echo 'задан' || echo 'нет (бюджет 250/час)')" 24
+            ui_kv '🎯  Цель проверки' "${sni:-?}:${port:-?}" 24
+        fi
+
+        echo ""
+        ui_section "ЧТО СТОРОЖ ПРИСЫЛАЕТ САМ"
+        echo -e "   ${C_DESC}движок недоступен · перезапустился · просели писатели${NC}"
+        echo -e "   ${C_DESC}изменился конфиг движка · сменился внешний адрес${NC}"
+        echo -e "   ${C_DESC}Команды в боте: /watch /check /mute /unmute${NC}"
+
+        echo ""
+        ui_section "НАСТРОЙКА"
+        ui_item "1" "🛡" "Сторож" "Включить или выключить наблюдение и тревоги"
+        ui_item "2" "🇷🇺" "Доступность из РФ" "Зонды Globalping — см. предупреждение"
+        ui_item "3" "⏱" "Интервал и зонды" "Как часто и сколькими зондами проверять"
+        ui_item "4" "🔑" "Токен Globalping" "Поднимает часовой бюджет проверок"
+        echo ""
+        ui_item "X" "🔙" "Назад"
+        echo ""
+
+        read -p "Ваш выбор [1-4, X]: " ch
+        case "$ch" in
+            1)
+                if [ "$wd" = "true" ]; then
+                    _wd_set WATCHDOG_ENABLED false
+                    echo -e "${YELLOW}Сторож выключен: тревоги приходить не будут.${NC}"
+                else
+                    _wd_set WATCHDOG_ENABLED true
+                    echo -e "${GREEN}Сторож включён.${NC}"
+                fi
+                _wd_restart; read -p "Enter..."
+                ;;
+            2)
+                if [ "$ru" = "true" ]; then
+                    _wd_set RU_CHECK_ENABLED false
+                    echo -e "${YELLOW}Проверка доступности выключена.${NC}"
+                    _wd_restart; read -p "Enter..."
+                    continue
+                fi
+                # Цена названа до включения и полностью, а не сноской после.
+                echo ""
+                echo -e "${RED}❗  Чем это оплачивается:${NC}"
+                echo -e "${YELLOW}    Каждый прогон просит публичный сервис Globalping подключиться"
+                echo -e "    к вашему прокси с домашних адресов российских провайдеров."
+                echo -e "    То есть к серверу идёт внешний трафик ПО РАСПИСАНИЮ, а его"
+                echo -e "    адрес, порт и домен маскировки уходят в стороннее API.${NC}"
+                echo -e "${GREEN}    Взамен: это единственный сигнал про ВХОД — видят ли вас"
+                echo -e "    клиенты. Всё остальное меряет только выход к Telegram.${NC}"
+                echo ""
+                read -p "$(echo -e "${RED}Введите ВКЛЮЧИТЬ для подтверждения: ${NC}")" c
+                if [ "$c" != "ВКЛЮЧИТЬ" ]; then
+                    echo -e "${BLUE}Отменено.${NC}"; sleep 1; continue
+                fi
+                _wd_set RU_CHECK_ENABLED true
+                # Цель берём из конфига стека: руками её вводить незачем.
+                local p d
+                p=$(grep -m1 -oP '^TELEMT_PORT=\K.*' /etc/vsm/telemt.conf 2>/dev/null | tr -dc '0-9')
+                d=$(grep -m1 -oP '^DOMAIN_PANEL=\K.*' /etc/vsm/telemt.conf 2>/dev/null | tr -d "'\"")
+                [ -n "$p" ] && _wd_set RU_CHECK_PORT "$p"
+                [ -n "$d" ] && _wd_set RU_CHECK_SNI "$d"
+                if [ -z "$p" ] || [ -z "$d" ]; then
+                    echo -e "${RED}❗  Не нашёл порт или домен в /etc/vsm/telemt.conf —${NC}"
+                    echo -e "${RED}    проверка не заработает, пока стек telemt не настроен.${NC}"
+                else
+                    echo -e "${GREEN}Проверка включена. Цель: ${d}:${p}${NC}"
+                fi
+                _wd_restart; read -p "Enter..."
+                ;;
+            3)
+                read -p "Интервал в минутах [${iv:-60}]: " a; a="${a:-${iv:-60}}"
+                read -p "Зондов за прогон [${pr:-10}]: " b; b="${b:-${pr:-10}}"
+                if ! [[ "$a" =~ ^[0-9]+$ ]] || ! [[ "$b" =~ ^[0-9]+$ ]] || [ "$a" -lt 1 ] || [ "$b" -lt 1 ]; then
+                    echo -e "${RED}❌ Нужны положительные числа.${NC}"; sleep 2; continue
+                fi
+                if [ "$b" -gt 50 ]; then
+                    echo -e "${RED}❌ Globalping принимает не больше 50 зондов за прогон.${NC}"; sleep 2; continue
+                fi
+                # Считаем бюджет ДО сохранения: сервис не откажет частично, он
+                # откажет целиком, и узнать об этом в бою дороже.
+                local budget=250; [ -n "$tok" ] && budget=500
+                local per_hour=$(( (60 / a) * b ))
+                echo -e "${BLUE}Расход: ~${per_hour} кредитов в час при бюджете ${budget}.${NC}"
+                if [ "$per_hour" -gt "$budget" ]; then
+                    echo -e "${RED}❗  Это больше бюджета — часть проверок будет пропущена.${NC}"
+                    read -p "$(echo -e "${YELLOW}Всё равно сохранить? [y/N]: ${NC}")" y
+                    [[ ! "$y" =~ ^[Yy]$ ]] && { echo -e "${BLUE}Отменено.${NC}"; sleep 1; continue; }
+                fi
+                _wd_set RU_CHECK_INTERVAL_MINUTES "$a"
+                _wd_set RU_CHECK_PROBES "$b"
+                _wd_restart; read -p "Enter..."
+                ;;
+            4)
+                echo -e "${BLUE}Бесплатный токен: https://dash.globalping.io/${NC}"
+                echo -e "${YELLOW}Пустой ввод стирает сохранённый.${NC}"
+                read -p "Токен: " t
+                _wd_set RU_CHECK_TOKEN "$t"
+                echo -e "${GREEN}Сохранено.${NC}"
+                _wd_restart; read -p "Enter..."
+                ;;
+            [Xx]) return ;;
+            *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
 function manage_services {
     local units; units=$(installed_units)
     if [ -z "$units" ]; then
@@ -330,10 +500,11 @@ while true; do
     echo ""
     ui_section "ОБСЛУЖИВАНИЕ"
     ui_item "5" "🔄" "Обновить код"     "Забрать свежие исходники ботов с GitHub"
-    ui_item "6" "🔧" "Настройки"        "Показать текущие токены и параметры"
-    ui_item "7" "🧰" "Управление"       "Статус, старт, стоп, журналы"
+    ui_item "6" "🛡" "Сторож"           "Тревоги и доступность прокси из России"
+    ui_item "7" "🔧" "Настройки"        "Показать текущие токены и параметры"
+    ui_item "8" "🧰" "Управление"       "Статус, старт, стоп, журналы"
     echo ""
-    ui_danger_item "8" "Удалить ботов"  "Службы, окружение, данные карты"
+    ui_danger_item "9" "Удалить ботов"  "Службы, окружение, данные карты"
     ui_item "X" "🔙" "Назад"
     echo ""
     read -p "$(echo -e "${CYAN}Ваш выбор: ${NC}")" choice
@@ -344,9 +515,10 @@ while true; do
         3) run_install telemt ;;
         4) run_install 3xui ;;
         5) run_update ;;
-        6) show_settings ;;
-        7) manage_services ;;
-        8) run_remove ;;
+        6) manage_watchdog ;;
+        7) show_settings ;;
+        8) manage_services ;;
+        9) run_remove ;;
         [Xx]) break ;;
         *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
     esac

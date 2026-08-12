@@ -17,7 +17,7 @@ async def main():
         commands=[BotCommand(command="start", description="🤖 приветствие и справка")] + telemt.COMMANDS,
         on_setup=telemt.setup,
         on_shutdown=telemt.shutdown,
-        tasks=[telemt.collect_ips_periodically],
+        tasks=[telemt.collect_ips_periodically, telemt.watchdog_loop],
     )
 
 

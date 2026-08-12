@@ -30,7 +30,7 @@ async def main():
         commands=menu.COMMANDS + telemt.COMMANDS,
         on_setup=setup,
         on_shutdown=telemt.shutdown,
-        tasks=[telemt.collect_ips_periodically, xui.monitor_servers_loop],
+        tasks=[telemt.collect_ips_periodically, telemt.watchdog_loop, xui.monitor_servers_loop],
     )
 
 
