@@ -57,6 +57,7 @@
 ЭКСПЛУАТАЦИЯ
 3 run_diagnostics      службы, порты, HTTP-коды, сквозной self-SNI тест
 4 restore_mask         nginx_mask_apply + panel_proxy_localize + panel_proxy_apply
+                       + mtpl_restore_proxy (MTProxyL-Panel, если установлена)
                        + panel_proxy_verify; здесь же миграция старых установок
 5 check_tls_parity     отпечаток / протокол / шифр / группа / ALPN + PQ
 6 show_credentials     telemt-credentials.txt, адрес панели подставляется живой
