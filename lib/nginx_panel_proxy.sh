@@ -99,8 +99,11 @@ EOF
 # Убирает прежний блок VSM из текста vhost (stdin -> stdout).
 # Нужен и при переустановке, и при удалении стека.
 # ----------------------------------------------------------------------
+# Маркеры принимаются аргументами, а умолчание — блок telemt_panel. Так же
+# устроенный блок нужен и другим панелям (MTProxyL-Panel в lib/nginx_mtpl_proxy.sh),
+# а вторая копия этого awk однажды разошлась бы с первой.
 panel_proxy_strip() {
-    awk -v b="$PANEL_PROXY_BEGIN" -v e="$PANEL_PROXY_END" '
+    awk -v b="${1:-$PANEL_PROXY_BEGIN}" -v e="${2:-$PANEL_PROXY_END}" '
         index($0, b) { skip=1 }
         !skip { print }
         index($0, e) { skip=0 }
@@ -152,25 +155,23 @@ panel_proxy_insert() {
 #
 # 0 — применено; 1 — не применено, причина в stderr.
 # ----------------------------------------------------------------------
-panel_proxy_apply() {
-    local vhost="$1" prefix="$2" port="$3"
+# Подстановка готового блока в vhost с откатом по nginx -t.
+#
+# Вынесено из panel_proxy_apply, когда за 443 того же домена понадобилось
+# спрятать вторую панель (MTProxyL-Panel). Копия этой функции отличалась бы от
+# оригинала одной строкой рендера — и однажды разошлась бы с ним в обращении с
+# откатом, то есть ровно там, где ошибка дороже всего.
+panel_proxy_apply_block() {
+    local vhost="$1" begin="$2" end="$3" block="$4" label="$5"
     local backup="${vhost}.vsm-bak" content
 
     if [ ! -f "$vhost" ]; then
         echo "не найден vhost панели: $vhost" >&2
         return 1
     fi
-    if ! printf '%s' "$prefix" | grep -qE '^[A-Za-z0-9_-]+$'; then
-        echo "недопустимый префикс пути панели: '$prefix'" >&2
-        return 1
-    fi
-    if ! printf '%s' "$port" | grep -qE '^[0-9]+$'; then
-        echo "нужен числовой порт telemt_panel (получено '$port')" >&2
-        return 1
-    fi
 
-    content="$(panel_proxy_strip < "$vhost" | panel_proxy_insert "$(panel_proxy_render "$prefix" "$port")")" || {
-        echo "в $vhost не найден server{} с ssl_certificate — панель некуда подключить" >&2
+    content="$(panel_proxy_strip "$begin" "$end" < "$vhost" | panel_proxy_insert "$block")" || {
+        echo "в $vhost не найден server{} с ssl_certificate — ${label} некуда подключить" >&2
         return 1
     }
 
@@ -193,11 +194,27 @@ panel_proxy_apply() {
 
     mv -f "$backup" "$vhost"
     if nginx -t >/dev/null 2>&1; then
-        echo "конфиг с блоком telemt_panel отклонён nginx -t, изменения откачены" >&2
+        echo "конфиг с блоком ${label} отклонён nginx -t, изменения откачены" >&2
     else
         echo "nginx -t не проходит и ПОСЛЕ отката — ошибка не в этом блоке" >&2
     fi
     return 1
+}
+
+panel_proxy_apply() {
+    local vhost="$1" prefix="$2" port="$3"
+
+    if ! printf '%s' "$prefix" | grep -qE '^[A-Za-z0-9_-]+$'; then
+        echo "недопустимый префикс пути панели: '$prefix'" >&2
+        return 1
+    fi
+    if ! printf '%s' "$port" | grep -qE '^[0-9]+$'; then
+        echo "нужен числовой порт telemt_panel (получено '$port')" >&2
+        return 1
+    fi
+
+    panel_proxy_apply_block "$vhost" "$PANEL_PROXY_BEGIN" "$PANEL_PROXY_END" \
+        "$(panel_proxy_render "$prefix" "$port")" "telemt_panel"
 }
 
 # ----------------------------------------------------------------------
@@ -292,10 +309,11 @@ panel_proxy_verify() {
 # ----------------------------------------------------------------------
 panel_proxy_remove() {
     local vhost="$1" content
+    local begin="${2:-$PANEL_PROXY_BEGIN}" end="${3:-$PANEL_PROXY_END}"
     [ -f "$vhost" ] || return 0
-    grep -qF "$PANEL_PROXY_BEGIN" "$vhost" || return 0
+    grep -qF "$begin" "$vhost" || return 0
 
-    content="$(panel_proxy_strip < "$vhost")"
+    content="$(panel_proxy_strip "$begin" "$end" < "$vhost")"
     cp -p "$vhost" "${vhost}.vsm-bak" || return 1
     if ! printf '%s\n' "$content" > "$vhost"; then
         mv -f "${vhost}.vsm-bak" "$vhost"

@@ -33,6 +33,13 @@ else
     exit 1
 fi
 
+# Тот же приём для MTProxyL-Panel, если она установлена. Строго ПОСЛЕ
+# nginx_panel_proxy.sh: берёт оттуда общие strip/insert/apply_block.
+if [ -f "$VSM_LIB/nginx_mtpl_proxy.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$VSM_LIB/nginx_mtpl_proxy.sh"
+fi
+
 # Сторонний проект MTProxyL (лимитер | тюнинг) под Telemt. Пришёл на смену
 # MTproxy-reanimation: тот заброшен на 1.2.9, разработка переехала в новый
 # репозиторий. Лицензия MIT.
@@ -301,9 +308,64 @@ function restore_mask {
         echo -e "${YELLOW}   ssh -L ${PANEL_PORT:-9444}:127.0.0.1:${PANEL_PORT:-9444} root@<сервер>${NC}"
     fi
 
+    # MTProxyL-Panel, если она установлена и спрятана за этот же домен.
+    #
+    # Идёт здесь, а не отдельным пунктом, ровно по той же причине, что и блок
+    # telemt_panel: установщик и патч 3x-ui-pro вычищают vhost целиком, и после
+    # каждого такого прохода доступ надо накладывать заново. Пункт меню один —
+    # значит и восстанавливается всё одним действием, а не двумя, о втором из
+    # которых легко забыть.
+    mtpl_restore_proxy
+
     [ "$mask_ok" = 1 ] && [ "$proxy_ok" = 1 ] || \
         echo -e "\n${YELLOW}Не всё восстановлено — прогони «Статус и диагностика».${NC}"
     read -p "Нажмите Enter..."
+}
+
+# ----------------------------------------------------------------------
+# Доступ к MTProxyL-Panel по секретному префиксу на 443 домена панели.
+#
+# Молчит, если панели нет: это необязательный сторонний компонент, и сообщать
+# о его отсутствии на каждом восстановлении маски незачем.
+# ----------------------------------------------------------------------
+function mtpl_restore_proxy {
+    command -v mtpl_proxy_apply >/dev/null 2>&1 || return 0
+    [ -f "$MTPL_PANEL_CONF" ] || return 0
+    [ -f /usr/local/bin/mtproxyl-panel ] || return 0
+
+    local prefix port pv code
+    prefix="$(mtpl_panel_prefix)"
+    port="$(mtpl_panel_port)"
+
+    echo -e "\n${CYAN}>>> Восстановление доступа к MTProxyL-Panel...${NC}"
+
+    if [ -z "$prefix" ] || [ -z "$port" ]; then
+        echo -e "${YELLOW}   В ${MTPL_PANEL_CONF} не задан base_path или listen —${NC}"
+        echo -e "${YELLOW}   отдавать нечего. Настройте панель и повторите.${NC}"
+        return 0
+    fi
+    # Прятать за префикс панель, которая и сама висит наружу, бессмысленно:
+    # секретный путь не закрывает открытый порт.
+    if ! mtpl_panel_is_local; then
+        echo -e "${RED}❗  Панель слушает не только 127.0.0.1 — секретный префикс её не спрячет.${NC}"
+        echo -e "${YELLOW}   Поправьте listen в ${MTPL_PANEL_CONF} на 127.0.0.1 и повторите.${NC}"
+        return 0
+    fi
+
+    if pv="$(nginx_mask_panel_vhost "$DOMAIN_PANEL")" && \
+       mtpl_proxy_apply "$pv" "$prefix" "$port"; then
+        # Как и у telemt_panel: успех печатаем по ответу, а не по тому, что
+        # nginx принял файл.
+        if code="$(panel_proxy_verify "$DOMAIN_PANEL" "$prefix")"; then
+            echo -e "${GREEN}✅ MTProxyL-Panel отвечает ($code):${NC}"
+            echo -e "   ${CYAN}https://${DOMAIN_PANEL}/${prefix}/${NC}"
+        else
+            echo -e "${RED}❌ Блок применён, но панель по адресу вернула $code.${NC}"
+            echo -e "${YELLOW}   Проверьте, что base_path в конфиге панели равен ${prefix}.${NC}"
+        fi
+    else
+        echo -e "${RED}❌ Доступ к MTProxyL-Panel не подключён (причина выше).${NC}"
+    fi
 }
 
 # ----------------------------------------------------------------------
