@@ -246,6 +246,13 @@ function run_diagnostics {
         grep -E '^\[|^mask|^tls_domain' /etc/telemt/telemt.toml | sed 's/^/    /'
     fi
 
+    # Сверка с реестром решений VSM. Здесь --dry-run: диагностика обязана
+    # только показывать. Чинит сверка сама, но по расписанию сторожа, а не в
+    # момент, когда человек пришёл посмотреть, что происходит.
+    if [ -x "$VSM_ROOT/checks/drift.sh" ]; then
+        bash "$VSM_ROOT/checks/drift.sh" --dry-run
+    fi
+
     echo -e "${BLUE}------------------------------------------------------${NC}"
     read -p "Нажмите Enter для возврата..."
 }
