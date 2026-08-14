@@ -34,7 +34,7 @@ from aiogram import Bot
 
 from config import settings, DATA_DIR
 from telemt.api.client import TelemtAPIClient
-from telemt.watchdog import globalping, upstreams
+from telemt.watchdog import globalping, mtproxyl, upstreams
 from telemt.watchdog.incidents import CLEAR, FIRE, REPEAT, WatchState
 
 STATE_PATH = Path(DATA_DIR) / "watchdog.json"
@@ -309,13 +309,128 @@ class Watchdog:
         host = settings.RU_CHECK_HOST or self.state.ip.known
         return host, int(settings.RU_CHECK_PORT or 0), settings.RU_CHECK_SNI
 
+    def _ru_source(self) -> str:
+        """
+        Кто меряет доступность: «mtproxyl» — читаем чужой вердикт, «self» —
+        меряем сами. Развилка одна на все пути, чтобы источник не разъехался
+        между расписанием, командой и карточкой.
+        """
+        choice = (settings.RU_CHECK_SOURCE or "auto").strip().lower()
+        if choice == "self":
+            return "self"
+        if choice == "mtproxyl":
+            return "mtproxyl"
+        return "mtproxyl" if mtproxyl.available() else "self"
+
     async def run_ru_check(self, bot: Bot, manual: bool = False) -> str:
         """
-        Прогоняет проверку доступности. Возвращает текст для человека.
+        Проверка доступности. Возвращает текст для человека.
 
-        manual=True — вызов из команды /check: тогда результат возвращается
+        manual=True — вызов из команды или кнопки: тогда результат возвращается
         спрашивающему даже при заглушённых тревогах.
         """
+        if self._ru_source() == "mtproxyl":
+            return await self._run_mtproxyl_check(bot, manual=manual)
+        return await self._run_self_check(bot, manual=manual)
+
+    # -------------------------------------------------- чужой вердикт
+    async def _run_mtproxyl_check(self, bot: Bot, manual: bool) -> str:
+        """
+        Ручная проверка через MTProxyL: меряет он, квота тоже его.
+
+        Своим измерением тут подменять нельзя — получилось бы два расхода на
+        один вопрос, ровно то, ради устранения чего источник и объединили.
+        """
+        if manual:
+            # Кулдаун наш, хотя квота чужая: он бережёт не бюджет, а сервер от
+            # серии прогонов по десять нажатий подряд.
+            self.state.quota.note_manual()
+            _save_state(self.state)
+            proc = await asyncio.create_subprocess_exec(
+                "mtproxyl", "availability", "check", "--json",
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                _, err = await asyncio.wait_for(proc.communicate(), timeout=120)
+            except asyncio.TimeoutError:
+                proc.kill()
+                return "⚠️ Проверка не ответила за две минуты."
+            if proc.returncode != 0:
+                reason = (err or b"").decode("utf-8", "replace").strip()[:200]
+                return f"⚠️ MTProxyL не выполнил проверку: {html.escape(reason or 'без объяснения')}"
+
+        verdict = mtproxyl.read_verdict()
+        if verdict is None:
+            self.ru_error = "вердикт MTProxyL недоступен"
+            return "⚠️ Вердикт MTProxyL недоступен."
+        if verdict.get("error"):
+            self.ru_error = str(verdict["error"])
+            return f"⚠️ {html.escape(self.ru_error)}"
+
+        await self._apply_ru_verdict(bot, verdict)
+        return self._render_ru(verdict)
+
+    async def _poll_mtproxyl_verdict(self, bot: Bot) -> None:
+        """
+        Опрос чужого вердикта по расписанию сторожа.
+
+        Читаем файл — это бесплатно, наружу ни одного пакета. Новый вердикт
+        узнаём по метке checked_at: она ставится в момент измерения, поэтому
+        одинаковая метка означает один и тот же результат, даже если файл
+        перезаписали.
+        """
+        verdict = mtproxyl.read_verdict()
+        if verdict is None:
+            return
+        if verdict.get("error"):
+            self.ru_error = str(verdict["error"])
+            return
+
+        checked_at = float(verdict.get("checked_at") or 0.0)
+        if checked_at and checked_at <= self.ru_checked_at:
+            # Тот же вердикт, что в прошлый раз. Молчим: повторно проводить его
+            # через машину инцидентов значило бы копить плохие опросы на одном
+            # и том же измерении и поднять тревогу на пустом месте.
+            self._warn_if_stale(checked_at)
+            return
+
+        self.ru_error = ""
+        await self._apply_ru_verdict(bot, verdict)
+
+    def _warn_if_stale(self, checked_at: float) -> None:
+        """
+        Чужой вердикт перестал обновляться — значит, встал таймер MTProxyL.
+
+        Своим измерением молча не подменяем: это вернуло бы двойной расход
+        зондов, о котором владелец не просил. Показываем в карточке и говорим,
+        чем включить.
+        """
+        limit = max(int(settings.RU_CHECK_STALE_MINUTES), 1) * 60
+        age = time.time() - checked_at
+        if checked_at and age > limit:
+            self.ru_error = (f"проверка MTProxyL не обновлялась {int(age / 60)} мин — "
+                             f"включить: mtproxyl availability on")
+
+    async def _apply_ru_verdict(self, bot: Bot, verdict: dict) -> None:
+        """Общий разбор вердикта, откуда бы он ни пришёл."""
+        self.ru_error = ""
+        self.ru_last = verdict
+        self.ru_checked_at = float(verdict.get("checked_at") or 0.0) or time.time()
+
+        low = verdict["pct"] < float(settings.RU_CHECK_FLOOR_PCT)
+        await self._fire_or_clear(
+            bot, self.state.ru_access.update(is_bad=low), self.state.ru_access,
+            fire="🚨 <b>ПАДЕНИЕ ДОСТУПНОСТИ ИЗ РОССИИ</b>\n"
+                 f"Дошло {verdict['success']} из {verdict['total']} зондов "
+                 f"({verdict['pct']:.0f}%).\n" + self._reasons_block(verdict),
+            clear="✅ <b>ДОСТУПНОСТЬ ИЗ РОССИИ ВОССТАНОВЛЕНА</b>\n"
+                  f"Дошло {verdict['success']} из {verdict['total']} зондов "
+                  f"({verdict['pct']:.0f}%).",
+        )
+        _save_state(self.state)
+
+    # -------------------------------------------------- собственное измерение
+    async def _run_self_check(self, bot: Bot, manual: bool = False) -> str:
         host, port, sni = self._ru_target()
         if not host or not port:
             self.ru_error = "не задан адрес или порт прокси"
@@ -360,21 +475,8 @@ class Watchdog:
 
         # Списываем по фактически задействованным зондам — см. quota.py.
         self.state.quota.record(int(verdict.get("charged") or probes))
-        self.ru_error = ""
-        self.ru_last = verdict
-        self.ru_checked_at = time.time()
-        _save_state(self.state)
-
-        low = verdict["pct"] < float(settings.RU_CHECK_FLOOR_PCT)
-        await self._fire_or_clear(
-            bot, self.state.ru_access.update(is_bad=low), self.state.ru_access,
-            fire="🚨 <b>ПАДЕНИЕ ДОСТУПНОСТИ ИЗ РОССИИ</b>\n"
-                 f"Дошло {verdict['success']} из {verdict['total']} зондов "
-                 f"({verdict['pct']:.0f}%).\n" + self._reasons_block(verdict),
-            clear="✅ <b>ДОСТУПНОСТЬ ИЗ РОССИИ ВОССТАНОВЛЕНА</b>\n"
-                  f"Дошло {verdict['success']} из {verdict['total']} зондов "
-                  f"({verdict['pct']:.0f}%).",
-        )
+        verdict["source"] = "self"
+        await self._apply_ru_verdict(bot, verdict)
         return self._render_ru(verdict)
 
     @staticmethod
@@ -414,6 +516,11 @@ class Watchdog:
         wait = self.state.quota.manual_ready_in()
         if wait:
             return f"⏳ Проверку только что запускали. Повторите через {wait} с."
+        if self._ru_source() == "mtproxyl":
+            # Бюджет считает MTProxyL по своей квоте, и наш реестр о его тратах
+            # ничего не знает. Спрашивать его заранее нечем — если он откажет,
+            # скажет это сам, и его слово тут важнее нашей арифметики.
+            return ""
         denial = self.state.quota.can_spend(
             int(settings.RU_CHECK_PROBES), bool(settings.RU_CHECK_TOKEN))
         return f"⚠️ {html.escape(denial)}" if denial else ""
@@ -421,6 +528,13 @@ class Watchdog:
     async def _maybe_check_ru(self, bot: Bot) -> None:
         if not settings.RU_CHECK_ENABLED:
             return
+
+        # Чужой вердикт читается каждый такт: это локальный файл, расписание
+        # ему ни к чему — расписание есть у того, кто меряет.
+        if self._ru_source() == "mtproxyl":
+            await self._poll_mtproxyl_verdict(bot)
+            return
+
         now = time.time()
         if now < self._ru_next:
             return
@@ -467,11 +581,18 @@ class Watchdog:
         elif self.ru_last:
             ago = int((now - self.ru_checked_at) / 60)
             lines.append(self._render_ru(self.ru_last).rstrip())
-            lines.append(f"<i>проверено {ago} мин назад</i>")
+            # Источник указан всегда: от него зависит и чья это квота, и куда
+            # идти, если проверка перестала обновляться.
+            who = ("меряет MTProxyL" if self.ru_last.get("source") == "mtproxyl"
+                   else "меряет сторож")
+            lines.append(f"<i>проверено {ago} мин назад · {who}</i>")
         else:
             lines.append("🇷🇺 Доступность из РФ: проверок ещё не было")
 
-        if settings.RU_CHECK_ENABLED:
+        # Наш реестр трат имеет смысл только когда меряем мы: при чужом
+        # источнике зонды идут по квоте MTProxyL, и показывать свой нетронутый
+        # остаток значило бы вводить в заблуждение.
+        if settings.RU_CHECK_ENABLED and self._ru_source() == "self":
             lines.append(f"<i>{html.escape(self.state.quota.render(bool(settings.RU_CHECK_TOKEN), now))}</i>")
 
         if self.state.muted(now):
