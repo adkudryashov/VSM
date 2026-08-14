@@ -309,6 +309,20 @@ write_unit() {
 [Unit]
 Description=$desc
 After=network.target
+# Петля перезапусков обязана однажды закончиться.
+#
+# С умолчаниями (окно 10 с при RestartSec=10) предел не срабатывал НИКОГДА:
+# пять перезапусков занимают полсотни секунд, то есть в десятисекундное окно
+# не укладываются. Замерено на стенде с испорченным .env — бот падал и
+# поднимался три раза в минуту бесконечно, а systemctl is-active всё это время
+# отвечал active, и снаружи поломка выглядела исправной работой.
+#
+# Пять минут окна при паузе в десять секунд означают: пять падений подряд —
+# и служба честно встаёт в failed. Это ХУЖЕ для доступности и ЛУЧШЕ для
+# правды: молчащий бот, который числится живым, опаснее остановленного,
+# потому что о втором расскажет tools/heartbeat-check.sh.
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -400,10 +414,59 @@ else
     fi
 fi
 
+# --- Сторож для сторожа -------------------------------------------------
+#
+# Отдельный таймер, который проверяет, жив ли бот, и шлёт в Telegram САМ,
+# обычным curl. Уведомлять о смерти бота силами этого же бота нельзя, а
+# сторож telemt — единственный источник тревог: его молчание снаружи
+# неотличимо от «всё хорошо». Подробности и три способа замолчать незаметно —
+# в шапке tools/heartbeat-check.sh.
+#
+# Ставится всегда, независимо от режима: проверяемая служба вычисляется из
+# того же режима, что и всё остальное.
+if want_combined;   then BEAT_SERVICE="3xui-telemt-bot"
+elif want_telemt;   then BEAT_SERVICE="telemt-bot"
+else                     BEAT_SERVICE="3xui-monitor"
+fi
+
+cat > /etc/systemd/system/vsm-heartbeat.service <<EOF
+[Unit]
+Description=VSM: проверка живости Telegram-бота
+# Намеренно БЕЗ Requires и After на самого бота: этой проверке нужно
+# работать именно тогда, когда с ботом плохо.
+
+[Service]
+Type=oneshot
+Environment=HEARTBEAT_SERVICE=$BEAT_SERVICE
+ExecStart=/bin/bash $VSM_ROOT/tools/heartbeat-check.sh
+NoNewPrivileges=yes
+PrivateTmp=yes
+EOF
+
+cat > /etc/systemd/system/vsm-heartbeat.timer <<'EOF'
+[Unit]
+Description=VSM: проверка живости Telegram-бота раз в 5 минут
+
+[Timer]
+# Первый запуск через две минуты после загрузки: боту дают подняться, иначе
+# каждая перезагрузка сервера начиналась бы с ложной тревоги.
+OnBootSec=2min
+OnUnitActiveSec=5min
+# Пропущенный из-за выключенного сервера запуск наверстывается: узнать о
+# беде с опозданием лучше, чем не узнать.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
 systemctl daemon-reload
 echo ""
 log "Запускаю службы"
 FAILED=0
+systemctl enable -q --now vsm-heartbeat.timer 2>/dev/null \
+    && log "Сторож для сторожа: проверка раз в 5 минут" \
+    || warn "Таймер vsm-heartbeat не поднялся — падение бота останется незамеченным"
 if want_combined; then
     start_and_check 3xui-telemt-bot || FAILED=1
 else

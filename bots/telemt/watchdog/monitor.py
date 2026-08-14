@@ -692,6 +692,28 @@ class Watchdog:
 watchdog = Watchdog()
 
 
+HEARTBEAT_PATH = Path(DATA_DIR) / "watchdog.heartbeat"
+
+
+def _touch_heartbeat() -> None:
+    """
+    Обновляет отметку времени последнего прохода цикла.
+
+    Пустой файл, а не запись в watchdog.json: состояние сохраняется только при
+    изменениях, и на исправном сервере его отметка времени спокойно стоит
+    часами — судить по ней о живости нельзя. Здесь же смысл ровно один — когда
+    цикл проходил в последний раз.
+
+    Любая ошибка проглатывается: не суметь отметиться — не повод уронить
+    сторож, ради которого всё и затевалось.
+    """
+    try:
+        HEARTBEAT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        HEARTBEAT_PATH.touch()
+    except OSError as exc:
+        logging.warning("Сторож: отметка жизни не обновлена: %s", exc)
+
+
 async def watchdog_loop(bot: Bot) -> None:
     if not settings.WATCHDOG_ENABLED:
         logging.info("Сторож telemt выключен (WATCHDOG_ENABLED=false).")
@@ -719,4 +741,13 @@ async def watchdog_loop(bot: Bot) -> None:
             await card.refresh(bot)
         except Exception as exc:
             logging.error("Сторож: ошибка цикла: %s", exc)
+        # Отметка жизни — ПОСЛЕ обработки ошибки, а не внутри try.
+        #
+        # Она отвечает на вопрос «цикл крутится», а не «всё хорошо»: неудачный
+        # опрос — это повод для тревоги, которую бот пошлёт сам, а вот
+        # зависшая корутина не пошлёт ничего и ничем себя не выдаст. Служба при
+        # этом остаётся active, и снаружи такое молчание неотличимо от
+        # исправной работы. Файл читает tools/heartbeat-check.sh — отдельный
+        # таймер, который не зависит от живости бота.
+        _touch_heartbeat()
         await asyncio.sleep(max(int(settings.WATCHDOG_INTERVAL_SECONDS), 10))
