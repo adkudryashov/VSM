@@ -37,6 +37,26 @@ VSM_LIB="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 # закрывает весь класс.
 VSM_ROOT="$(dirname "$VSM_LIB")"
 
-source "$VSM_LIB/ui.sh"
-source "$VSM_LIB/config.sh"
-source "$VSM_LIB/deps.sh"
+# Отсутствие библиотеки — не повод продолжать.
+#
+# Раньше source шёл без проверки: при неполной раскладке (оборванное
+# обновление, битая ссылка в /usr/local/bin) bash печатал одну строку «No such
+# file» и работал дальше. Меню при этом рисовалось, но БЕЗ цветов и без
+# функций — то есть первый же пункт падал невнятной ошибкой где-то в середине
+# работы, вместо того чтобы сказать правду сразу.
+#
+# Печатаем в stderr и голым текстом: палитра живёт в ui.sh, а его как раз может
+# и не быть.
+for _lib in ui.sh config.sh deps.sh; do
+    if [ ! -r "$VSM_LIB/$_lib" ]; then
+        printf 'VSM: не найдена библиотека %s\n' "$VSM_LIB/$_lib" >&2
+        printf 'Установка повреждена. Переустановите: bash install.sh\n' >&2
+        return 1 2>/dev/null || exit 1
+    fi
+    # shellcheck source=/dev/null
+    if ! source "$VSM_LIB/$_lib"; then
+        printf 'VSM: библиотека %s не загрузилась\n' "$VSM_LIB/$_lib" >&2
+        return 1 2>/dev/null || exit 1
+    fi
+done
+unset _lib

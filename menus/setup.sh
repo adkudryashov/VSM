@@ -543,12 +543,26 @@ function manage_ssl_menu {
                 read -p "Сколько доменов включить в сертификат? (по умолчанию 1): " d_count
                 [[ ! "$d_count" =~ ^[0-9]+$ ]] && d_count=1
                 
-                DOMAINS_ARGS=""
+                # Массив, а не строка с последующим расщеплением по пробелам.
+                #
+                # Прежде домены склеивались в "-d a.com -d b.com" и разбирались
+                # обратно тем, что подстановка шла без кавычек. У этого два
+                # изъяна, и оба всплывают на живом вводе: строка без кавычек
+                # проходит ещё и раскрытие по маске, поэтому запрос
+                # подстановочного сертификата "*.example.com" из каталога, где
+                # есть подходящее имя файла, ушёл бы к certbot именем файла; а
+                # домен, набранный с лишним пробелом, разъезжался на два
+                # аргумента. Массив передаёт ровно то, что ввели.
+                DOMAINS_ARGS=()
                 FIRST_DOMAIN=""
                 for (( i=1; i<=d_count; i++ )); do
-                    read -p "Введите домен #$i (например, example.com): " dom
+                    IFS= read -r -p "Введите домен #$i (например, example.com): " dom
+                    # Обрезаем крайние пробелы: их приносит копирование из
+                    # переписки, а certbot на таком домене отказывает невнятно.
+                    dom="${dom#"${dom%%[![:space:]]*}"}"
+                    dom="${dom%"${dom##*[![:space:]]}"}"
                     if [ -n "$dom" ]; then
-                        DOMAINS_ARGS="$DOMAINS_ARGS -d $dom"
+                        DOMAINS_ARGS+=(-d "$dom")
                         [ -z "$FIRST_DOMAIN" ] && FIRST_DOMAIN="$dom"
                     fi
                 done
@@ -564,10 +578,12 @@ function manage_ssl_menu {
                 echo -e "${YELLOW}Email нужен Let's Encrypt только для уведомлений об истечении сертификата.${NC}"
                 IFS= read -r -p "Введите email (или нажмите Enter, чтобы выпустить без почты): " acme_email
 
+                # Тоже массивом: "-m почта с пробелом" разъехалось бы на три
+                # аргумента, и certbot принял бы обрывок за отдельный флаг.
                 if [ -z "$acme_email" ]; then
-                    EMAIL_ARG="--register-unsafely-without-email"
+                    EMAIL_ARG=(--register-unsafely-without-email)
                 else
-                    EMAIL_ARG="-m $acme_email"
+                    EMAIL_ARG=(-m "$acme_email")
                 fi
 
                 # Автоматически освобождаем 80 порт перед запросом.
@@ -594,7 +610,8 @@ function manage_ssl_menu {
 
                 echo -e "${CYAN}Запрашиваем сертификат...${NC}"
                 # Запрашиваем через standalone сервер
-                sudo certbot certonly --standalone $DOMAINS_ARGS --non-interactive --agree-tos $EMAIL_ARG
+                sudo certbot certonly --standalone "${DOMAINS_ARGS[@]}" \
+                    --non-interactive --agree-tos "${EMAIL_ARG[@]}"
                 CERT_RC=$?
 
                 # Возвращаем всё, что останавливали, ДО разбора результата и
@@ -606,8 +623,8 @@ function manage_ssl_menu {
                 if [ "$CERT_RC" -eq 0 ]; then
                     # Копируем ключи в пользовательскую папку
                     mkdir -p "$SSL_SAVE_DIR/$FIRST_DOMAIN"
-                    cp /etc/letsencrypt/live/$FIRST_DOMAIN/fullchain.pem "$SSL_SAVE_DIR/$FIRST_DOMAIN/fullchain.pem"
-                    cp /etc/letsencrypt/live/$FIRST_DOMAIN/privkey.pem "$SSL_SAVE_DIR/$FIRST_DOMAIN/privkey.pem"
+                    cp "/etc/letsencrypt/live/$FIRST_DOMAIN/fullchain.pem" "$SSL_SAVE_DIR/$FIRST_DOMAIN/fullchain.pem"
+                    cp "/etc/letsencrypt/live/$FIRST_DOMAIN/privkey.pem" "$SSL_SAVE_DIR/$FIRST_DOMAIN/privkey.pem"
                     
                     echo -e "\n${GREEN}✅ Сертификаты успешно выпущены и скопированы!${NC}"
                     echo -e "${YELLOW}Путь к Fullchain (Сертификат): ${NC}$SSL_SAVE_DIR/$FIRST_DOMAIN/fullchain.pem"
@@ -639,7 +656,12 @@ function manage_ssl_menu {
                 
                 # Отзываем и удаляем
                 sudo certbot revoke --cert-name "$del_dom" --delete-after-revoke --reason unspecified
-                rm -rf "$SSL_SAVE_DIR/$del_dom"
+                # ":?" на обеих частях, хотя пустыми они сегодня быть не могут:
+                # SSL_SAVE_DIR присваивается константой, а del_dom проверен
+                # выше. Это страховка на будущее — здесь rm -rf от root, и цена
+                # ошибки такова, что полагаться на два проверенных места выше по
+                # тексту не стоит. Пустая переменная превратила бы путь в "/".
+                rm -rf -- "${SSL_SAVE_DIR:?путь хранилища не задан}/${del_dom:?имя сертификата не задано}"
                 
                 echo -e "${GREEN}✅ Сертификат $del_dom отозван и удален со всех папок.${NC}"
                 read -p "Нажмите Enter..." ;;
