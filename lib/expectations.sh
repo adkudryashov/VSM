@@ -181,10 +181,13 @@ fix_panel_mtproxyl_off() {
 
 applies_panel_config_api() { [ -r "$MTPL_PANEL_CONF" ]; }
 want_panel_config_api()    { echo "api"; }
-read_panel_config_api()    { _toml_get "$MTPL_PANEL_CONF" "" config_edit_mode; }
+# Ключ лежит в секции [telemt], а не на верхнем уровне. Первый прогон сверки
+# читал его сверху, получал пустоту и объявлял дрейф на исправной установке —
+# ровно тот ложный сигнал, от которого перестают верить всей проверке.
+read_panel_config_api()    { _toml_get "$MTPL_PANEL_CONF" telemt config_edit_mode; }
 fix_panel_config_api() {
     _expect_backup "$MTPL_PANEL_CONF"
-    _toml_set "$MTPL_PANEL_CONF" "" config_edit_mode "\"api\"" || return 1
+    _toml_set "$MTPL_PANEL_CONF" telemt config_edit_mode "\"api\"" || return 1
     systemctl restart mtproxyl-panel >/dev/null 2>&1
 }
 
