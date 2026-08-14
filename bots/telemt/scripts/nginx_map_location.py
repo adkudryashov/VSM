@@ -258,11 +258,17 @@ def main() -> int:
     # Прежнее "try_files map.html" возвращало карту на ЛЮБОЙ адрес внутри
     # префикса, и библиотеки получить было нельзя. Запасной путь на map.html
     # сохранён — на него опирается кнопка бота, дописывающая к адресу хвост.
+    #
+    # "=404" в конце обязателен, и это не перестраховка: ПОСЛЕДНИЙ параметр
+    # try_files nginx понимает не как файл, а как URI для внутреннего
+    # перенаправления. Без него "try_files $uri map.html" отдавал 404 на саму
+    # карту, отдавая при этом библиотеки, — поймано проверкой на стенде, по
+    # чтению конфига не видно вовсе.
     snippet = (
         f"\n    {BEGIN}\n"
         f"    location /{args.path}/ {{\n"
         f"        alias {args.map_dir.rstrip('/')}/;\n"
-        f"        try_files $uri map.html;\n"
+        f"        try_files $uri map.html =404;\n"
         f'        add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0";\n'
         f'        add_header X-Robots-Tag "noindex, nofollow" always;\n'
         f'        add_header Referrer-Policy "no-referrer" always;\n'
