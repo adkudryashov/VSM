@@ -1,0 +1,161 @@
+"""
+Жёсткие отказы исходящих подключений — признак того, что сломан выход.
+
+ГЛАВНОЕ ПРАВИЛО ЭТОГО ФАЙЛА: тревога поднимается ТОЛЬКО по
+connect_failfast_hard_error_total. По connect_fail_total — никогда.
+
+Почему так, замер на нашем стенде при исправно работающем прокси:
+
+    connect_attempt_total             = 295 614
+    connect_success_total             = 139 992
+    connect_fail_total                = 153 874   ← 52% «неудачных подключений»
+    connect_failfast_hard_error_total = 0         ← настоящих отказов ноль
+
+Движок штатно долбится сразу в несколько точек подключения и берёт первую
+ответившую. Каждая отброшенная попытка попадает в connect_fail_total, даже
+когда соединение через полсекунды успешно установилось соседним маршрутом.
+Тревога по этому счётчику горела бы круглосуточно с первого дня — а сторож,
+который кричит всегда, выключают вместе с настоящими тревогами.
+
+connect_failfast_hard_error_total — это отказы, которые движок даже не стал
+повторять: нет маршрута, соединение отвергнуто. На исправном сервере их ноль.
+
+ЕСЛИ КОГДА-НИБУДЬ ЗАХОЧЕТСЯ «ПОЧИНИТЬ» ЭТО и начать смотреть на fail_total —
+сначала снимите оба счётчика с работающего сервера. Числа выше не выдуманы.
+
+ОТКУДА БЕРУТСЯ ЧИСЛА. Проверено на стенде: один и тот же общесерверный агрегат
+виден с двух эндпоинтов — /v1/stats/upstreams в поле data.zero и
+/v1/stats/zero/all в поле data.upstream. «zero» здесь имя подсистемы движка, а
+не «апстрим номер ноль»: записи в data.upstreams[] несут только свой счётчик
+fails, без попыток, и суммировать их бессмысленно.
+"""
+
+from dataclasses import dataclass
+from typing import Optional
+
+# Доля жёстких отказов за интервал, выше которой поднимается тревога.
+# На исправном сервере их ноль, так что любая устойчивая ненулевая доля уже
+# подозрительна, а 20% — заведомый запас от единичных всплесков.
+DEFAULT_HARD_RATE_PCT = 20.0
+
+_FIELDS = (
+    ("attempts", "connect_attempt_total"),
+    ("fails", "connect_fail_total"),
+    ("hard", "connect_failfast_hard_error_total"),
+)
+
+
+@dataclass(frozen=True)
+class Counters:
+    """Накопительные счётчики движка на момент опроса."""
+
+    attempts: int = 0
+    fails: int = 0
+    hard: int = 0
+
+
+@dataclass(frozen=True)
+class Delta:
+    """
+    Что произошло между двумя опросами.
+
+    has_rate=False означает «сравнивать было не с чем или не по чему»: первый
+    опрос, перезапуск движка, либо за интервал не было ни одной попытки
+    подключения. Это НЕ «ноль процентов отказов» — это отсутствие измерения, и
+    вызывающий обязан в таком случае не трогать состояние тревоги вовсе.
+    Разница принципиальная: на простаивающем сервере «0% отказов» молча
+    погасило бы настоящую аварию.
+    """
+
+    attempts: int = 0
+    fails: int = 0
+    hard: int = 0
+    has_rate: bool = False
+
+    @property
+    def hard_pct(self) -> float:
+        return (self.hard / self.attempts * 100.0) if self.attempts else 0.0
+
+    @property
+    def fail_pct(self) -> float:
+        """Справка о качестве маршрутов. Тревогу по ней не поднимают — см. шапку."""
+        return (self.fails / self.attempts * 100.0) if self.attempts else 0.0
+
+
+def extract(payload: dict) -> Optional[Counters]:
+    """
+    Достаёт счётчики из ответа /v1/stats/upstreams или /v1/stats/zero/all.
+
+    Оба варианта разбираются одной функцией: поле называется по-разному
+    (data.zero против data.upstream), а содержимое одно и то же. Так смена
+    эндпоинта не потребует второго разборщика, который однажды разойдётся с
+    первым.
+
+    None означает «нужных полей в ответе нет» — например, движок старее, чем
+    появились эти счётчики. Это не ошибка и не авария: сигнал просто молчит.
+    """
+    data = (payload or {}).get("data") or {}
+    for key in ("zero", "upstream"):
+        block = data.get(key)
+        if not isinstance(block, dict):
+            continue
+        if not all(name in block for _, name in _FIELDS):
+            continue
+        try:
+            return Counters(**{attr: int(block[name]) for attr, name in _FIELDS})
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+@dataclass
+class HardFailWatch:
+    """
+    Снимок счётчиков и вычисление дельты.
+
+    НА ДИСК НЕ СОХРАНЯЕТСЯ намеренно: после перезапуска бота просто пропускается
+    одно сравнение, и это дешевле, чем тащить накопительные числа через миграции
+    файла состояния. Сама тревога при этом сохраняется — она живёт во Flap.
+    """
+
+    taken: bool = False
+    started_at: str = ""
+    counters: Counters = Counters()
+
+    def update(self, counters: Optional[Counters], started_at: str) -> Delta:
+        """
+        Принимает свежие счётчики, возвращает дельту с прошлого опроса.
+
+        Три случая, когда сравнивать нельзя, и все три дают has_rate=False:
+
+        1. Первый опрос — сравнивать не с чем.
+        2. Движок перезапустился: он обнуляет счётчики, и разность вышла бы
+           отрицательной. Узнаём по смене process_started_at, а не по знаку
+           разности — так же надёжно, но понятно из журнала.
+        3. Счётчики уменьшились без смены отметки запуска. Такого быть не
+           должно; если случилось — молча берём новый снимок, а не считаем
+           отрицательную долю отказов.
+        """
+        if counters is None:
+            # Полей нет — снимок не трогаем: движок мог ответить урезанно, и
+            # затирать им нормальный снимок значит потерять следующую дельту.
+            return Delta()
+
+        previous, was_taken = self.counters, self.taken
+        restarted = self.started_at != started_at
+        self.counters, self.started_at, self.taken = counters, started_at, True
+
+        if not was_taken or restarted:
+            return Delta()
+
+        attempts = counters.attempts - previous.attempts
+        fails = counters.fails - previous.fails
+        hard = counters.hard - previous.hard
+        if attempts < 0 or fails < 0 or hard < 0:
+            return Delta()
+        if attempts == 0:
+            # Ни одной попытки за интервал: клиентов нет. Сказать про долю
+            # отказов нечего — см. комментарий к Delta.has_rate.
+            return Delta(has_rate=False)
+
+        return Delta(attempts=attempts, fails=fails, hard=hard, has_rate=True)

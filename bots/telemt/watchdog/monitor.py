@@ -10,6 +10,8 @@ globalping.py. Разделение не ради красоты: логику �
   движок недоступен      API не отвечает — прокси либо лёг, либо потерял API
   движок перезапустился  process_started_at сменился без нашего ведома
   писатели просели       некому писать в Telegram: клиенты подключатся и зависнут
+  жёсткие отказы выхода  движок не может дозвониться до Telegram — сломан выход
+  домен не на этот сервер клиенты идут по старому адресу: переехали, забыли DNS
   конфиг движка изменён  telemt.toml переписали мимо VSM
   адрес сервера сменился все выданные клиентам ссылки стали недействительны
   доступность из РФ      единственный сигнал про вход; остальное меряет выход
@@ -32,8 +34,8 @@ from aiogram import Bot
 
 from config import settings, DATA_DIR
 from telemt.api.client import TelemtAPIClient
-from telemt.watchdog import globalping
-from telemt.watchdog.incidents import CLEAR, FIRE, WatchState
+from telemt.watchdog import globalping, upstreams
+from telemt.watchdog.incidents import CLEAR, FIRE, REPEAT, WatchState
 
 STATE_PATH = Path(DATA_DIR) / "watchdog.json"
 
@@ -71,6 +73,14 @@ class Watchdog:
         self.ru_error: str = ""
         self.ru_checked_at: float = 0.0
         self._ru_next: float = 0.0
+        # Снимок накопительных счётчиков движка. В памяти, не на диске: после
+        # перезапуска бота пропускается одно сравнение, и это дешевле, чем
+        # тащить эти числа через миграции файла состояния.
+        self.hard = upstreams.HardFailWatch()
+        # Последняя посчитанная дельта и последняя сверка DNS — только для
+        # показа в /watch, на решения не влияют.
+        self.hard_last: upstreams.Delta = upstreams.Delta()
+        self.dns_addrs: list = []
         self._lock = asyncio.Lock()
 
     # ---------------------------------------------------------------- отправка
@@ -90,12 +100,35 @@ class Watchdog:
             except Exception as exc:
                 logging.warning("Сторож: не доставил админу %s: %s", admin_id, exc)
 
+    async def _fire_or_clear(self, bot: Bot, event, flap, *, fire: str, clear: str) -> None:
+        """
+        Один разбор события для всех тревог сразу.
+
+        FIRE и REPEAT шлют один и тот же разбор — меняется только шапка. Писать
+        для напоминания отдельный, укороченный текст нельзя: через полчаса
+        человек уже не помнит подробностей из первого сообщения, а лезть за ним
+        вверх по чату он не станет.
+        """
+        if event == FIRE:
+            await self._notify(bot, fire)
+        elif event == REPEAT:
+            minutes = flap.duration()
+            head = (f"⏳ <b>Авария продолжается {minutes} мин</b>\n\n" if minutes
+                    else "⏳ <b>Авария продолжается</b>\n\n")
+            await self._notify(bot, head + fire)
+        elif event == CLEAR:
+            minutes = flap.duration()
+            await self._notify(bot, clear + (f"\nДлилась {minutes} мин." if minutes else ""))
+
     # ------------------------------------------------------------------ опрос
     async def poll_once(self, bot: Bot) -> None:
         """Один проход. Исключения не выпускает: цикл обязан пережить всё."""
         async with self._lock:
             await self._poll_engine(bot)
             await self._poll_ip(bot)
+            # После _poll_ip: сверка домена сравнивает его с адресом сервера, а
+            # тот становится известен именно там.
+            await self._poll_dns(bot)
             await self._maybe_check_ru(bot)
             _save_state(self.state)
 
@@ -110,12 +143,12 @@ class Watchdog:
             reachable = False
             logging.info("Сторож: движок не ответил: %s", exc)
 
-        event = self.state.engine.update(is_bad=not reachable)
-        if event == FIRE:
-            await self._notify(bot, "🚨 <b>ДВИЖОК НЕДОСТУПЕН</b>\n"
-                                    "API telemt не отвечает — прокси не обслуживает клиентов.")
-        elif event == CLEAR:
-            await self._notify(bot, "✅ <b>ДВИЖОК СНОВА НА СВЯЗИ</b>")
+        await self._fire_or_clear(
+            bot, self.state.engine.update(is_bad=not reachable), self.state.engine,
+            fire="🚨 <b>ДВИЖОК НЕДОСТУПЕН</b>\n"
+                 "API telemt не отвечает — прокси не обслуживает клиентов.",
+            clear="✅ <b>ДВИЖОК СНОВА НА СВЯЗИ</b>",
+        )
 
         if not reachable:
             # Дальше сравнивать нечего: отсутствие данных — не смена данных.
@@ -142,20 +175,105 @@ class Watchdog:
             coverage = summary.get("coverage_pct")
         if coverage is not None:
             low = float(coverage) < float(settings.WATCHDOG_COVERAGE_FLOOR_PCT)
-            event = self.state.writers.update(is_bad=low)
-            if event == FIRE:
-                await self._notify(
-                    bot,
-                    "🚨 <b>ПРОСЕЛИ ПИСАТЕЛИ В TELEGRAM</b>\n"
-                    f"Покрытие: {float(coverage):.0f}% "
-                    f"(порог {float(settings.WATCHDOG_COVERAGE_FLOOR_PCT):.0f}%)\n"
-                    f"Живых: {summary.get('alive_writers', '?')} из "
-                    f"{summary.get('required_writers', '?')} нужных.\n"
-                    "Клиенты будут подключаться и зависать.",
-                )
-            elif event == CLEAR:
-                await self._notify(bot, "✅ <b>ПИСАТЕЛИ ВОССТАНОВЛЕНЫ</b>\n"
-                                        f"Покрытие: {float(coverage):.0f}%")
+            await self._fire_or_clear(
+                bot, self.state.writers.update(is_bad=low), self.state.writers,
+                fire="🚨 <b>ПРОСЕЛИ ПИСАТЕЛИ В TELEGRAM</b>\n"
+                     f"Покрытие: {float(coverage):.0f}% "
+                     f"(порог {float(settings.WATCHDOG_COVERAGE_FLOOR_PCT):.0f}%)\n"
+                     f"Живых: {summary.get('alive_writers', '?')} из "
+                     f"{summary.get('required_writers', '?')} нужных.\n"
+                     "Клиенты будут подключаться и зависать.",
+                clear="✅ <b>ПИСАТЕЛИ ВОССТАНОВЛЕНЫ</b>\n"
+                      f"Покрытие: {float(coverage):.0f}%",
+            )
+
+        await self._poll_hard_fails(bot, started)
+
+    async def _poll_hard_fails(self, bot: Bot, started: str) -> None:
+        """
+        Жёсткие отказы исходящих подключений. Разбор — в upstreams.py.
+
+        Отдельный запрос и отдельный try: этот эндпоинт появился в движке позже
+        остальных, и его отсутствие не должно объявлять движок недоступным.
+        """
+        try:
+            payload = await self.api.upstreams()
+        except Exception as exc:
+            logging.info("Сторож: статистика апстримов не прочитана: %s", exc)
+            return
+
+        delta = self.hard.update(upstreams.extract(payload), started)
+        self.hard_last = delta
+        if not delta.has_rate:
+            # Измерения не было: первый опрос, перезапуск движка или ни одной
+            # попытки за интервал. Состояние тревоги НЕ трогаем — иначе на
+            # простаивающем сервере «ноль отказов» молча погасил бы аварию.
+            return
+
+        threshold = float(settings.WATCHDOG_HARD_FAIL_PCT)
+        await self._fire_or_clear(
+            bot, self.state.hard_fails.update(is_bad=delta.hard_pct > threshold),
+            self.state.hard_fails,
+            fire="🚨 <b>СЛОМАН ВЫХОД К TELEGRAM</b>\n"
+                 f"Отказов без повтора: {delta.hard_pct:.0f}% "
+                 f"(порог {threshold:.0f}%)\n"
+                 f"За интервал: {delta.hard} из {delta.attempts} попыток.\n"
+                 "Движок не может дозвониться до серверов Telegram.",
+            clear="✅ <b>ВЫХОД К TELEGRAM ВОССТАНОВЛЕН</b>\n"
+                  f"Отказов без повтора: {delta.hard_pct:.0f}%",
+        )
+
+    @staticmethod
+    def _dns_host() -> str:
+        """
+        Домен, который обязан вести на этот сервер.
+
+        RU_CHECK_HOST — адрес, по которому подключаются клиенты, но он часто
+        пуст (тогда проверка берёт свой внешний адрес) или задан голым IP.
+        В этом случае сверяем домен маскировки: он же домен панели, и он тоже
+        обязан указывать сюда — иначе не обновится сертификат, которым прокси
+        прикрывается, и перестанет открываться панель.
+
+        Пусто — сверять нечего, сигнал молчит. Так и должно быть на установке,
+        где клиентам раздают голый IP.
+        """
+        for candidate in (settings.RU_CHECK_HOST, settings.RU_CHECK_SNI):
+            if candidate and not globalping.is_ip(candidate):
+                return candidate
+        return ""
+
+    async def _poll_dns(self, bot: Bot) -> None:
+        """
+        Ведёт ли домен подключения на этот сервер.
+
+        Класс аварии, который не виден больше ничем: переехали на новый VPS,
+        забыли переставить DNS. Движок здоров, писатели на месте, зонды даже
+        могут доходить — но приходят они на чужой сервер.
+
+        Ничего не стоит: обычный резолв, наружу ни одного лишнего пакета.
+        Поэтому работает и при выключенной проверке доступности.
+        """
+        host = self._dns_host()
+        server_ip = self.state.ip.known
+        addrs = await globalping.resolve_host(host) if host else []
+        self.dns_addrs = addrs
+
+        if not addrs or not server_ip:
+            # Сверять не с чем: цель задана голым IP, резолв не удался или свой
+            # адрес ещё не известен. Это не расхождение — молчим и не трогаем
+            # состояние, чтобы недоступность DNS не дала отбоя настоящей тревоге.
+            return
+
+        await self._fire_or_clear(
+            bot, self.state.dns.update(is_bad=server_ip not in addrs), self.state.dns,
+            fire="🚨 <b>ДОМЕН НЕ ВЕДЁТ НА ЭТОТ СЕРВЕР</b>\n"
+                 f"Домен: <code>{html.escape(host)}</code>\n"
+                 f"Ведёт на: <code>{html.escape(', '.join(addrs))}</code>\n"
+                 f"Сервер: <code>{html.escape(server_ip)}</code>\n"
+                 "Клиенты идут не сюда. Прокси при этом полностью исправен.",
+            clear="✅ <b>ДОМЕН СНОВА ВЕДЁТ НА ЭТОТ СЕРВЕР</b>\n"
+                  f"<code>{html.escape(host)}</code> → <code>{html.escape(server_ip)}</code>",
+        )
 
     async def _poll_ip(self, bot: Bot) -> None:
         observed = await globalping.public_ip()
@@ -185,42 +303,61 @@ class Watchdog:
         if not host or not port:
             self.ru_error = "не задан адрес или порт прокси"
             return f"⚠️ Проверка не настроена: {self.ru_error}."
+
+        probes = int(settings.RU_CHECK_PROBES)
+        has_token = bool(settings.RU_CHECK_TOKEN)
+
+        # Кулдаун — только на ручные. Автоматические идут по расписанию, и
+        # второй ограничитель им ни к чему; а вот человек, увидевший тревогу,
+        # жмёт /check несколько раз подряд, и это нормальное поведение.
+        if manual:
+            wait = self.state.quota.manual_ready_in()
+            if wait:
+                return f"⏳ Проверку только что запускали. Повторите через {wait} с."
+
+        denial = self.state.quota.can_spend(probes, has_token)
+        if denial:
+            self.ru_error = denial
+            _save_state(self.state)
+            return f"⚠️ {html.escape(denial)}"
+
+        if manual:
+            self.state.quota.note_manual()
+
         try:
             verdict = await globalping.check(
-                host, port, sni, int(settings.RU_CHECK_PROBES),
-                token=settings.RU_CHECK_TOKEN,
+                host, port, sni, probes, token=settings.RU_CHECK_TOKEN,
             )
         except globalping.RateLimited as exc:
             self.ru_error = str(exc)
-            # Бюджет исчерпан — переносим следующую попытку на час, иначе
-            # каждый тик будет тратить запрос впустую и продлевать блокировку.
-            self._ru_next = time.time() + 3600
+            # Слово сервиса важнее нашей арифметики: если он назвал срок —
+            # берём его, иначе отступаем на час. Блокировка сохраняется на
+            # диск, иначе перезапуск бота снова упрётся в отказ и продлит его.
+            self.state.quota.block_for(exc.retry_after or 3600)
+            self._ru_next = time.time() + (exc.retry_after or 3600)
+            _save_state(self.state)
             return f"⚠️ {html.escape(str(exc))}"
         except Exception as exc:
             self.ru_error = str(exc)
             return f"⚠️ Проверка не удалась: {html.escape(str(exc))}"
 
+        # Списываем по фактически задействованным зондам — см. quota.py.
+        self.state.quota.record(int(verdict.get("charged") or probes))
         self.ru_error = ""
         self.ru_last = verdict
         self.ru_checked_at = time.time()
+        _save_state(self.state)
 
         low = verdict["pct"] < float(settings.RU_CHECK_FLOOR_PCT)
-        event = self.state.ru_access.update(is_bad=low)
-        if event == FIRE:
-            await self._notify(
-                bot,
-                "🚨 <b>ПАДЕНИЕ ДОСТУПНОСТИ ИЗ РОССИИ</b>\n"
-                f"Дошло {verdict['success']} из {verdict['total']} зондов "
-                f"({verdict['pct']:.0f}%).\n"
-                + self._reasons_block(verdict),
-            )
-        elif event == CLEAR:
-            await self._notify(
-                bot,
-                "✅ <b>ДОСТУПНОСТЬ ИЗ РОССИИ ВОССТАНОВЛЕНА</b>\n"
-                f"Дошло {verdict['success']} из {verdict['total']} зондов "
-                f"({verdict['pct']:.0f}%).",
-            )
+        await self._fire_or_clear(
+            bot, self.state.ru_access.update(is_bad=low), self.state.ru_access,
+            fire="🚨 <b>ПАДЕНИЕ ДОСТУПНОСТИ ИЗ РОССИИ</b>\n"
+                 f"Дошло {verdict['success']} из {verdict['total']} зондов "
+                 f"({verdict['pct']:.0f}%).\n" + self._reasons_block(verdict),
+            clear="✅ <b>ДОСТУПНОСТЬ ИЗ РОССИИ ВОССТАНОВЛЕНА</b>\n"
+                  f"Дошло {verdict['success']} из {verdict['total']} зондов "
+                  f"({verdict['pct']:.0f}%).",
+        )
         return self._render_ru(verdict)
 
     @staticmethod
@@ -235,11 +372,34 @@ class Watchdog:
 
     @staticmethod
     def _render_ru(verdict: dict) -> str:
-        mark = "✅" if verdict["pct"] >= float(settings.RU_CHECK_FLOOR_PCT) else "🚨"
+        """
+        Светофор ПОКАЗЫВАЕТ, но не будит. Жёлтый — «посмотри, когда будешь
+        смотреть»: доступность просела, но выше порога тревоги. Уведомление
+        по-прежнему шлётся только на красном, и добавление цвета не прибавило
+        ни одного сообщения в чат.
+        """
+        floor = float(settings.RU_CHECK_FLOOR_PCT)
+        mark = globalping.LEVEL_MARKS[globalping.level(verdict["pct"], floor)]
         text = (f"{mark} <b>Доступность из РФ — {verdict['pct']:.0f}%</b>\n"
                 f"{verdict['success']} из {verdict['total']} зондов\n")
         block = Watchdog._reasons_block(verdict)
         return text + ("\n" + block if block else "")
+
+    def manual_block_reason(self) -> str:
+        """
+        Почему ручную проверку нельзя запускать прямо сейчас; пусто — можно.
+
+        Нужна отдельно от run_ru_check, хотя тот проверяет то же самое: иначе
+        обработчик успевал написать «запускаю проверку» и следом «нельзя», и
+        первое сообщение оставалось враньём. Настоящий запрет всё равно стоит
+        в run_ru_check — эта функция только избавляет от лишней строки.
+        """
+        wait = self.state.quota.manual_ready_in()
+        if wait:
+            return f"⏳ Проверку только что запускали. Повторите через {wait} с."
+        denial = self.state.quota.can_spend(
+            int(settings.RU_CHECK_PROBES), bool(settings.RU_CHECK_TOKEN))
+        return f"⚠️ {html.escape(denial)}" if denial else ""
 
     async def _maybe_check_ru(self, bot: Bot) -> None:
         if not settings.RU_CHECK_ENABLED:
@@ -260,6 +420,25 @@ class Watchdog:
         lines.append("🚨 Тревога: писатели просели" if self.state.writers.firing
                      else "✅ Писатели в норме")
 
+        # Выход к Telegram. Показываем живую долю жёстких отказов — по ней
+        # видно, насколько порог далёк от действительности на этом сервере.
+        if self.state.hard_fails.firing:
+            lines.append(f"🚨 Тревога: сломан выход — отказов без повтора "
+                         f"{self.hard_last.hard_pct:.0f}%")
+        elif self.hard_last.has_rate:
+            lines.append(f"✅ Выход к Telegram: отказов без повтора "
+                         f"{self.hard_last.hard_pct:.0f}%")
+            # Справка о качестве маршрутов. НЕ признак аварии: движок пробует
+            # несколько точек и берёт первую ответившую, поэтому здесь штатно
+            # бывают десятки процентов при полностью исправной связи.
+            lines.append(f"   <i>повторов подключения {self.hard_last.fail_pct:.0f}% "
+                         f"— это норма, не авария</i>")
+
+        if self.state.dns.firing:
+            lines.append("🚨 Тревога: домен не ведёт на этот сервер")
+        elif self.dns_addrs:
+            lines.append("✅ Домен ведёт на этот сервер")
+
         if self.state.ip.known:
             lines.append(f"📍 Внешний адрес: <code>{html.escape(self.state.ip.known)}</code>")
 
@@ -274,6 +453,9 @@ class Watchdog:
             lines.append(f"<i>проверено {ago} мин назад</i>")
         else:
             lines.append("🇷🇺 Доступность из РФ: проверок ещё не было")
+
+        if settings.RU_CHECK_ENABLED:
+            lines.append(f"<i>{html.escape(self.state.quota.render(bool(settings.RU_CHECK_TOKEN), now))}</i>")
 
         if self.state.muted(now):
             if self.state.muted_until < 0:

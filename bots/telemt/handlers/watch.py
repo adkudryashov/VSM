@@ -42,6 +42,12 @@ async def cmd_check(message: types.Message):
             "меню VSM → Telegram-боты → Сторож.",
         )
         return
+    # Кулдаун и исчерпанный бюджет отвечают мгновенно — спрашиваем до того, как
+    # пообещать запуск: иначе «запускаю проверку» и следом «нельзя».
+    blocked = watchdog.manual_block_reason()
+    if blocked:
+        await send_long_message(message, blocked)
+        return
     # Проверка идёт десятки секунд: без этой строки человек решит, что бот завис.
     await message.answer("🇷🇺 Запускаю проверку, это займёт до минуты…")
     await send_long_message(message, await watchdog.run_ru_check(message.bot, manual=True))

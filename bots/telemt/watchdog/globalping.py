@@ -19,10 +19,14 @@ TCP-коннект о FakeTLS не говорит ничего, а фильтр�
 """
 
 import asyncio
+import ipaddress
 import logging
+import socket
 from typing import Optional
 
 import httpx
+
+from telemt.watchdog import quota
 
 API_URL = "https://api.globalping.io/v1"
 
@@ -45,7 +49,17 @@ class GlobalpingError(Exception):
 
 
 class RateLimited(GlobalpingError):
-    """Отдельный тип: вызывающий обязан перестать тратить кредиты, а не повторять."""
+    """
+    Отдельный тип: вызывающий обязан перестать тратить кредиты, а не повторять.
+
+    retry_after — сколько секунд сервис просит подождать, по его собственному
+    заголовку. Ноль означает «не сказал»: тогда срок выбирает вызывающий, но
+    слово сервиса, если оно есть, важнее любой нашей арифметики.
+    """
+
+    def __init__(self, message: str, retry_after: int = 0):
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 async def public_ip(timeout: float = 6.0) -> str:
@@ -64,6 +78,59 @@ async def public_ip(timeout: float = 6.0) -> str:
             except Exception:
                 continue
     return ""
+
+
+def is_ip(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
+async def resolve_host(host: str, timeout: float = 3.0) -> list:
+    """
+    A/AAAA-записи домена. Пустой список — резолвить нечего или не вышло.
+
+    Живёт рядом с public_ip намеренно: обе функции отвечают на вопрос «какой
+    адрес», и сверка «домен против сервера» имеет смысл только когда обе
+    ответили. Цель задана голым IP — возвращаем пусто: расхождения с самим
+    собой не бывает, и сверять там нечего.
+    """
+    if not host:
+        return []
+    try:
+        ipaddress.ip_address(host)
+        return []
+    except ValueError:
+        pass
+    try:
+        loop = asyncio.get_running_loop()
+        infos = await asyncio.wait_for(
+            loop.getaddrinfo(host, None, type=socket.SOCK_STREAM), timeout)
+    except Exception:
+        # Отказ резолва — не расхождение. Молчим: сеть бывает недоступна, а
+        # ложная тревога о переезде сервера поднимает владельца ночью.
+        return []
+    return sorted({info[4][0] for info in infos})
+
+
+# Границы светофора. Порог тревоги задаётся отдельно настройкой и НЕ обязан
+# совпадать с жёлтой границей: цвет показывает, тревога будит. Смешать их
+# значит либо добавить уведомлений, либо перестать замечать жёлтое.
+LEVEL_GREEN_PCT = 80.0
+
+
+def level(pct: float, floor_pct: float) -> str:
+    """Цвет вердикта: зелёный — уверенно доступен, красный — ниже порога тревоги."""
+    if pct >= LEVEL_GREEN_PCT:
+        return "green"
+    if pct >= floor_pct:
+        return "yellow"
+    return "red"
+
+
+LEVEL_MARKS = {"green": "✅", "yellow": "🟡", "red": "🚨"}
 
 
 def build_request(host: str, port: int, sni: str, probes: int) -> dict:
@@ -129,13 +196,25 @@ async def check(host: str, port: int, sni: str, probes: int,
         if resp.status_code == 429:
             raise RateLimited(
                 "исчерпан часовой бюджет Globalping. Кредиты считаются по зондам: "
-                "уменьшите их число или увеличьте интервал"
+                "уменьшите их число или увеличьте интервал",
+                retry_after=quota.retry_after_seconds(resp.headers),
             )
         if resp.status_code not in (200, 201, 202):
             raise GlobalpingError(f"сервис проверки ответил {resp.status_code}")
-        measurement_id = (resp.json() or {}).get("id")
+        created = resp.json() or {}
+        measurement_id = created.get("id")
         if not measurement_id:
             raise GlobalpingError("сервис не вернул идентификатор проверки")
+
+        # Платим за реально задействованные зонды: сервис не всегда даёт
+        # столько, сколько попросили, и списание по запрошенному занижало бы
+        # остаток — сторож считал бы себя беднее и пропускал проверки зря.
+        try:
+            charged = int(created.get("probesCount") or 0)
+        except (TypeError, ValueError):
+            charged = 0
+        if charged <= 0:
+            charged = probes
 
         # Ждём завершения. Не один запрос со сном: зонды отвечают вразнобой, и
         # фиксированная пауза либо тормозит, либо забирает недособранный ответ.
@@ -147,13 +226,13 @@ async def check(host: str, port: int, sni: str, probes: int,
                 raise GlobalpingError(f"сервис проверки ответил {got.status_code}")
             data = got.json() or {}
             if data.get("status") == "finished":
-                return analyze(data)
+                return dict(analyze(data), charged=charged)
             if asyncio.get_event_loop().time() >= deadline:
                 # Отдаём то, что успело прийти: частичный результат полезнее
                 # молчания, а незавершённые зонды считаются неудачей.
                 logging.warning("[globalping] проверка не завершилась за %s с, "
                                 "считаю по собранному", wait_seconds)
-                return analyze(data)
+                return dict(analyze(data), charged=charged)
             await asyncio.sleep(2)
 
 
