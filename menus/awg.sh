@@ -386,6 +386,12 @@ function awg_check_updates {
     fi
 
     local changed=0 img name pinned remote
+    # Цикл по одному элементу — остаток от времён, когда образов было два:
+    # рядом с сервером жил контейнер awg-dns, и его убрали. Кавычки здесь
+    # НУЖНЫ (в digest после sha256 стоит двоеточие, но пробелов нет), а цикл
+    # оставлен как есть: он читается как перечень и переживёт возврат второго
+    # образа. ShellCheck об этой истории не знает и видит только один проход.
+    # shellcheck disable=SC2066
     for img in "$AWG_SRV_IMG:сервер"; do
         name="${img##*:}"; pinned="${img%:*}"
         local repo="${pinned%@*}" digest="${pinned#*@}"
