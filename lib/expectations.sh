@@ -35,6 +35,12 @@
 EXPECT_LOCAL="${EXPECT_LOCAL:-/etc/vsm/expectations.local}"
 EXPECT_STATE="${EXPECT_STATE:-/etc/vsm/expectations.state}"
 MTPL_PANEL_CONF="${MTPL_PANEL_CONF:-/etc/mtproxyl-panel/config.toml}"
+TELEMT_TOML="${TELEMT_TOML:-/etc/telemt/telemt.toml}"
+# Конфиг стека VSM: там записаны решения, принятые при развёртывании, — домен
+# панели и порт маски. Читаем файл напрямую, а не через conf_get_stack: та
+# функция живёт внутри stacks/bots.sh, и тянуть сюда установщик ради двух
+# значений незачем.
+VSM_TELEMT_CONF="${VSM_TELEMT_CONF:-/etc/vsm/telemt.conf}"
 
 # id|класс|заголовок|почему именно так
 EXPECTATIONS=(
@@ -42,6 +48,7 @@ EXPECTATIONS=(
 "panel_tls|fix|У панели MTProxyL нет своего TLS|TLS терминирует nginx сертификатом сайта. Своим TLS панель отдавала бы другой отпечаток на отдельном порту — то есть ровно ту примету, которую мы прячем."
 "panel_mtproxyl_off|fix|Панель не управляет самим MTProxyL|Иначе в вебе появляются кнопки переключения маскировки и режимов. Один случайный клик меняет то, на чём держится незаметность."
 "panel_config_api|fix|Панель не переписывает telemt.toml|При config_edit_mode=file панель правит файл движка от root. Подмена там снаружи выглядит не как авария, а как исправно работающий, но заметный сервер."
+"telemt_mask|fix|Маскировка telemt направлена на локальный nginx|Это ядро незаметности: на чужой пробы отвечает сайт с настоящим сертификатом, а не прокси. Установщик telemt ставит свои умолчания, и запустить его может кто угодно — пункт VSM, MTProxyL, её панель. Возврат требует перезапуска telemt: без него файл говорит одно, а движок работает по-старому."
 "avail_interval|fix|Проверка доступности раз в 30 минут|Умолчание автора — 15 минут, вдвое больше российских зондов к серверу, который маскируется."
 "avail_probes|fix|Проверка доступности по 20 зондов|Число выбрано владельцем: на десяти зондах один непроехавший даёт 10% разброса, на двадцати — 5%."
 "nginx_blocks|tell|Блоки VSM в nginx на месте|Установщик и патч 3x-ui-pro чистят /etc/nginx/sites-enabled целиком, унося с собой маску и доступ к обеим панелям."
@@ -78,26 +85,62 @@ _toml_get() {
     ' "$file"
 }
 
+# Ключа в секции может не оказаться вовсе: чужое обновление вправе не только
+# поменять значение, но и выбросить строку целиком. Прежняя версия умела лишь
+# ЗАМЕНЯТЬ существующую, поэтому на выброшенном ключе тихо ничего не делала —
+# сверка вечно докладывала бы «починить не удалось». Поэтому ключ, не найденный
+# в нужной секции, дописывается в её конец.
+#
+# Секцию, которой в файле нет, НЕ создаём: это уже не возврат нашего решения, а
+# переустройство чужого конфига вслепую. Такой случай честно доедет до отчёта.
 _toml_set() {
-    local file="$1" section="$2" key="$3" value="$4" tmp
+    local file="$1" section="$2" key="$3" value="$4" tmp dst
     [ -w "$file" ] || return 1
     tmp="$(mktemp)" || return 1
     awk -v want="$section" -v k="$key" -v v="$value" '
+        BEGIN { cur = ""; done = 0 }
         /^[[:space:]]*\[/ {
+            # Уходим из нужной секции, так и не встретив ключа — дописываем.
+            if (cur == want && !done) { print k " = " v; done = 1 }
             cur = $0
             gsub(/^[[:space:]]*\[|\][[:space:]]*$/, "", cur)
             print; next
         }
         {
-            if (cur == want && $0 ~ "^[[:space:]]*" k "[[:space:]]*=") {
-                print k " = " v; next
+            if (cur == want && !done && $0 ~ "^[[:space:]]*" k "[[:space:]]*=") {
+                print k " = " v; done = 1; next
             }
             print
         }
+        END { if (cur == want && !done) print k " = " v }
     ' "$file" > "$tmp" || { rm -f "$tmp"; return 1; }
-    # Через cat, а не mv: сохраняем владельца и права исходного файла, у него
-    # они 600 и принадлежат root.
-    cat "$tmp" > "$file" && rm -f "$tmp"
+
+    _atomic_replace "$file" "$tmp"
+}
+
+# Подмена содержимого файла переименованием, а не «cat во владение».
+#
+# Прежние версии писали `cat "$tmp" > "$file"`, то есть УСЕКАЛИ чужой конфиг
+# первой же командой ради сохранения владельца и прав. Сорвись запись на
+# полпути (диск полон, ФС ушла в read-only) — и следующая строка починки
+# перезапускала бы службу на обрубке. Ровно этот урок уже усвоен в
+# lib/config.sh для xui.conf; сюда идиома вернулась незамеченной.
+#
+# Временный файл создаётся РЯДОМ с целевым: mv через границу файловых систем
+# вырождается в копирование, то есть в то же усечение. Права и владельца
+# переносим с оригинала — у него 600 и root.
+#
+# Забирает src: он удаляется в любом исходе.
+_atomic_replace() {
+    local file="$1" src="$2" dst
+    dst="$(mktemp "${file}.vsm.XXXXXX")" || { rm -f "$src"; return 1; }
+    chmod --reference="$file" "$dst" 2>/dev/null
+    chown --reference="$file" "$dst" 2>/dev/null
+    if ! cat "$src" > "$dst"; then
+        rm -f "$src" "$dst"; return 1
+    fi
+    rm -f "$src"
+    mv -f "$dst" "$file" || { rm -f "$dst"; return 1; }
 }
 
 # Резервная копия перед правкой чужого конфига. Одна на прогон: чинить одно и
@@ -166,7 +209,7 @@ fix_panel_tls() {
         /^[[:space:]]*\[/      { skip = 0 }
         !skip
     ' "$MTPL_PANEL_CONF" > "$tmp" || { rm -f "$tmp"; return 1; }
-    cat "$tmp" > "$MTPL_PANEL_CONF" && rm -f "$tmp"
+    _atomic_replace "$MTPL_PANEL_CONF" "$tmp" || return 1
     systemctl restart mtproxyl-panel >/dev/null 2>&1
 }
 
@@ -189,6 +232,50 @@ fix_panel_config_api() {
     _expect_backup "$MTPL_PANEL_CONF"
     _toml_set "$MTPL_PANEL_CONF" telemt config_edit_mode "\"api\"" || return 1
     systemctl restart mtproxyl-panel >/dev/null 2>&1
+}
+
+# --- Маскировка самого telemt -----------------------------------------
+#
+# ПОЧЕМУ ЭТО ЗДЕСЬ, А НЕ ОТПЕЧАТОК НА УСТАНОВЩИК. Установщик telemt тянут с
+# ветки main и запускают от root минимум три разных пути: пункт VSM
+# (stacks/telemt.sh), MTProxyL (её lib/detect.sh дёргает ТОТ ЖЕ адрес) и
+# веб-панель. Отпечаток в lib/deps.sh закрывает только первый — два других
+# принадлежат чужому софту, и запретить им VSM ничего не может. Реестр же
+# смотрит не на путь, а на РЕЗУЛЬТАТ, поэтому ловит все три разом.
+
+# Порт маски — не константа: он свой на каждой установке и записан в конфиг
+# стека при развёртывании. Брать его из живого telemt.toml нельзя, иначе
+# эталоном стало бы то самое значение, которое мы проверяем.
+_mask_port() {
+    [ -r "$VSM_TELEMT_CONF" ] || return 0
+    grep -m1 -oP '^TELEMT_MASK_PORT=\K.*' "$VSM_TELEMT_CONF" 2>/dev/null | tr -dc '0-9'
+}
+
+applies_telemt_mask() { [ -r "$TELEMT_TOML" ] && [ -n "$(_mask_port)" ]; }
+want_telemt_mask()    { printf 'true 127.0.0.1 %s' "$(_mask_port)"; }
+read_telemt_mask() {
+    printf '%s %s %s' \
+        "$(_toml_get "$TELEMT_TOML" censorship mask)" \
+        "$(_toml_get "$TELEMT_TOML" censorship mask_host)" \
+        "$(_toml_get "$TELEMT_TOML" censorship mask_port)"
+}
+# Три ключа одной позицией, а не тремя: это одно решение, и чинятся они вместе.
+# Тремя строками отчёт об одной поломке выглядел бы как три разные аварии.
+fix_telemt_mask() {
+    local port; port="$(_mask_port)"
+    [ -n "$port" ] || return 1
+    _expect_backup "$TELEMT_TOML"
+    _toml_set "$TELEMT_TOML" censorship mask true || return 1
+    _toml_set "$TELEMT_TOML" censorship mask_host '"127.0.0.1"' || return 1
+    _toml_set "$TELEMT_TOML" censorship mask_port "$port" || return 1
+    # Перезапуск ТОЛЬКО если файл действительно стал таким, каким нужен.
+    #
+    # Иначе при устойчивой неудаче (секции censorship в файле нет, права ушли)
+    # сверка дёргала бы telemt каждый час без всякого толка, обрывая соединения
+    # живым пользователям. Перезапуск здесь дорог — это единственная позиция
+    # реестра, которая трогает сам прокси, а не панель.
+    [ "$(read_telemt_mask)" = "$(want_telemt_mask)" ] || return 1
+    systemctl restart telemt >/dev/null 2>&1
 }
 
 # --- Проверка доступности в MTProxyL ----------------------------------
@@ -215,9 +302,6 @@ fix_avail_probes()     { mtproxyl settings set AVAILABILITY_PROBES "$(want_avail
 # разойдутся — а это ровно тот класс ошибок, ради которого весь реестр и
 # затевался. Поэтому здесь громкий отчёт и указание на единственный
 # проверенный путь.
-# Читаем файл напрямую, а не через conf_get_stack: та функция живёт внутри
-# stacks/bots.sh, и тянуть сюда установщик ради одного значения незачем.
-VSM_TELEMT_CONF="${VSM_TELEMT_CONF:-/etc/vsm/telemt.conf}"
 _panel_domain() {
     [ -r "$VSM_TELEMT_CONF" ] || return 0
     grep -m1 -oP '^DOMAIN_PANEL=\K.*' "$VSM_TELEMT_CONF" 2>/dev/null | tr -d "'\""
