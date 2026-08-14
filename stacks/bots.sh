@@ -61,7 +61,13 @@ case "$MODE" in combined|both|telemt|3xui) ;; *) MODE="combined" ;; esac
 [[ -d "$BOTS_DIR" ]]   || die "Не найден каталог с ботами: $BOTS_DIR"
 
 mkdir -p "$CONF_DIR"; chmod 700 "$CONF_DIR"
-mkdir -p "$DATA_DIR"
+# 700 и здесь, а не только у конфигов. В data/ лежат ip_history.db — история
+# адресов ВСЕХ пользователей прокси — и bot_monitor.db с токенами доступа к
+# панелям 3x-ui открытым текстом. Каталог заводился с правами по умолчанию
+# (755), а базы sqlite создаёт с 644. Сегодня их закрывает только то, что у
+# /root права 700; на установке в другом месте они оказались бы читаемы любому
+# пользователю системы.
+mkdir -p "$DATA_DIR"; chmod 700 "$DATA_DIR"
 
 conf_get() {
     [[ -f "$CONF" ]] || return 0
@@ -312,6 +318,23 @@ ExecStart=$VENV/bin/python $BOTS_DIR/$script
 Restart=always
 RestartSec=10
 Environment=MALLOC_TRIM_THRESHOLD_=65536
+
+# Ограничения — ровно те, что ничего не ломают.
+#
+# Снять root нельзя: бот читает /etc/vsm, а сверка с реестром правит чужие
+# конфиги в /etc и перезапускает службы. Поэтому берём только бесплатное.
+#
+# NoNewPrivileges — бот и всё, что он запускает, не могут получить прав БОЛЬШЕ
+# имеющихся через setuid-программы. Проверено: в пути сверки sudo не
+# вызывается ни разу, она и так идёт от root.
+#
+# PrivateTmp — свой /tmp, невидимый остальным. Временные файлы сверки пишутся
+# рядом с целевыми конфигами, так что помешать это не может.
+#
+# ProtectSystem и ProtectHome СОЗНАТЕЛЬНО не ставим: первый закрыл бы /etc от
+# записи и убил бы автопочинку, второй — /root, где живёт сам бот.
+NoNewPrivileges=yes
+PrivateTmp=yes
 
 [Install]
 WantedBy=multi-user.target

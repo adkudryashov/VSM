@@ -15,7 +15,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommandScopeChat
 
 from common.auth import AuthMiddleware
-from config import settings
+from config import DATA_DIR, settings
 
 
 async def _register_commands(bot: Bot, commands) -> None:
@@ -51,8 +51,31 @@ async def _register_commands(bot: Bot, commands) -> None:
                         "напишите боту /start и перезапустите его.")
 
 
+def _secure_data_dir() -> None:
+    """
+    Закрывает каталог данных от посторонних при каждом запуске.
+
+    В data/ лежат ip_history.db — история адресов ВСЕХ пользователей прокси —
+    и bot_monitor.db с токенами доступа к панелям 3x-ui открытым текстом.
+    Каталог заводился с правами по умолчанию, а sqlite создаёт файлы с 644.
+
+    Установщик теперь ставит 700 сам, но на уже развёрнутых установках каталог
+    остался прежним, а обновление VSM установщик ботов не перезапускает. Одна
+    операция при старте дешевле, чем расчёт на то, что владелец сходит и
+    поправит руками.
+    """
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        DATA_DIR.chmod(0o700)
+    except OSError as exc:
+        # Не повод не запускаться: на чужой файловой системе прав может не
+        # быть вовсе, а бот при этом полностью работоспособен.
+        logging.warning("Не удалось закрыть каталог данных %s: %s", DATA_DIR, exc)
+
+
 async def run(*, token, token_name, routers, commands, on_setup=None, on_shutdown=None, tasks=()):
     logging.basicConfig(level=logging.INFO)
+    _secure_data_dir()
 
     # Понятная ошибка вместо невнятного отказа Telegram при пустом токене
     if not token:
