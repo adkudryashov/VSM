@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import List
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Один конфиг на все точки входа. Раньше у каждого бота был свой config.py,
 # и при объединении они конфликтовали: `import config` разрешался в тот, что
@@ -112,9 +112,16 @@ class Settings(BaseSettings):
     # Вне репозитория: у /root права 700, nginx под www-data туда не попадёт
     MAP_HTML_PATH: str = "/var/www/telemt-map/map.html"
 
-    class Config:
-        env_file = BASE_DIR / ".env"
-        env_file_encoding = "utf-8"
+    # SettingsConfigDict, а не вложенный class Config: второй объявлен
+    # устаревшим в Pydantic 2.0 и будет УДАЛЁН в 3.0. Сейчас он ещё работает и
+    # только пишет предупреждение, но с выходом мажорной версии боты перестали
+    # бы читать .env вовсе — то есть запускались бы без токена и без списка
+    # админов. Поймано pytest: предупреждение видно только под ним, обычный
+    # запуск о нём молчит.
+    model_config = SettingsConfigDict(
+        env_file=BASE_DIR / ".env",
+        env_file_encoding="utf-8",
+    )
 
 
 settings = Settings()

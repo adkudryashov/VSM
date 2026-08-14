@@ -1,0 +1,9 @@
+# Только для прогона тестов. В боевую установку НЕ ставится: requirements.txt
+# держит ровно то, без чего боты не запустятся, и тащить на сервер ещё сорок
+# мегабайт ради проверок незачем.
+#
+#   ./venv/bin/pip install -r requirements-dev.txt
+#   ./venv/bin/python -m pytest ../tests
+pytest~=9.1
+pytest-asyncio~=1.4
+pytest-cov~=7.1
