@@ -460,6 +460,38 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
+# --- Резервная копия невоспроизводимого ---------------------------------
+#
+# Двадцать килобайт, которые нельзя восстановить ниоткуда: секрет прокси,
+# секретный префикс панели, её учётки (3x-ui хранит пароль хэшем и наружу не
+# отдаёт) и токены чужих панелей. Раз в сутки, потому что меняются они редко,
+# а стоят дорого.
+cat > /etc/systemd/system/vsm-backup.service <<EOF
+[Unit]
+Description=VSM: резервная копия конфигурации и секретов
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash $VSM_ROOT/tools/vsm-backup.sh
+NoNewPrivileges=yes
+PrivateTmp=yes
+EOF
+
+cat > /etc/systemd/system/vsm-backup.timer <<'EOF'
+[Unit]
+Description=VSM: резервная копия раз в сутки
+
+[Timer]
+OnCalendar=daily
+# Разброс до часа: если на сервере есть другие суточные задания, они не
+# сойдутся в одну секунду после полуночи.
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
 systemctl daemon-reload
 echo ""
 log "Запускаю службы"
@@ -467,6 +499,9 @@ FAILED=0
 systemctl enable -q --now vsm-heartbeat.timer 2>/dev/null \
     && log "Сторож для сторожа: проверка раз в 5 минут" \
     || warn "Таймер vsm-heartbeat не поднялся — падение бота останется незамеченным"
+systemctl enable -q --now vsm-backup.timer 2>/dev/null \
+    && log "Резервная копия секретов: раз в сутки" \
+    || warn "Таймер vsm-backup не поднялся — секреты остаются в одном экземпляре"
 if want_combined; then
     start_and_check 3xui-telemt-bot || FAILED=1
 else
