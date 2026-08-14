@@ -76,8 +76,18 @@ _token() {
 # тащить сюда python ради одной строки незачем, а формат задан нами же.
 _admins() { _env_value ADMIN_IDS | tr -dc '0-9,' | tr ',' '\n' | grep -v '^$'; }
 
+# Отправка с проверкой ФАКТА доставки, а не кода возврата curl.
+#
+# curl без --fail завершается НУЛЁМ и на 400, и на 401: запрос ушёл, ответ
+# получен, с точки зрения curl всё хорошо. Первая версия этой функции так и
+# считала — и при неверном chat_id или отозванном токене отчиталась бы об
+# успешной отправке. Путь доставки, который врёт об успехе, хуже
+# отсутствующего: он создаёт уверенность, что тревоги дойдут.
+#
+# Telegram отвечает JSON с полем ok. Смотрим на него, а не на HTTP-код: код
+# 200 бывает и у ответа с ok=false.
 notify() {
-    local text="$1" token admin sent=0
+    local text="$1" token admin sent=0 reply
     if [ "$DRY_RUN" -eq 1 ]; then
         printf 'НЕ ОТПРАВЛЕНО (--dry-run):\n%s\n' "$text"
         return 0
@@ -86,21 +96,32 @@ notify() {
     while read -r admin; do
         [ -n "$admin" ] || continue
         # --data-urlencode: в тексте есть переводы строк и кириллица.
-        if curl -sS --max-time 20 -o /dev/null \
+        reply="$(curl -sS --max-time 20 \
             "https://api.telegram.org/bot${token}/sendMessage" \
             --data-urlencode "chat_id=${admin}" \
             --data-urlencode "text=${text}" \
-            --data-urlencode "parse_mode=HTML"; then
+            --data-urlencode "parse_mode=HTML" 2>&1)"
+        if printf '%s' "$reply" | grep -q '"ok":[[:space:]]*true'; then
             sent=$((sent + 1))
+        else
+            # Причину печатаем: она уходит в журнал таймера, и без неё
+            # разбираться пришлось бы вслепую. Описание ошибки Telegram
+            # секретов не содержит — токен в ответе не повторяется.
+            printf 'Telegram не принял сообщение для %s: %s\n' \
+                "$admin" "$(printf '%s' "$reply" | head -c 300)" >&2
         fi
     done < <(_admins)
     [ "$sent" -gt 0 ]
 }
 
 if [ "$DRY_RUN" -eq 2 ]; then
-    notify "🩺 Проверка связи от сторожа-наблюдателя. Если вы это читаете — путь уведомлений работает." \
-        && echo "отправлено" || { echo "отправить не удалось" >&2; exit 1; }
-    exit 0
+    if notify "🩺 Проверка связи от сторожа-наблюдателя. Если вы это читаете — путь уведомлений работает."; then
+        echo "Telegram принял сообщение — проверьте, что оно пришло в чат."
+        exit 0
+    fi
+    echo "ДОСТАВИТЬ НЕ УДАЛОСЬ. Тревоги о падении бота НЕ ДОЙДУТ." >&2
+    echo "Проверьте COMBINED_BOT_TOKEN и ADMIN_IDS в $ENV_FILE" >&2
+    exit 1
 fi
 
 # ----------------------------------------------------------------------
