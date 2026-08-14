@@ -68,10 +68,20 @@ async def run(*, token, token_name, routers, commands, on_setup=None, on_shutdow
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
 
-    # outer: отсекает чужих до разбора фильтров
+    # Вешаем на dp.update — на общий поток, а не на отдельные его виды.
+    #
+    # Раньше стояло на dp.message и dp.callback_query. Обхода это не давало:
+    # все обработчики бота ровно двух этих видов. Но наблюдателей у диспетчера
+    # четырнадцать, и один добавленный @router.inline_query или
+    # @router.my_chat_member открыл бы бота посторонним — молча, без единого
+    # предупреждения, потому что проверка просто не вызвалась бы. Защита не
+    # должна держаться на том, что кто-то помнит про этот список.
+    #
+    # Порядок безопасен: диспетчер регистрирует свою UserContextMiddleware в
+    # __init__, то есть раньше нашей, и event_from_user к моменту проверки уже
+    # заполнен. Проверено на aiogram 3.30.
     auth = AuthMiddleware()
-    dp.message.outer_middleware(auth)
-    dp.callback_query.outer_middleware(auth)
+    dp.update.outer_middleware(auth)
 
     for router in routers:
         dp.include_router(router)
