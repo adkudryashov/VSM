@@ -83,6 +83,11 @@ class Watchdog:
         self.dns_addrs: list = []
         self._lock = asyncio.Lock()
 
+    def save(self) -> None:
+        """Сохранить состояние. Нужна снаружи: карточка запоминает id своего
+        сообщения, а её код живёт в другом файле."""
+        _save_state(self.state)
+
     # ---------------------------------------------------------------- отправка
     async def _notify(self, bot: Bot, text: str, force: bool = False) -> None:
         """
@@ -500,9 +505,18 @@ async def watchdog_loop(bot: Bot) -> None:
     # Пауза на старте: бот ещё поднимается, а движок после совместного
     # рестарта отвечает не сразу — без неё первый же опрос дал бы ложный промах.
     await asyncio.sleep(15)
+
+    # Импорт здесь, а не сверху: карточка читает состояние сторожа и потому
+    # импортирует этот файл. Взаимный импорт на уровне модулей развалил бы
+    # загрузку, а откладывать его до первого вызова — дёшево и безопасно.
+    from telemt.watchdog import card
+
     while True:
         try:
             await watchdog.poll_once(bot)
+            # Карточка рисуется ПОСЛЕ опроса и отдельно от тревог: тревога
+            # обязана уйти своим сообщением, даже если карточка не обновилась.
+            await card.refresh(bot)
         except Exception as exc:
             logging.error("Сторож: ошибка цикла: %s", exc)
         await asyncio.sleep(max(int(settings.WATCHDOG_INTERVAL_SECONDS), 10))

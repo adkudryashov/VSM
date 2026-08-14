@@ -27,7 +27,14 @@ BTN_XUI_EDIT_DATE = "✏️ Изменить дату"
 # уровень — одинаково и в объединённом боте, и в отдельном.
 BTN_XUI_MANAGE_BACK = "◀️ К панелям"
 
-TELEMT_BUTTONS = ["📊 Статус", "⚙️ Метрики", "👥 Активные IP", "📋 Лог IP", "🗺 Карта"]
+# «Сторож», а не «Статус»: последний уже занят общей статистикой, и это же
+# причина, по которой команда называется /watch. Подпись добавляется именно
+# сюда, а не отдельной строкой в клавиатуру: MENU_BUTTONS собирается из этого
+# списка, и при добавлении мимо него кнопка, нажатая посреди пошагового
+# диалога, стала бы введённым значением.
+BTN_TELEMT_WATCH = "🛡 Сторож"
+TELEMT_BUTTONS = ["📊 Статус", "⚙️ Метрики", "👥 Активные IP", "📋 Лог IP",
+                  "🗺 Карта", BTN_TELEMT_WATCH]
 XUI_BUTTONS = [BTN_XUI_STATUS, BTN_XUI_MANAGE]
 XUI_MANAGE_BUTTONS = [BTN_XUI_ADD, BTN_XUI_DELETE, BTN_XUI_EDIT_DATE, BTN_XUI_MANAGE_BACK]
 PANEL_PREFIX = "📱 "
@@ -64,9 +71,9 @@ def telemt_keyboard(with_back: bool = True) -> ReplyKeyboardMarkup:
         b.add(KeyboardButton(text=text))
     if with_back:
         b.add(KeyboardButton(text=BTN_BACK))
-        b.adjust(2, 2, 1, 1)
+        b.adjust(2, 2, 2, 1)
     else:
-        b.adjust(2, 2, 1)
+        b.adjust(2, 2, 2)
     return b.as_markup(resize_keyboard=True, one_time_keyboard=False)
 
 

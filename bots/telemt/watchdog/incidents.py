@@ -234,6 +234,11 @@ class WatchState:
     # обязан пережить перезапуск: иначе после рестарта первый же опрос снова
     # упрётся в отказ сервиса и продлит блокировку.
     quota: Quota = field(default_factory=Quota)
+    # Живая карточка: id сообщения статуса в каждом чате администратора.
+    # Ключи строковые — такими их отдаёт JSON, и приводить их туда-сюда значит
+    # однажды промахнуться типом. Переживает перезапуск, иначе после каждого
+    # обновления бота в чате оставалась бы новая карточка, а старая замирала.
+    cards: dict = field(default_factory=dict)
     # Момент времени (epoch), до которого тревоги не отправляются. 0 — не
     # заглушено, -1 — заглушено до отмены.
     muted_until: float = 0.0
@@ -254,6 +259,7 @@ class WatchState:
             "started_at": self.started_at.to_dict(),
             "config_hash": self.config_hash.to_dict(),
             "quota": self.quota.to_dict(),
+            "cards": {str(k): int(v) for k, v in self.cards.items()},
             "muted_until": self.muted_until,
         }
 
@@ -270,5 +276,18 @@ class WatchState:
             started_at=Marker.from_dict(data.get("started_at", {})),
             config_hash=Marker.from_dict(data.get("config_hash", {})),
             quota=Quota.from_dict(data.get("quota", {})),
+            cards=_cards_from(data.get("cards")),
             muted_until=float(data.get("muted_until", 0.0)),
         )
+
+
+def _cards_from(data) -> dict:
+    """Битую запись пропускаем молча: потеря id карточки стоит одного лишнего
+    сообщения в чате, а падение чтения состояния — всего сторожа."""
+    out = {}
+    for key, value in (data or {}).items():
+        try:
+            out[str(key)] = int(value)
+        except (TypeError, ValueError):
+            continue
+    return out
