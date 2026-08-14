@@ -54,11 +54,25 @@ class Flap:
     # сколько авария длилась, а читают его уже после перехода.
     since: float = 0.0
     last_notify: float = 0.0
+    # Когда пришёл ПЕРВЫЙ плохой опрос — то есть когда авария началась на самом
+    # деле, а не когда мы решились о ней сказать. Разница равна гистерезису и
+    # на замере со стенда составила три минуты: покрытие писателей просело в
+    # 11:45:00, а тревога ушла в 11:47:52. Считать длительность от тревоги
+    # значит занижать её ровно на это время и вводить владельца в заблуждение
+    # при разборе: «длилась 2 минуты» вместо настоящих пяти.
+    #
+    # None, а не 0.0: ноль — это законная отметка времени, и отличить «аварии
+    # не было» от «авария началась в нулевую секунду» через ложность значения
+    # невозможно. В бою эпоха нулём не бывает, но проверка на этом спотыкалась,
+    # и оставлять ловушку из-за того, что она редко срабатывает, незачем.
+    bad_since: Optional[float] = None
 
     def update(self, is_bad: bool, now: Optional[float] = None) -> Optional[str]:
         now = time.time() if now is None else now
 
         if is_bad:
+            if self.bad == 0:
+                self.bad_since = now
             self.bad += 1
             if self.bad >= self.threshold and not self.firing:
                 self.firing = True
@@ -81,27 +95,37 @@ class Flap:
 
     def duration(self, now: Optional[float] = None) -> int:
         """
-        Сколько минут длится (или длилась) авария. Ноль — начало неизвестно:
-        так бывает у состояния, сохранённого прежней версией сторожа, где поля
-        since ещё не было.
+        Сколько минут длится (или длилась) авария — от первого плохого опроса,
+        а не от момента тревоги.
+
+        Ноль — начало неизвестно: так бывает у состояния, сохранённого прежней
+        версией сторожа, где этих полей ещё не было.
         """
-        if not self.since:
+        start = self.bad_since
+        if start is None:
+            # Состояние от прежней версии сторожа: bad_since там не было.
+            # Тогда считаем от тревоги — это занижает длительность, но лучше,
+            # чем не показать ничего.
+            start = self.since or None
+        if start is None:
             return 0
         now = time.time() if now is None else now
-        return max(int((now - self.since) / 60), 0)
+        return max(int((now - start) / 60), 0)
 
     def to_dict(self) -> dict:
-        return {"bad": self.bad, "firing": self.firing,
-                "since": self.since, "last_notify": self.last_notify}
+        return {"bad": self.bad, "firing": self.firing, "since": self.since,
+                "last_notify": self.last_notify, "bad_since": self.bad_since}
 
     @classmethod
     def from_dict(cls, data: dict, threshold: int) -> "Flap":
+        raw_bad_since = data.get("bad_since")
         return cls(
             threshold=threshold,
             bad=int(data.get("bad", 0)),
             firing=bool(data.get("firing", False)),
             since=float(data.get("since", 0.0) or 0.0),
             last_notify=float(data.get("last_notify", 0.0) or 0.0),
+            bad_since=None if raw_bad_since is None else float(raw_bad_since),
         )
 
 
