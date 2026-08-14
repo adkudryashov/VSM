@@ -46,6 +46,60 @@ warn() { echo -e "\e[1;33m[!]\e[0m    $*"; }
 die()  { echo -e "\e[1;31m[СБОЙ]\e[0m $*" >&2; exit 1; }
 verify_or_die() { "$@" || die "проверка не прошла: $*"; }
 
+# Отпечаток стороннего установщика: запомнить и громко сказать, если изменился.
+#
+# Двойник upstream_fingerprint из lib/deps.sh: этот скрипт самодостаточен и
+# утилиты меню не подключает — как и с wait_for_apt, поведение копий обязано
+# совпадать. Но копия здесь ОДНА на оба установщика, а не по копии на каждый:
+# раньше эти тридцать строк стояли в теле этапа 1, и добавление второго
+# установщика означало бы третью реализацию одного и того же.
+#
+# Нужно потому, что оба файла берутся с ветки main без пиннинга и выполняются
+# от root. Автор 3x-ui-pro уже удалял разбор аргумента, который мы передавали,
+# а его ветка `*) shift 1` проглатывает неизвестный флаг молча — узнали не от
+# кода.
+#
+# ЭТО ПРЕДУПРЕЖДЕНИЕ, А НЕ ЗАПРЕТ: установка продолжается в любом случае.
+# Фиксация версий отрезала бы и исправления безопасности, а решать, доверять ли
+# новому файлу, всё равно человеку.
+UPSTREAM_FP_FILE=/etc/vsm/upstream.sha256
+fingerprint_upstream() {
+    local url="$1" file="$2" sha old="" tmp now
+    now="$(date '+%F')"
+    sha="$(sha256sum "$file" 2>/dev/null | awk '{print $1}')" || sha=""
+    [[ -n "$sha" ]] || { warn "Не удалось посчитать отпечаток $url — сверка пропущена."; return 0; }
+
+    mkdir -p /etc/vsm
+    if [[ -f "$UPSTREAM_FP_FILE" ]]; then
+        # Построчно и сравнением поля целиком, а не грепом: в адресе есть точки
+        # и слэши, а для регулярки точка — любой символ, и похожий адрес
+        # соседнего проекта совпал бы заодно.
+        local u h
+        while read -r u h _; do
+            [[ "$u" == "$url" ]] && old="$h"
+        done < "$UPSTREAM_FP_FILE"
+    fi
+
+    if [[ -z "$old" ]]; then
+        ( umask 077; printf '%s %s %s\n' "$url" "$sha" "$now" >> "$UPSTREAM_FP_FILE" )
+        return 0
+    fi
+    [[ "$old" == "$sha" ]] && return 0
+
+    warn "Сторонний установщик изменился с прошлого запуска:"
+    warn "  $url"
+    warn "  было  ${old}"
+    warn "  стало ${sha}"
+    warn "  Он выполняется от root, и аргументы могли смениться."
+    # Запоминаем новый сразу: иначе предупреждение повторялось бы при каждом
+    # запуске и очень быстро перестало бы читаться.
+    tmp="$(mktemp "${UPSTREAM_FP_FILE}.XXXXXX")" || return 0
+    awk -v u="$url" '$1 != u' "$UPSTREAM_FP_FILE" > "$tmp" 2>/dev/null || true
+    printf '%s %s %s\n' "$url" "$sha" "$now" >> "$tmp"
+    chmod 600 "$tmp"; mv "$tmp" "$UPSTREAM_FP_FILE"
+    return 0
+}
+
 # Повторяет команду раз в секунду, пока та не вернёт 0. Нужна там, где systemd
 # уже отдал "active", а сама служба ещё дозапускается: фиксированный sleep либо
 # тормозит установку, либо не дожидается — и то и другое мы поймали в бою.
@@ -229,36 +283,7 @@ if [[ "$MODE" == "full" ]]; then
     [[ -s x-ui-latest.sh ]] || die "Установщик 3x-ui-pro скачался пустым."
     chmod +x x-ui-latest.sh
 
-    # Отпечаток стороннего установщика. Двойник upstream_fingerprint из
-    # lib/common.sh: этот скрипт самодостаточен и утилиты меню не
-    # подключает — как и с wait_for_apt, поведение копий обязано совпадать.
-    #
-    # Нужно потому, что файл берётся с ветки main без пиннинга и выполняется от
-    # root. Автор уже удалял разбор аргумента, который мы передавали, а его
-    # ветка `*) shift 1` проглатывает неизвестный флаг молча — узнали не от кода.
-    XUI_FP_FILE=/etc/vsm/upstream.sha256
-    XUI_SHA="$(sha256sum x-ui-latest.sh | awk '{print $1}')" || XUI_SHA=""
-    if [[ -n "$XUI_SHA" ]]; then
-        mkdir -p /etc/vsm
-        XUI_OLD=""
-        if [[ -f "$XUI_FP_FILE" ]]; then
-            while read -r u h _; do
-                if [[ "$u" == "$XUI_URL" ]]; then XUI_OLD="$h"; fi
-            done < "$XUI_FP_FILE"
-        fi
-        if [[ -z "$XUI_OLD" ]]; then
-            ( umask 077; printf '%s %s %s\n' "$XUI_URL" "$XUI_SHA" "$(date '+%F')" >> "$XUI_FP_FILE" )
-        elif [[ "$XUI_OLD" != "$XUI_SHA" ]]; then
-            warn "Установщик 3x-ui-pro изменился с прошлого запуска:"
-            warn "  было  ${XUI_OLD}"
-            warn "  стало ${XUI_SHA}"
-            warn "  Он выполняется от root, и аргументы могли смениться."
-            XUI_TMP="$(mktemp "${XUI_FP_FILE}.XXXXXX")"
-            awk -v u="$XUI_URL" '$1 != u' "$XUI_FP_FILE" > "$XUI_TMP" 2>/dev/null || true
-            printf '%s %s %s\n' "$XUI_URL" "$XUI_SHA" "$(date '+%F')" >> "$XUI_TMP"
-            chmod 600 "$XUI_TMP"; mv "$XUI_TMP" "$XUI_FP_FILE"
-        fi
-    fi
+    fingerprint_upstream "$XUI_URL" x-ui-latest.sh
 
     # Снятие проверки CPU. Раньше её снимал только пункт меню «Установить
     # панель», а этот путь запускал тот же файл сырым — и установка всего стека
@@ -347,8 +372,32 @@ log "self-SNI vhost отвечает 200."
 # ---------------------------------------------------------------------------
 log "Этап 3: установка telemt (порт ${TELEMT_PORT})"
 
-curl -fsSL https://raw.githubusercontent.com/telemt/telemt/main/install.sh | sh -s -- \
-    -d "$DOMAIN_PANEL" -p "$TELEMT_PORT" -s "$TELEMT_SECRET" -l en
+# Скачиваем отдельным шагом, а не конвейером в sh.
+#
+# Установщик telemt берётся с ветки main и выполняется от root — то же, за что
+# 3x-ui-pro получил отпечаток на этапе 1, и то же, чего этот путь до сих пор не
+# делал. Причём путей запуска этого файла на сервере не один: MTProxyL дёргает
+# ТОТ ЖЕ адрес из своего lib/detect.sh, и её панель тоже. Чужие пути VSM не
+# контролирует — за результатом там следит реестр решений (позиция telemt_mask
+# в lib/expectations.sh), — но свой обязан закрыть.
+#
+# Отдельный файл нужен и технически: посчитать sha256 у потока, уходящего в sh,
+# нельзя.
+TELEMT_URL="https://raw.githubusercontent.com/telemt/telemt/main/install.sh"
+TELEMT_INSTALLER=/root/telemt-install.sh
+curl -fsSL --max-time 60 "$TELEMT_URL" -o "$TELEMT_INSTALLER" \
+    || die "Не удалось скачать установщик telemt."
+[[ -s "$TELEMT_INSTALLER" ]] || die "Установщик telemt скачался пустым."
+fingerprint_upstream "$TELEMT_URL" "$TELEMT_INSTALLER"
+
+# ПРО СЕКРЕТ В СПИСКЕ ПРОЦЕССОВ. -s кладёт секрет прокси в argv, а argv виден
+# любому пользователю системы через ps на всё время установки. Убрать это
+# нельзя: установщик читает секрет ТОЛЬКО аргументом, окружение он не смотрит
+# (проверено чтением его разбора). Сгенерировать секрет ему самому мы тоже не
+# можем — при переустановке он обязан совпасть с прежним, иначе у всех клиентов
+# разом перестанет работать подключение. Размен принят осознанно.
+sh "$TELEMT_INSTALLER" -d "$DOMAIN_PANEL" -p "$TELEMT_PORT" -s "$TELEMT_SECRET" -l en
+rm -f "$TELEMT_INSTALLER"
 
 mkdir -p /etc/systemd/system/telemt.service.d
 cat > /etc/systemd/system/telemt.service.d/nginx-dependency.conf << 'EOF'
