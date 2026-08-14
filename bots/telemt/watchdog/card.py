@@ -20,6 +20,7 @@
 """
 
 import asyncio
+import html
 import logging
 import time
 
@@ -46,10 +47,44 @@ def keyboard() -> InlineKeyboardMarkup:
     pause = (InlineKeyboardButton(text="🔔 Снять паузу", callback_data="wd:unmute")
              if muted else
              InlineKeyboardButton(text="🔕 Пауза", callback_data="wd:mute"))
-    return InlineKeyboardMarkup(inline_keyboard=[[
+    rows = [[
         InlineKeyboardButton(text="🔄 Обновить", callback_data="wd:refresh"),
         InlineKeyboardButton(text="🇷🇺 Проверить", callback_data="wd:check"),
-    ], [pause]])
+    ]]
+    # «Зонды» показываются, только когда есть что показать: кнопка, которая на
+    # половине установок отвечает «данных нет», хуже её отсутствия.
+    if (watchdog.ru_last or {}).get("probes"):
+        rows.append([InlineKeyboardButton(text="🔍 Зонды", callback_data="wd:probes")])
+    rows.append([pause])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def render_probes() -> str:
+    """
+    Разбор последней проверки по зондам: город, провайдер, дошёл ли.
+
+    Общий процент не отвечает на вопрос «у кого именно не работает», а он и
+    есть главный: блокировка почти никогда не бывает поголовной, она начинается
+    с одного-двух операторов. Неудачные идут первыми — ради них и смотрят.
+    """
+    verdict = watchdog.ru_last or {}
+    probes = verdict.get("probes") or []
+    if not probes:
+        return "Разбора по зондам ещё нет — дождитесь следующей проверки."
+
+    lines = [f"🔍 <b>Зонды: дошло {verdict.get('success', 0)} из "
+             f"{verdict.get('total', 0)}</b>", ""]
+    for probe in sorted(probes, key=lambda p: bool(p.get("ok"))):
+        where = probe.get("city") or "—"
+        who = probe.get("network") or "оператор не назван"
+        asn = probe.get("asn")
+        tail = f" (AS{asn})" if asn else ""
+        mark = "✅" if probe.get("ok") else "❌"
+        line = f"{mark} {html.escape(where)} · {html.escape(who)}{tail}"
+        if not probe.get("ok"):
+            line += f"\n     <i>{html.escape(str(probe.get('error') or ''))}</i>"
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def mute_keyboard() -> InlineKeyboardMarkup:

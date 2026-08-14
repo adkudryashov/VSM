@@ -158,19 +158,33 @@ def analyze(measurement: dict) -> dict:
     total = len(results)
     success = 0
     reasons: dict[str, int] = {}
+    probes: list = []
     for item in results:
         result = item.get("result") or {}
+        info = item.get("probe") or {}
         # Именно рукопожатие: статус finished И наличие блока tls.
-        if result.get("status") == "finished" and result.get("tls"):
+        ok = result.get("status") == "finished" and bool(result.get("tls"))
+        reason = ""
+        if ok:
             success += 1
-            continue
-        reason = (result.get("rawOutput") or "").strip()
-        if not reason:
-            reason = "зонд не ответил вовремя" if result.get("status") == "in-progress" \
-                else "соединение не установлено"
-        reasons[reason] = reasons.get(reason, 0) + 1
+        else:
+            reason = (result.get("rawOutput") or "").strip()
+            if not reason:
+                reason = "зонд не ответил вовремя" if result.get("status") == "in-progress" \
+                    else "соединение не установлено"
+            reasons[reason] = reasons.get(reason, 0) + 1
+        probes.append({
+            "ok": ok,
+            "city": str(info.get("city") or ""),
+            "network": str(info.get("network") or ""),
+            "asn": info.get("asn") or 0,
+            "error": reason,
+        })
     pct = (success / total * 100.0) if total else 0.0
-    return {"success": success, "total": total, "pct": pct, "reasons": reasons}
+    # probes в том же виде, что отдаёт чтение вердикта MTProxyL: разбор по
+    # зондам показывается одним кодом независимо от того, кто мерил.
+    return {"success": success, "total": total, "pct": pct,
+            "reasons": reasons, "probes": probes}
 
 
 async def check(host: str, port: int, sni: str, probes: int,

@@ -10,7 +10,10 @@
 кто уже ей пользовался, никуда не денется.
 """
 
+import asyncio
+import logging
 import re
+import time
 
 from aiogram import F, Router, types
 from aiogram.filters import Command, StateFilter
@@ -112,8 +115,31 @@ async def cmd_unmute(message: types.Message):
 
 @router.callback_query(F.data == "wd:refresh")
 async def cb_refresh(callback: types.CallbackQuery):
-    await callback.answer()
+    """
+    «Обновить» опрашивает движок заново, а не перерисовывает то же из памяти.
+
+    Иначе кнопка выглядит сломанной, и справедливо: состояние в памяти меняется
+    раз в минуту по такту сторожа, текст выходит тот же самый, Telegram на
+    идентичный текст не меняет ничего — нажатие не даёт вообще никакого отклика.
+    Опрос локальный и бесплатный, звать его по кнопке не жалко.
+    """
+    try:
+        await asyncio.wait_for(watchdog.poll_once(callback.bot), timeout=8)
+    except asyncio.TimeoutError:
+        # Опрос затянулся — он всё равно доедет и обновит карточку своим ходом.
+        pass
+    except Exception as exc:
+        logging.warning("Опрос по кнопке не удался: %s", exc)
     await card.refresh(callback.bot, force=True)
+    # Всплывающее подтверждение обязательно: когда ничего не изменилось, оно
+    # единственное отличает «обновил» от «кнопка не работает».
+    await callback.answer(f"Обновлено в {time.strftime('%H:%M:%S')}")
+
+
+@router.callback_query(F.data == "wd:probes")
+async def cb_probes(callback: types.CallbackQuery):
+    await callback.answer()
+    await send_long_message(callback.message, card.render_probes())
 
 
 @router.callback_query(F.data == "wd:check")

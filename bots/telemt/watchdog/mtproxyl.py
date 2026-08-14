@@ -97,17 +97,32 @@ def read_verdict(path: str = VERDICT_PATH) -> Optional[dict]:
         return None
 
     reasons: dict = {}
+    probes: list = []
     for probe in data.get("probes") or []:
-        if not isinstance(probe, dict) or probe.get("tls_success"):
+        if not isinstance(probe, dict):
             continue
-        reason = str(probe.get("error") or "").strip() or "соединение не установлено"
-        reasons[reason] = reasons.get(reason, 0) + 1
+        ok = bool(probe.get("tls_success"))
+        reason = "" if ok else (str(probe.get("error") or "").strip()
+                                or "соединение не установлено")
+        if not ok:
+            reasons[reason] = reasons.get(reason, 0) + 1
+        probes.append({
+            "ok": ok,
+            "city": str(probe.get("city") or ""),
+            "network": str(probe.get("network") or ""),
+            "asn": probe.get("asn") or 0,
+            "error": reason,
+        })
 
     return {
         "success": success,
         "total": total,
         "pct": pct,
         "reasons": reasons,
+        # Разбор по зондам: какой провайдер и город доходят, а какие нет.
+        # Именно это отвечает на вопрос «у кого именно не работает», на который
+        # общий процент не отвечает никогда.
+        "probes": probes,
         "checked_at": _epoch(str(data.get("checked_at") or "")),
         "target": str(data.get("target") or ""),
         "source": "mtproxyl",
