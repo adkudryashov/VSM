@@ -239,6 +239,11 @@ class WatchState:
     # однажды промахнуться типом. Переживает перезапуск, иначе после каждого
     # обновления бота в чате оставалась бы новая карточка, а старая замирала.
     cards: dict = field(default_factory=dict)
+    # Отпечаток нерешённых расхождений с реестром и когда о них сообщали.
+    # Хранится, чтобы после перезапуска бот не объявил заново то, о чём уже
+    # написал час назад.
+    drift_seen: str = ""
+    drift_notify: float = 0.0
     # Момент времени (epoch), до которого тревоги не отправляются. 0 — не
     # заглушено, -1 — заглушено до отмены.
     muted_until: float = 0.0
@@ -260,6 +265,8 @@ class WatchState:
             "config_hash": self.config_hash.to_dict(),
             "quota": self.quota.to_dict(),
             "cards": {str(k): int(v) for k, v in self.cards.items()},
+            "drift_seen": self.drift_seen,
+            "drift_notify": self.drift_notify,
             "muted_until": self.muted_until,
         }
 
@@ -277,6 +284,8 @@ class WatchState:
             config_hash=Marker.from_dict(data.get("config_hash", {})),
             quota=Quota.from_dict(data.get("quota", {})),
             cards=_cards_from(data.get("cards")),
+            drift_seen=str(data.get("drift_seen", "") or ""),
+            drift_notify=float(data.get("drift_notify", 0.0) or 0.0),
             muted_until=float(data.get("muted_until", 0.0)),
         )
 

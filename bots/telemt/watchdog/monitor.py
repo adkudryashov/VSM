@@ -34,8 +34,8 @@ from aiogram import Bot
 
 from config import settings, DATA_DIR
 from telemt.api.client import TelemtAPIClient
-from telemt.watchdog import globalping, mtproxyl, upstreams
-from telemt.watchdog.incidents import CLEAR, FIRE, REPEAT, WatchState
+from telemt.watchdog import drift, globalping, mtproxyl, upstreams
+from telemt.watchdog.incidents import CLEAR, FIRE, REPEAT, REPEAT_SECONDS, WatchState
 
 STATE_PATH = Path(DATA_DIR) / "watchdog.json"
 
@@ -85,6 +85,10 @@ class Watchdog:
         self._ru_next: float = (
             last + max(int(settings.RU_CHECK_INTERVAL_MINUTES), 1) * 60 if last else 0.0
         )
+        # Сверка с реестром идёт и при старте: перезапуск бота — обычное
+        # следствие обновления, а обновление и есть тот момент, когда решения
+        # VSM сползают. Она локальная и бесплатная, в отличие от проверки зондами.
+        self._drift_next: float = 0.0
         # Снимок накопительных счётчиков движка. В памяти, не на диске: после
         # перезапуска бота пропускается одно сравнение, и это дешевле, чем
         # тащить эти числа через миграции файла состояния.
@@ -147,6 +151,7 @@ class Watchdog:
             # тот становится известен именно там.
             await self._poll_dns(bot)
             await self._maybe_check_ru(bot)
+            await self._poll_drift(bot)
             _save_state(self.state)
 
     async def _poll_engine(self, bot: Bot) -> None:
@@ -332,6 +337,68 @@ class Watchdog:
         if self._ru_source() == "mtproxyl":
             return await self._run_mtproxyl_check(bot, manual=manual)
         return await self._run_self_check(bot, manual=manual)
+
+    # -------------------------------------------------- сверка с реестром
+    async def _poll_drift(self, bot: Bot) -> None:
+        """
+        Сверка действительности с реестром решений VSM.
+
+        Раз в час, а не каждый такт: дрейф случается в момент чужого
+        обновления, а не поминутно, и запускать ради него внешний процесс
+        шестьдесят раз в час незачем.
+        """
+        if not settings.DRIFT_ENABLED:
+            return
+        now = time.time()
+        if now < self._drift_next:
+            return
+        self._drift_next = now + max(int(settings.DRIFT_INTERVAL_MINUTES), 5) * 60
+
+        report = await drift.run(fix=True)
+        if report is None:
+            return
+
+        fixed, pending = drift.split(report)
+
+        # Починенное сообщается всегда и сразу: человек обязан узнать, что за
+        # него что-то поменяли. Повториться это не может — на следующем прогоне
+        # позиция уже в порядке.
+        for item in fixed:
+            await self._notify(
+                bot,
+                "🔧 <b>ВЕРНУЛ НАСТРОЙКУ VSM</b>\n"
+                f"{html.escape(item.get('title', ''))}\n"
+                f"Было: <code>{html.escape(str(item.get('actual') or 'пусто'))}</code> → "
+                f"стало: <code>{html.escape(str(item.get('want') or ''))}</code>\n"
+                f"<i>{html.escape(item.get('why', ''))}</i>",
+            )
+
+        current = drift.signature(pending)
+        if not pending:
+            # Всё разошедшееся закрылось. Отпечаток обнуляем, чтобы следующее
+            # такое же расхождение сообщилось как новое, а не утонуло в
+            # сравнении с прошлым.
+            self.state.drift_seen = ""
+            return
+
+        changed = current != self.state.drift_seen
+        stale = now - self.state.drift_notify >= REPEAT_SECONDS
+        if not changed and not stale:
+            return
+
+        lines = ["⚠️ <b>РАСХОЖДЕНИЕ С РЕЕСТРОМ VSM</b>", ""]
+        for item in pending:
+            lines.append(f"• {html.escape(item.get('title', ''))}")
+            lines.append(f"  стало: <code>{html.escape(str(item.get('actual') or 'пусто'))}</code>")
+            lines.append(f"  должно: <code>{html.escape(str(item.get('want') or ''))}</code>")
+            lines.append(f"  <i>{html.escape(item.get('why', ''))}</i>")
+        lines.append("")
+        lines.append("Это чинится вашим решением, а не само. Подробности: "
+                     "меню telemt → «Диагностика».")
+        await self._notify(bot, "\n".join(lines))
+
+        self.state.drift_seen = current
+        self.state.drift_notify = now
 
     # -------------------------------------------------- чужой вердикт
     async def _run_mtproxyl_check(self, bot: Bot, manual: bool) -> str:
