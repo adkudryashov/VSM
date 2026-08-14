@@ -331,8 +331,12 @@ read_panel_prefix() {
 applies_foreign_timers() { command -v systemctl >/dev/null 2>&1; }
 want_foreign_timers()    { _state_get foreign_timers; }
 read_foreign_timers() {
+    # vsm- в списке исключений наравне со штатными системными: позиция ловит
+    # ЧУЖИЕ таймеры, а свой собственный — не находка. Поймано на живом
+    # примере: добавление vsm-heartbeat.timer немедленно подняло расхождение,
+    # то есть VSM пожаловался владельцу сам на себя.
     systemctl list-timers --all --no-pager --no-legend 2>/dev/null \
-        | awk '{print $NF}' | grep -vE '^(systemd-|apt-|dpkg-|man-db|logrotate|fstrim|e2scrub)' \
+        | awk '{print $NF}' | grep -vE '^(vsm-|systemd-|apt-|dpkg-|man-db|logrotate|fstrim|e2scrub)' \
         | sort -u | tr '\n' ' ' | sed 's/[[:space:]]*$//'
 }
 
