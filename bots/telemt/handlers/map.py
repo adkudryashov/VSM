@@ -1,5 +1,6 @@
 from telemt.utils.helpers import send_long_message
 import asyncio
+import html
 import os
 import time
 import logging
@@ -10,6 +11,7 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from aiogram.enums import ParseMode
 import sqlite3
+from telemt.utils import mapassets
 from telemt.utils.geo import country_flag, get_geoip_readers
 from config import settings
 
@@ -51,7 +53,13 @@ def _sync_build_map_data():
                             asn_org = asn_rec.autonomous_system_organization or f"AS{asn_rec.autonomous_system_number}"
                         except Exception: pass
                     
-                    popup_text = f"IP: {ip}<br>Гео: {flag} {city_name}<br>Провайдер: {asn_org}"
+                    # Экранируем: имя города и название провайдера приходят из
+                    # базы MaxMind, то есть из чужого файла, а попадают прямо в
+                    # разметку страницы. Кавычка в названии оператора рвала бы
+                    # всплывающую подпись, а угловая скобка — и всю карту.
+                    popup_text = (f"IP: {html.escape(str(ip))}<br>"
+                                  f"Гео: {flag} {html.escape(str(city_name))}<br>"
+                                  f"Провайдер: {html.escape(str(asn_org))}")
                     coords.append((lat, lon, popup_text))
         except Exception: continue
     return coords
@@ -75,9 +83,23 @@ async def cmd_map(message: types.Message):
         for lat, lon, popup in coords:
             folium.Marker(location=[lat, lon], popup=folium.Popup(popup, max_width=300)).add_to(cluster)
         
-        os.makedirs(os.path.dirname(MAP_HTML_PATH), exist_ok=True)
-        await asyncio.to_thread(m.save, MAP_HTML_PATH)
-        
+        map_dir = os.path.dirname(MAP_HTML_PATH)
+        os.makedirs(map_dir, exist_ok=True)
+
+        # Страницу собираем в память и правим ДО записи на диск: библиотеки
+        # заменяются локальными копиями, лишние чужие скрипты вырезаются.
+        # Подробности и цена вопроса — в utils/mapassets.py.
+        def _render_local() -> int:
+            page = m.get_root().render()
+            page, left = mapassets.localize(page, map_dir)
+            with open(MAP_HTML_PATH, "w", encoding="utf-8") as fh:
+                fh.write(page)
+            return left
+
+        remote_left = await asyncio.to_thread(_render_local)
+        if remote_left:
+            logger.warning("Карта: наружу по-прежнему смотрят %s ссылок", remote_left)
+
         # ДОБАВЛЯЕМ ВРЕМЕННУЮ МЕТКУ v=... чтобы избежать кэша в Telegram
         base_url = settings.WEB_URL.rstrip("/")
         web_app_url = f"{base_url}/telemt-map?v={int(time.time())}"
@@ -94,4 +116,7 @@ async def cmd_map(message: types.Message):
         )
     except Exception as e:
         logger.error(f"Ошибка в cmd_map: {e}")
-        await send_long_message(message, f"❌ Ошибка генерации: <code>{e}</code>")
+        # Экранируем текст исключения: без этого любая угловая скобка в нём
+        # делала сообщение неразбираемым для Telegram, тот отвечал отказом, и
+        # владелец не получал НИЧЕГО — ни карты, ни объяснения, почему её нет.
+        await send_long_message(message, f"❌ Ошибка генерации: <code>{html.escape(str(e))}</code>")

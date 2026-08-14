@@ -244,13 +244,28 @@ def main() -> int:
         return 1
     end = again[2]
 
+    # Referrer-Policy обязателен, и это не украшение.
+    #
+    # Секретный префикс в /{args.path}/ — ЕДИНСТВЕННАЯ защита карты: пароля у
+    # неё нет. А страница подгружает тайлы подложки с чужого CDN, и браузер
+    # прикладывает к каждому такому запросу заголовок Referer с полным адресом
+    # страницы. То есть без этой строки секрет уезжает наружу при каждом
+    # открытии карты — вместе со списком IP всех пользователей за ним.
+    # Замерено: до этой правки страница ходила на четыре CDN и тайловый сервис.
+    #
+    # try_files отдаёт сначала сам файл и лишь потом карту: рядом с map.html
+    # лежит каталог assets с локальными копиями leaflet (utils/mapassets.py).
+    # Прежнее "try_files map.html" возвращало карту на ЛЮБОЙ адрес внутри
+    # префикса, и библиотеки получить было нельзя. Запасной путь на map.html
+    # сохранён — на него опирается кнопка бота, дописывающая к адресу хвост.
     snippet = (
         f"\n    {BEGIN}\n"
         f"    location /{args.path}/ {{\n"
         f"        alias {args.map_dir.rstrip('/')}/;\n"
-        f"        try_files map.html =404;\n"
+        f"        try_files $uri map.html;\n"
         f'        add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0";\n'
         f'        add_header X-Robots-Tag "noindex, nofollow" always;\n'
+        f'        add_header Referrer-Policy "no-referrer" always;\n'
         f"    }}\n"
         f"    {END}\n"
     )
