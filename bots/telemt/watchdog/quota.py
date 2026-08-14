@@ -123,6 +123,10 @@ class Quota:
         oldest = min(ts for ts, _ in self.spends)
         return max(int(oldest + WINDOW_SECONDS - now), 0)
 
+    def last_spend(self) -> float:
+        """Когда тратили в последний раз. Ноль — не тратили ни разу."""
+        return max((ts for ts, _ in self.spends), default=0.0)
+
     def blocked(self, now: Optional[float] = None) -> bool:
         now = time.time() if now is None else now
         return self.blocked_until > now
