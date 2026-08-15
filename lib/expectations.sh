@@ -35,6 +35,10 @@
 EXPECT_LOCAL="${EXPECT_LOCAL:-/etc/vsm/expectations.local}"
 EXPECT_STATE="${EXPECT_STATE:-/etc/vsm/expectations.state}"
 MTPL_PANEL_CONF="${MTPL_PANEL_CONF:-/etc/mtproxyl-panel/config.toml}"
+# Права root, которые установщик панели выдаёт ей на управление MTProxyL.
+# Отдельным файлом от основных прав — и он же сам его удаляет, когда
+# интеграция выключена. Мы пользуемся тем же файлом и той же семантикой.
+MTPL_PANEL_SUDOERS="${MTPL_PANEL_SUDOERS:-/etc/sudoers.d/mtproxyl-panel-mtproxyl}"
 TELEMT_TOML="${TELEMT_TOML:-/etc/telemt/telemt.toml}"
 # Конфиг стека VSM: там записаны решения, принятые при развёртывании, — домен
 # панели и порт маски. Читаем файл напрямую, а не через conf_get_stack: та
@@ -214,12 +218,38 @@ fix_panel_tls() {
     systemctl restart mtproxyl-panel >/dev/null 2>&1
 }
 
+# Смотрим на ДВА факта, а не на один.
+#
+# Первая версия проверяла только флаг в конфиге — и этого мало. Флаг убирает
+# кнопки из веб-интерфейса, но права root у панели остаются: сотня строк в
+# sudoers.d, среди них смена режима MTProxyL и `selfmask disable`, то есть
+# снятие маскировки. Панель сама решает, звать ли sudo; если её взломают,
+# наш флаг в её же конфиге не значит ничего, а права — значат всё.
+#
+# Поймано установкой панели на стенде: реестр честно вернул enabled = false,
+# отчитался «починено», а файл прав остался нетронутым.
+#
+# Удаление файла — не самодеятельность: установщик панели удаляет ровно его и
+# ровно при enabled = false. Мы приводим систему к тому же состоянию, к
+# которому её привёл бы он сам, просто не дожидаясь переустановки.
 applies_panel_mtproxyl_off() { [ -r "$MTPL_PANEL_CONF" ]; }
 want_panel_mtproxyl_off()    { echo "false"; }
-read_panel_mtproxyl_off()    { _toml_get "$MTPL_PANEL_CONF" mtproxyl enabled; }
+read_panel_mtproxyl_off() {
+    local enabled; enabled="$(_toml_get "$MTPL_PANEL_CONF" mtproxyl enabled)"
+    if [ "$enabled" != "false" ]; then
+        echo "${enabled:-пусто}"
+        return 0
+    fi
+    if [ -e "$MTPL_PANEL_SUDOERS" ]; then
+        echo "false, но права root на месте"
+        return 0
+    fi
+    echo "false"
+}
 fix_panel_mtproxyl_off() {
     _expect_backup "$MTPL_PANEL_CONF"
     _toml_set "$MTPL_PANEL_CONF" mtproxyl enabled "false" || return 1
+    rm -f "$MTPL_PANEL_SUDOERS"
     systemctl restart mtproxyl-panel >/dev/null 2>&1
 }
 
