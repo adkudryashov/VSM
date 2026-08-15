@@ -37,6 +37,41 @@ panel_mtproxyl_installed() {
     [ -f "$MTPL_PANEL_UNIT" ] || [ -x /usr/local/bin/mtproxyl-panel ]
 }
 
+# vhost домена панели — в него вписаны блоки обеих панелей.
+#
+# Пустая строка, если домен не известен или nginx не настроен: тогда снимать
+# нечего, и это не ошибка.
+_panel_vhost() {
+    local conf="${VSM_TELEMT_CONF:-/etc/vsm/telemt.conf}" domain
+    [ -r "$conf" ] || return 0
+    domain="$(grep -m1 -oP '^DOMAIN_PANEL=\K.*' "$conf" 2>/dev/null | tr -d "\"'")"
+    [ -n "$domain" ] || return 0
+    command -v nginx_mask_panel_vhost >/dev/null 2>&1 || return 0
+    nginx_mask_panel_vhost "$domain" 2>/dev/null
+}
+
+# Снимает блок nginx и ПРОВЕРЯЕТ, что он действительно исчез.
+#
+# Первая версия звала panel_proxy_remove вообще без аргументов. А та принимает
+# путь к vhost первым параметром, на пустом делает `[ -f "" ]`, не проходит и
+# возвращает НОЛЬ. То есть блок оставался на месте, а удаление рапортовало об
+# успехе — и 443 продолжал проксировать на мёртвый порт, отдавая по секретному
+# адресу ошибку шлюза, то есть подтверждая, что там что-то было.
+#
+# Аргументы: имя функции снятия, маркер начала блока для проверки.
+_panel_strip_nginx() {
+    local remover="$1" marker="$2" vhost
+    vhost="$(_panel_vhost)"
+    [ -n "$vhost" ] && [ -f "$vhost" ] || return 0
+    command -v "$remover" >/dev/null 2>&1 || return 0
+    "$remover" "$vhost" >/dev/null 2>&1
+    if grep -qF "$marker" "$vhost" 2>/dev/null; then
+        echo "  ! блок nginx снять не удалось — уберите вручную из $vhost" >&2
+        return 1
+    fi
+    return 0
+}
+
 panel_human_name() {
     case "$1" in
         telemt)   printf 'telemt_panel' ;;
@@ -56,7 +91,7 @@ panel_remove_telemt() {
     # Блок nginx снимаем обязательно: без него 443 продолжал бы проксировать на
     # мёртвый порт, и по секретному адресу открывалась бы ошибка шлюза —
     # то есть подтверждение, что там что-то было.
-    command -v panel_proxy_remove >/dev/null 2>&1 && panel_proxy_remove >/dev/null 2>&1
+    _panel_strip_nginx panel_proxy_remove "${PANEL_PROXY_BEGIN:-# >>> VSM telemt_panel}"
     return 0
 }
 
@@ -86,7 +121,7 @@ panel_remove_mtproxyl() {
         rm -f /usr/local/bin/mtproxyl-panel
         rm -rf /etc/mtproxyl-panel
     fi
-    command -v mtpl_proxy_remove >/dev/null 2>&1 && mtpl_proxy_remove >/dev/null 2>&1
+    _panel_strip_nginx mtpl_proxy_remove "${MTPL_PROXY_BEGIN:-# >>> VSM MTProxyL-Panel}"
     return 0
 }
 
