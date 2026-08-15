@@ -1,0 +1,67 @@
+name: Проверки
+
+# ЗАЧЕМ ЭТОТ ФАЙЛ. В репозитории четыре проверки, и все они зелёные — но
+# запускались только руками. Значит держались на том, что кто-то помнит их
+# запустить. Аудит эксплуатации назвал это единственной причиной, по которой
+# оценка готовности упиралась в потолок: качество кода было, а удерживать его
+# было нечем.
+#
+# ЧЕГО ЗДЕСЬ НЕТ И ПОЧЕМУ. checks/drift.sh не запускается: он сверяет
+# действительность живого сервера с реестром решений — читает конфиги MTProxyL,
+# состояние служб и права sudoers. На чистой машине сборщика проверять нечего,
+# и попытка это сделать дала бы либо ложное «всё хорошо», либо шум. Он и задуман
+# как проверка НА МЕСТЕ, а не при сборке.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'   # та же версия, что на сервере
+          cache: pip
+
+      - name: Зависимости
+        # Ставим и боевые, и тестовые. Боевые нужны не только тестам: если
+        # requirements.txt перестанет устанавливаться, узнать об этом лучше
+        # здесь, чем на сервере во время развёртывания.
+        run: |
+          python -m pip install --quiet --upgrade pip
+          python -m pip install --quiet -r bots/requirements.txt -r bots/requirements-dev.txt
+
+      - name: Тесты
+        run: python -m pytest tests/ -q
+
+      - name: Статический разбор bash
+        # shellcheck на сборщиках GitHub предустановлен. Порог — ноль,
+        # исключения разобраны поштучно в .shellcheckrc.
+        run: bash checks/shell.sh
+
+      - name: Оформление меню
+        run: bash checks/ui.sh
+
+      - name: Права на исполнение
+        # Бит исполнения хранится в самом репозитории, и его потеря ломает
+        # установку молча: install.sh рассчитывает на него, а chmod там —
+        # только страховка. Проверяем то, что должно быть исполняемым.
+        run: |
+          rc=0
+          for f in vsm install.sh uninstall.sh $(git ls-files 'menus/*.sh' 'stacks/*.sh' 'tools/*.sh' 'checks/*.sh'); do
+            [ -x "$f" ] || { echo "не исполняемый: $f"; rc=1; }
+          done
+          # Библиотеки, наоборот, исполняемыми быть не должны: их сорсят.
+          for f in $(git ls-files 'lib/*.sh'); do
+            [ -x "$f" ] && { echo "лишний бит исполнения: $f"; rc=1; }
+          done
+          exit $rc
