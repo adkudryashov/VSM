@@ -47,7 +47,7 @@ VSM_ROOT="$(dirname "$VSM_LIB")"
 #
 # Печатаем в stderr и голым текстом: палитра живёт в ui.sh, а его как раз может
 # и не быть.
-for _lib in ui.sh config.sh deps.sh; do
+for _lib in ui.sh config.sh deps.sh panels.sh; do
     if [ ! -r "$VSM_LIB/$_lib" ]; then
         printf 'VSM: не найдена библиотека %s\n' "$VSM_LIB/$_lib" >&2
         printf 'Установка повреждена. Переустановите: bash install.sh\n' >&2

@@ -782,6 +782,14 @@ function run_mtproxyl {
     command -v mtproxyl &> /dev/null && was_installed=1
 
     if [ "$was_installed" -eq 0 ]; then
+        # Страж ДО запуска чужого установщика, а не после.
+        #
+        # Установщик автора заканчивается exec-ом своего меню, то есть после
+        # него управление к нам уже не вернётся — спрашивать будет некому и
+        # некогда. Плюс он ставит панель заодно, и разбирать две панели постфактум
+        # сложнее, чем не допустить второй. Отказ владельца прерывает установку
+        # целиком: ставить MTProxyL без панели этот пункт не умеет.
+        panel_ensure_exclusive mtproxyl || { read -p "Нажмите Enter..."; return; }
         echo -e "${CYAN}>>> Устанавливаю MTProxyL...${NC}"
         run_remote_script "https://raw.githubusercontent.com/$MTPROXYL_REPO/main/install.sh"
     else

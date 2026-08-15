@@ -162,6 +162,14 @@ VSM_LIB="$VSM_ROOT/lib"
 # shellcheck disable=SC1091
 . "$VSM_LIB/nginx_panel_proxy.sh"
 
+# Страж «одна панель на сервер». Не обязателен: на установке, обновлённой не
+# до конца, его может не быть, и разворачивать стек из-за этого мы не станем —
+# отсутствие стража означает лишь, что вопрос про вторую панель не задан.
+if [[ -f "$VSM_LIB/panels.sh" ]]; then
+    # shellcheck disable=SC1091
+    . "$VSM_LIB/panels.sh"
+fi
+
 : "${DOMAIN_PANEL:?Не задан DOMAIN_PANEL}"
 : "${DOMAIN_REALITY:?Не задан DOMAIN_REALITY}"
 
@@ -452,6 +460,23 @@ log "Этап 4: установка telemt_panel (порт ${PANEL_PORT})"
 # "_val: unbound variable". Поэтому скачиваем установщик в файл и запускаем под
 # псевдотерминалом script(1): /dev/tty у него появляется, а ответы приходят
 # туда же со стандартного ввода.
+# Страж одной панели. Спрашиваем ДО скачивания установщика: развёртывание
+# стека доходит сюда после установки 3x-ui-pro, telemt и настройки nginx, и
+# упереться в вопрос на четвёртом этапе неприятно — но гораздо хуже молча
+# поставить вторую админку рядом с уже работающей.
+#
+# Отказ здесь НЕ роняет стек: telemt и маскировка уже подняты и работают,
+# без панели они полностью функциональны. Поэтому предупреждаем и идём дальше,
+# а не die.
+if declare -F panel_ensure_exclusive >/dev/null 2>&1; then
+    if ! panel_ensure_exclusive telemt; then
+        warn "telemt_panel не устанавливается — оставлена прежняя панель."
+        warn "Сам telemt и маскировка работают: панель им не нужна."
+        SKIP_PANEL=1
+    fi
+fi
+
+if [[ "${SKIP_PANEL:-0}" -eq 0 ]]; then
 command -v script >/dev/null 2>&1 || \
     die "Нужен script(1) из util-linux — через него установщику telemt_panel выдаётся псевдотерминал."
 PANEL_INSTALLER="$(mktemp /tmp/telemt-panel-install.XXXXXX.sh)"
@@ -521,6 +546,11 @@ else
     warn "оставь её на loopback и ходи через ssh -L ${PANEL_PORT}:127.0.0.1:${PANEL_PORT}"
 fi
 
+fi   # конец блока SKIP_PANEL: этапы 4 и 5 пропускаются целиком, если владелец
+     # отказался удалять уже стоящую панель. Пропускается и подключение к
+     # nginx: блок, ведущий на непоставленную панель, отдавал бы ошибку шлюза
+     # по секретному адресу — то есть подтверждал бы, что там что-то есть.
+
 # ---------------------------------------------------------------------------
 # СОХРАНЕНИЕ СОСТОЯНИЯ
 # ---------------------------------------------------------------------------
@@ -531,8 +561,15 @@ fi
     printf 'DOMAIN_REALITY=%q\n'   "$DOMAIN_REALITY"
     printf 'TELEMT_PORT=%q\n'      "$TELEMT_PORT"
     printf 'TELEMT_MASK_PORT=%q\n' "$TELEMT_MASK_PORT"
-    printf 'PANEL_PORT=%q\n'       "$PANEL_PORT"
-    printf 'PANEL_PREFIX=%q\n'     "$PANEL_PREFIX"
+    # Порт и префикс панели — только если она действительно поставлена.
+    #
+    # Иначе шапка меню показывала бы адрес, которого нет: telemt_panel_url в
+    # lib/config.sh собирает ссылку именно из этих двух значений и о том, что
+    # панели нет, не знает. Строка выглядела бы достоверной и вела в никуда.
+    if [[ "${SKIP_PANEL:-0}" -eq 0 ]]; then
+        printf 'PANEL_PORT=%q\n'   "$PANEL_PORT"
+        printf 'PANEL_PREFIX=%q\n' "$PANEL_PREFIX"
+    fi
     printf 'TELEMT_SECRET=%q\n'    "$TELEMT_SECRET"
     printf 'PANEL_ADMIN_USER=%q\n' "$PANEL_ADMIN_USER"
     printf 'PANEL_ADMIN_PASS=%q\n' "$PANEL_ADMIN_PASS"
