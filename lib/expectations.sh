@@ -355,10 +355,41 @@ applies_nginx_blocks() {
     return 0
 }
 want_nginx_blocks() { echo "на месте"; }
+# Ищем блок ТОЙ панели, которая на сервере есть.
+#
+# Первая версия смотрела только на блок telemt_panel. Пока панели уживались
+# рядом, это работало; после правила «одна панель на сервер» позиция начала
+# требовать блок несуществующей панели и объявляла пропажу на установке, где
+# MTProxyL-Panel подключена и отвечает 200. Ровно тот ложный сигнал, ради
+# отсутствия которого applies_nginx_blocks и учили спрашивать про панели.
+#
+# Пропажу называем поимённо: «пропал блок telemt_panel» и «пропал блок
+# MTProxyL-Panel» чинятся одним и тем же пунктом меню, но искать причину, если
+# он не помог, придётся в разных местах.
 read_nginx_blocks() {
-    local vhost; vhost="$(nginx_mask_panel_vhost "$(_panel_domain)" 2>/dev/null)"
+    local vhost missing=()
+    vhost="$(nginx_mask_panel_vhost "$(_panel_domain)" 2>/dev/null)"
     [ -r "$vhost" ] || { echo "vhost не найден"; return 0; }
-    grep -q "$PANEL_PROXY_BEGIN" "$vhost" 2>/dev/null && echo "на месте" || echo "блок панели пропал"
+
+    # Без lib/panels.sh не додумываем и проверяем как раньше: лучше лишний
+    # вопрос, чем молчание о настоящей пропаже.
+    if ! declare -F panel_telemt_installed >/dev/null 2>&1; then
+        grep -q "$PANEL_PROXY_BEGIN" "$vhost" 2>/dev/null \
+            && echo "на месте" || echo "блок панели пропал"
+        return 0
+    fi
+
+    if panel_telemt_installed && ! grep -q "$PANEL_PROXY_BEGIN" "$vhost" 2>/dev/null; then
+        missing+=("telemt_panel")
+    fi
+    if panel_mtproxyl_installed && ! grep -q "$MTPL_PROXY_BEGIN" "$vhost" 2>/dev/null; then
+        missing+=("MTProxyL-Panel")
+    fi
+    if [ "${#missing[@]}" -eq 0 ]; then
+        echo "на месте"
+    else
+        echo "пропал блок: ${missing[*]}"
+    fi
 }
 
 applies_panel_prefix() { [ -r "$MTPL_PANEL_CONF" ] && [ -n "$(_panel_domain)" ]; }
