@@ -308,8 +308,21 @@ _panel_domain() {
     grep -m1 -oP '^DOMAIN_PANEL=\K.*' "$VSM_TELEMT_CONF" 2>/dev/null | tr -d "'\""
 }
 
+# Блок в nginx ведёт НА ПАНЕЛЬ. Нет ни одной — вести некуда, и отсутствие
+# блока это не пропажа, а установка без панели.
+#
+# Поймано прогоном удаления на стенде: сняли обе панели, и позиция немедленно
+# объявила расхождение на совершенно исправной системе. Ровно тот ложный
+# сигнал, после которого перестают верить всей проверке.
 applies_nginx_blocks() {
-    [ -n "$(_panel_domain)" ] && command -v nginx >/dev/null 2>&1
+    [ -n "$(_panel_domain)" ] || return 1
+    command -v nginx >/dev/null 2>&1 || return 1
+    # Функции из lib/panels.sh. Если библиотека не подключена — не додумываем
+    # и проверяем как раньше: лучше лишний вопрос, чем молчание о пропаже.
+    if declare -F panel_telemt_installed >/dev/null 2>&1; then
+        panel_telemt_installed || panel_mtproxyl_installed || return 1
+    fi
+    return 0
 }
 want_nginx_blocks() { echo "на месте"; }
 read_nginx_blocks() {

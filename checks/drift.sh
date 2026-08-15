@@ -18,7 +18,7 @@ set -uo pipefail
 VSM_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 
 # shellcheck source=/dev/null
-for _lib in nginx_mask.sh nginx_panel_proxy.sh nginx_mtpl_proxy.sh expectations.sh; do
+for _lib in nginx_mask.sh nginx_panel_proxy.sh nginx_mtpl_proxy.sh panels.sh expectations.sh; do
     [ -r "$VSM_ROOT/lib/$_lib" ] && . "$VSM_ROOT/lib/$_lib"
 done
 
