@@ -140,22 +140,38 @@ function run_utils_menu {
                 read -p "Нажмите Enter..."
                 ;;
             8)
-                echo -e "\n${CYAN}--- Очистка системы ---${NC}"
-                echo -e "1) Очистить кэш скачанных пакетов (apt clean)"
-                echo -e "2) Удалить ненужные зависимости (apt autoremove)"
-                echo -e "3) Очистить системные логи (оставить за последние 3 дня)"
-                echo -e "4) 🚀 Выполнить всё сразу"
+                # Отчёт печатается СРАЗУ, до всякого выбора.
+                #
+                # Прежде пункты удаляли молча: человек нажимал «выполнить всё
+                # сразу» и не знал ни что уйдёт, ни сколько освободится, ни
+                # почему место кончилось. А кончалось оно не от кэша apt: на
+                # замере 2 ГБ занимали распакованные исходники сборки, которых
+                # не касался ни один из прежних пунктов.
+                bash "$VSM_ROOT/tools/disk-cleanup.sh" --report
+                echo -e "1) 🧹 Убрать накопившийся мусор"
+                echo -e "   ${C_DESC}исходники сборки, кэш пакетов, старые ядра, журнал сверх потолка${NC}"
+                echo -e "2) ⚙️  Устранить ПРИЧИНУ роста логов"
+                echo -e "   ${C_DESC}потолок журналу и отмена дублирования в syslog — меняет настройку системы${NC}"
+                echo -e "3) ↩️  Вернуть журналирование как было"
+                echo -e "X) 🔙 Назад"
                 read -p "Выбор: " clean_opt
                 case $clean_opt in
-                    1) apt-get clean; echo -e "${GREEN}Кэш APT очищен.${NC}" ;;
-                    2) DEBIAN_FRONTEND=noninteractive apt-get autoremove -y; echo -e "${GREEN}Зависимости очищены.${NC}" ;;
-                    3) journalctl --vacuum-time=3d; echo -e "${GREEN}Старые логи удалены.${NC}" ;;
-                    4) 
-                       apt-get clean
-                       DEBIAN_FRONTEND=noninteractive apt-get autoremove -y
-                       journalctl --vacuum-time=3d
-                       echo -e "${GREEN}Полная очистка завершена! Место освобождено.${NC}"
-                       ;;
+                    1) bash "$VSM_ROOT/tools/disk-cleanup.sh" --clean ;;
+                    2)
+                        # Отдельное подтверждение: это не уборка, а изменение
+                        # поведения системы, и в «выполнить всё сразу» такому
+                        # не место.
+                        echo -e "\n${YELLOW}Будет изменено системное журналирование:${NC}"
+                        echo -e "  • журналу задаётся потолок вместо умолчания «10% диска»"
+                        echo -e "  • отменяется дублирование записей в /var/log/syslog"
+                        echo -e "${C_DESC}  Логи не теряются: всё читается через journalctl.${NC}"
+                        read -p "Продолжить? [y/N]: " ans
+                        [[ "$ans" =~ ^[YyДд]$ ]] \
+                            && bash "$VSM_ROOT/tools/disk-cleanup.sh" --logging-tune \
+                            || echo -e "${BLUE}Отменено.${NC}"
+                        ;;
+                    3) bash "$VSM_ROOT/tools/disk-cleanup.sh" --logging-reset ;;
+                    [Xx]) ;;
                     *) echo -e "${RED}❌ Неверный ввод.${NC}" ;;
                 esac
                 read -p "Нажмите Enter..."
