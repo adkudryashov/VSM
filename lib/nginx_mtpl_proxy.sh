@@ -97,6 +97,21 @@ mtpl_panel_prefix() {
         "$MTPL_PANEL_CONF" | head -1 | tr -d '/'
 }
 
+# Адрес, по которому панель открывается снаружи. Собирается из домена панели
+# VSM и префикса из ЕЁ конфига: два источника, но оба единственно верные —
+# домен знает только VSM, префикс только панель.
+#
+# Пусто, если чего-то из двух нет: печатать половину адреса хуже, чем не
+# печатать ничего.
+mtpl_panel_url() {
+    local conf="${VSM_TELEMT_CONF:-/etc/vsm/telemt.conf}" domain prefix
+    [ -r "$conf" ] || return 0
+    domain="$(grep -m1 -oP '^DOMAIN_PANEL=\K.*' "$conf" 2>/dev/null | tr -d "\"'")"
+    prefix="$(mtpl_panel_prefix)"
+    [ -n "$domain" ] && [ -n "$prefix" ] || return 0
+    printf 'https://%s/%s/' "$domain" "$prefix"
+}
+
 mtpl_panel_port() {
     [ -r "$MTPL_PANEL_CONF" ] || return 0
     sed -n 's/^[[:space:]]*listen[[:space:]]*=[[:space:]]*"[^":]*:\([0-9]\+\)".*/\1/p' \

@@ -42,6 +42,30 @@ done
 # сравнивали, — верный способ начать со ста ложных срабатываний.
 _is_baseline() { case "$1" in foreign_timers|sudoers_grants) return 0 ;; *) return 1 ;; esac; }
 
+# Позиции, значение которых само по себе секрет.
+#
+# Префикс пути к панели — единственное, что закрывает её от всех, кто знает
+# домен. А отчёт этой проверки не остаётся в терминале: сторож раз в час шлёт
+# его в Telegram, и он же печатается в диагностике, скриншот которой ничего не
+# стоит переслать. Печатать там секрет целиком — то же самое, что показывать
+# его в главном меню, чего проект не делает намеренно.
+#
+# Сравнение идёт по ПОЛНЫМ значениям и маскировка на него не влияет: усечь их
+# до сравнения значило бы проглядеть расхождение в хвосте.
+_is_secret() { case "$1" in panel_prefix) return 0 ;; *) return 1 ;; esac; }
+
+# Маскируем только то, что похоже на секрет. Позиция отдаёт сюда и обычные
+# сообщения вроде «блока MTProxyL-Panel нет» — превратить их в «блока…» значит
+# спрятать причину и заставить лезть на сервер за тем, что и так не секрет.
+_mask_secret() {
+    local v="$1"
+    if printf '%s' "$v" | grep -qE '^[A-Za-z0-9_-]{12,}$'; then
+        printf '%s… (%s симв.)' "${v:0:6}" "${#v}"
+    else
+        printf '%s' "$v"
+    fi
+}
+
 _json_str() {
     printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/ /g' \
         | tr -d '\000-\037'
@@ -107,6 +131,9 @@ if [ "$MODE" = "json" ]; then
     for row in "${RESULTS[@]}"; do
         IFS='|' read -r id class status title why actual want <<< "$row"
         case "$status" in "в порядке"|"нет компонента") continue ;; esac
+        if _is_secret "$id"; then
+            actual="$(_mask_secret "$actual")"; want="$(_mask_secret "$want")"
+        fi
         [ "$first" -eq 1 ] || printf ','
         first=0
         printf '{"id":"%s","class":"%s","status":"%s","title":"%s","why":"%s","actual":"%s","want":"%s"}' \
@@ -123,6 +150,9 @@ echo "СВЕРКА С РЕЕСТРОМ РЕШЕНИЙ VSM"
 echo "──────────────────────────────────────────────────────────────"
 for row in "${RESULTS[@]}"; do
     IFS='|' read -r id class status title why actual want <<< "$row"
+    if _is_secret "$id"; then
+        actual="$(_mask_secret "$actual")"; want="$(_mask_secret "$want")"
+    fi
     case "$status" in
         "в порядке")      printf '  ✓  %s\n' "$title" ;;
         "нет компонента") printf '  ·  %s — компонент не установлен\n' "$title" ;;
