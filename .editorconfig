@@ -1,0 +1,25 @@
+# Единое оформление во всех редакторах: https://editorconfig.org
+#
+# Нужен потому, что проект правится и с Windows, и с сервера по ssh, а разница
+# в отступах внутри одного файла читается как шум в каждом последующем diff.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# Отступ в 2 пробела — принятая норма для YAML, и линтеры её ждут.
+[*.{yml,yaml}]
+indent_size = 2
+
+# В Markdown два пробела в конце строки — значащий перенос, срезать нельзя.
+[*.md]
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab
