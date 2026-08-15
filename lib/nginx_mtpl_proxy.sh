@@ -118,6 +118,58 @@ mtpl_panel_port() {
         "$MTPL_PANEL_CONF" | head -1
 }
 
+# ----------------------------------------------------------------------
+# Создать секретный путь панели, если его нет.
+#
+# Установщик автора base_path не спрашивает и не пишет — панель работает от
+# корня. Пока это так, спрятать её за префикс на 443 нельзя: nginx отдаст ей
+# путь вместе с префиксом, а она такого не ждёт и ответит 404 на всё. До сих
+# пор ключ дописывали руками, и это был единственный шаг установки, который
+# нигде не описан и потому забывается.
+#
+# Печатает созданный префикс. Пусто и не-ноль — если что-то не вышло.
+# Проверка фактом обязательна: конфиг мог не перечитаться, и тогда nginx
+# показывал бы на путь, которого панель не знает.
+# ----------------------------------------------------------------------
+mtpl_panel_set_prefix() {
+    local prefix="$1" tmp
+    [ -w "$MTPL_PANEL_CONF" ] || { echo "нет доступа к $MTPL_PANEL_CONF" >&2; return 1; }
+    if ! printf '%s' "$prefix" | grep -qE '^[A-Za-z0-9_-]+$'; then
+        echo "недопустимый префикс: '$prefix'" >&2
+        return 1
+    fi
+
+    cp -p "$MTPL_PANEL_CONF" "${MTPL_PANEL_CONF}.vsm-bak" || return 1
+    tmp="$(mktemp "${MTPL_PANEL_CONF}.XXXXXX")" || return 1
+    # Ключ верхнего уровня: до первого [заголовка], иначе он достанется чужой
+    # секции и панель его не увидит.
+    if ! awk -v p="$prefix" '
+        /^[[:space:]]*\[/ && !done { print "base_path = \"/" p "\""; done = 1 }
+        { print }
+        END { if (!done) print "base_path = \"/" p "\"" }
+    ' "$MTPL_PANEL_CONF" > "$tmp"; then
+        rm -f "$tmp"; return 1
+    fi
+    chown --reference="$MTPL_PANEL_CONF" "$tmp" 2>/dev/null
+    chmod --reference="$MTPL_PANEL_CONF" "$tmp" 2>/dev/null
+    mv -f "$tmp" "$MTPL_PANEL_CONF" || { rm -f "$tmp"; return 1; }
+
+    systemctl restart mtproxyl-panel >/dev/null 2>&1
+    # Панели нужно время подняться: спросим сразу — получим ответ от ещё не
+    # перечитавшего конфиг процесса.
+    sleep 2
+
+    local got; got="$(mtpl_panel_prefix)"
+    if [ "$got" != "$prefix" ]; then
+        echo "конфиг записан, но панель отдаёт другой префикс — откатываю" >&2
+        mv -f "${MTPL_PANEL_CONF}.vsm-bak" "$MTPL_PANEL_CONF"
+        systemctl restart mtproxyl-panel >/dev/null 2>&1
+        return 1
+    fi
+    rm -f "${MTPL_PANEL_CONF}.vsm-bak"
+    printf '%s' "$prefix"
+}
+
 # Слушает ли панель только loopback. Отдавать наружу панель, которая и сама
 # висит на 0.0.0.0, бессмысленно: секретный префикс не спрячет открытый порт.
 mtpl_panel_is_local() {
