@@ -134,7 +134,7 @@ create_backup() {
     # ip route get локален и сети не трогает: спрашиваем ядро, с какого адреса
     # оно пойдёт наружу.
     local host
-    host="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*//p' | head -1)"
+    host="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit }}')"
     say  "  scp ${host:-<адрес-сервера>}:${archive} ."
 }
 
