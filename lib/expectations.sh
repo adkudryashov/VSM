@@ -60,6 +60,7 @@ EXPECTATIONS=(
 "journal_limits|tell|Настройка журналирования, сделанная вами, на месте|Без потолка журнал занимает 10% диска просто потому, что место было, а дублирование в syslog пишет одно и то же дважды: на сервере с прокси это сотни мегабайт в сутки. Возвращаем НЕ молча — журналирование общесистемное, и решать за вас VSM тут не должен."
 "foreign_timers|tell|Новых чужих таймеров не появилось|Именно так дважды возвращалась слежка: обновление MTProxyL приносило свой systemd-таймер, который снова гнал зонды наружу."
 "sudoers_grants|tell|Права sudoers у сторонних компонентов не изменились|Новая строка в sudoers.d — это новое право писать от root. Сносить его молча нельзя: сломает чужой софт наглухо. Но знать о нём надо."
+"orphan_panel_rights|fix|Нет прав root у панели, которой нет|Учётная запись панели переживает её удаление, а права при ней продолжают работать: запись в конфиг прокси от root и подмена самого бинаря telemt. Панели нет — значит и права не нужны никому."
 "panels_single|tell|Веб-панель на сервере одна|Две админки — вдвое больше того, что можно взломать и надо обновлять, ради одной задачи. Страж VSM стоит перед установкой, но чужую панель ставят и её собственной командой — мимо него."
 )
 
@@ -264,6 +265,59 @@ fix_panel_config_api() {
     _expect_backup "$MTPL_PANEL_CONF"
     _toml_set "$MTPL_PANEL_CONF" telemt config_edit_mode "\"api\"" || return 1
     systemctl restart mtproxyl-panel >/dev/null 2>&1
+}
+
+# --- Брошенные права удалённой панели ---------------------------------
+#
+# Найдено при разборе обновления MTProxyL: на стенде лежал
+# /etc/sudoers.d/telemt-panel — 19 строк NOPASSWD от панели, снесённой ещё в
+# прошлом прогоне. Ни бинаря, ни юнита, ни каталога; а пользователь
+# telemt-panel в системе остался, и права при нём работали. Среди них
+# `tee /etc/telemt/telemt.toml` — запись в конфиг прокси от root — и подмена
+# /bin/telemt через cp с последующим mv.
+#
+# Удаление панели теперь снимает права само (lib/panels.sh). Позиция нужна
+# всё равно: файл кладёт ЧУЖОЙ установщик, и он же вернёт его при следующем
+# обновлении telemt — ровно то повторяющееся возвращение чужих умолчаний,
+# ради которого весь реестр и заведён.
+#
+# Класс fix: это безопасность, а удалять права несуществующей панели безопасно
+# по определению — ломать нечего.
+_orphan_rights_files() {
+    local out=()
+    panel_telemt_installed   || [ ! -e "$TELEMT_PANEL_SUDOERS" ] || out+=("$TELEMT_PANEL_SUDOERS")
+    if ! panel_mtproxyl_installed; then
+        local f
+        for f in "${MTPL_PANEL_SUDOERS_FILES[@]}"; do
+            [ -e "$f" ] && out+=("$f")
+        done
+    fi
+    [ "${#out[@]}" -eq 0 ] || printf '%s
+' "${out[@]}"
+}
+
+applies_orphan_panel_rights() {
+    declare -F panel_telemt_installed >/dev/null 2>&1 || return 1
+    [ -d /etc/sudoers.d ]
+}
+want_orphan_panel_rights() { echo "нет"; }
+read_orphan_panel_rights() {
+    local found; found="$(_orphan_rights_files)"
+    if [ -z "$found" ]; then
+        echo "нет"
+    else
+        # Имена файлов, а не количество: убирать их человеку, возможно, руками,
+        # если сверка почему-то не смогла.
+        echo "есть: $(printf '%s' "$found" | xargs -r -n1 basename | tr '
+' ' ' | sed 's/ $//')"
+    fi
+}
+fix_orphan_panel_rights() {
+    local f
+    while IFS= read -r f; do
+        [ -n "$f" ] && rm -f "$f"
+    done <<< "$(_orphan_rights_files)"
+    [ -z "$(_orphan_rights_files)" ]
 }
 
 # --- Одна панель на сервер --------------------------------------------

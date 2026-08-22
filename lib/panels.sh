@@ -26,6 +26,12 @@
 TELEMT_PANEL_UNIT=/etc/systemd/system/telemt-panel.service
 MTPL_PANEL_UNIT=/etc/systemd/system/mtproxyl-panel.service
 
+# Права root, выданные панелям их установщиками. Снимаются вместе с панелью:
+# учётная запись остаётся в системе и после удаления, а права при ней — это
+# работающая возможность без всякой панели.
+TELEMT_PANEL_SUDOERS=/etc/sudoers.d/telemt-panel
+MTPL_PANEL_SUDOERS_FILES=(/etc/sudoers.d/mtproxyl-panel /etc/sudoers.d/mtproxyl-panel-mtproxyl)
+
 # Установлена ли панель. Смотрим на юнит И на бинарь: юнит может остаться от
 # неудачного удаления, а бинарь — лежать без юнита после ручного вмешательства.
 # Достаточно одного признака: цель вопроса — «есть ли тут вторая панель», и
@@ -92,6 +98,15 @@ panel_remove_telemt() {
     # мёртвый порт, и по секретному адресу открывалась бы ошибка шлюза —
     # то есть подтверждение, что там что-то было.
     _panel_strip_nginx panel_proxy_remove "${PANEL_PROXY_BEGIN:-# >>> VSM telemt_panel}"
+    # Права снимаем обязательно и последними.
+    #
+    # Прогон удаления на стенде оставил их лежать: панели нет, её бинаря нет,
+    # а пользователь telemt-panel есть, и 19 строк NOPASSWD при нём работают.
+    # Среди них `tee /etc/telemt/telemt.toml` — запись в конфиг прокси от root
+    # — и подмена самого /bin/telemt через cp с mv. Пользователя не трогаем:
+    # его завёл чужой установщик, и удаление учётной записи — не наше дело.
+    # А вот права без панели не нужны никому.
+    rm -f "$TELEMT_PANEL_SUDOERS"
     return 0
 }
 
@@ -122,6 +137,7 @@ panel_remove_mtproxyl() {
         rm -rf /etc/mtproxyl-panel
     fi
     _panel_strip_nginx mtpl_proxy_remove "${MTPL_PROXY_BEGIN:-# >>> VSM MTProxyL-Panel}"
+    rm -f "${MTPL_PANEL_SUDOERS_FILES[@]}"
     return 0
 }
 
