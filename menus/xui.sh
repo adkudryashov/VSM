@@ -386,7 +386,7 @@ function manage_xui_service {
                 ;;
             6)
                 echo -e "${YELLOW}Запускаю X-UI... (Для выхода из X-UI используйте Ctrl+C)${NC}"
-                if command -v x-ui &> /dev/null; then
+                if have_cmd x-ui; then
                     x-ui
                 elif [ -f "/usr/bin/x-ui" ]; then
                     /usr/bin/x-ui

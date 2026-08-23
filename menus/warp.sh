@@ -7,7 +7,7 @@ source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/common.sh" || {
 # ----------------------------------------------------------------------
 
 function get_warp_status {
-    if ! command -v warp-cli &> /dev/null; then
+    if ! have_cmd warp-cli; then
         echo -e "${RED}НЕ УСТАНОВЛЕН${NC}"
     elif systemctl is-active --quiet warp-svc; then
         echo -e "${GREEN}РАБОТАЕТ${NC}"
@@ -75,7 +75,7 @@ function setup_warp_cron {
 }
 
 function get_warp_port {
-    if command -v warp-cli &> /dev/null; then
+    if have_cmd warp-cli; then
         local port=$(ss -nltp | grep -w 'warp-svc' | awk '{print $4}' | rev | cut -d: -f1 | rev | head -n 1)
         if [ -n "$port" ]; then
             echo "$port"
@@ -176,7 +176,7 @@ function run_warp_menu {
         read -p "Ваш выбор: " choice
         case $choice in
             1)
-                if command -v warp-cli &> /dev/null; then
+                if have_cmd warp-cli; then
                     echo -e "${YELLOW}Уже установлен.${NC}"; read -p "Enter..."; continue
                 fi
                 echo -e "${CYAN}>>> Установка...${NC}"
@@ -220,7 +220,7 @@ function run_warp_menu {
                 # not found» и следом бодро печатал «✅ Порт: …», потому что
                 # успех не проверялся. Тот самый рапорт об успехе поверх
                 # ничего не сделанного. Найдено приёмкой обработчиков.
-                if ! command -v warp-cli &> /dev/null; then
+                if ! have_cmd warp-cli; then
                     echo -e "${RED}❌ WARP не установлен — менять порт нечему.${NC}"
                     echo -e "${YELLOW}   Сначала пункт 1«Установить».${NC}"
                     read -p "Нажмите Enter..."; continue
@@ -253,7 +253,7 @@ function run_warp_menu {
                 trap - INT
                 ;;
             6)
-                if ! command -v warp-cli &> /dev/null; then
+                if ! have_cmd warp-cli; then
                     echo -e "${RED}WARP не установлен.${NC}"; read -p "Enter..."; continue
                 fi
                 read -p "❗  Вы уверены, что хотите ПОЛНОСТЬЮ удалить WARP? (y/N): " conf
