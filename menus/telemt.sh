@@ -669,17 +669,24 @@ function show_credentials {
             mp_url="$(mtpl_panel_url 2>/dev/null)"
             mp_user="$(mtpl_panel_user 2>/dev/null)"
             echo ""
+            # Подписи выравниваем по той же колонке 20, что и строки из файла:
+            # там отступ записан прямо в тексте, здесь его ставит ui_pad. Иначе
+            # блок панели висит ступенькой посреди ровного экрана.
+            #
+            # Панель названа один раз, в подписи адреса. Дальше просто «Логин»
+            # и «Пароль»: длинное «MTProxyL-Panel логин» в колонку не влезает,
+            # а имя и так стоит строкой выше — тот же приём, что в шапке.
             if [ -n "$mp_url" ]; then
-                printf '   %b%s:%b%b   %s%b\n' "$C_NAME" "MTProxyL-Panel" "$NC" \
+                printf '   %b%s%b%b%s%b\n' "$C_NAME" "$(ui_pad 'MTProxyL-Panel:' 20)" "$NC" \
                     "$C_SECRET" "$mp_url" "$NC"
             else
-                printf '   %b%s:%b   %s\n' "$C_NAME" "MTProxyL-Panel" "$NC" \
-                    "секретный путь не выдан — пункт 4 «Восстановить nginx»"
+                printf '   %b%s%b%s\n' "$C_NAME" "$(ui_pad 'MTProxyL-Panel:' 20)" "$NC" \
+                    "путь не выдан — пункт 4 «Восстановить nginx»"
             fi
-            [ -n "$mp_user" ] && printf '   %b%s:%b%b   %s%b\n' \
-                "$C_NAME" "MTProxyL-Panel логин" "$NC" "$C_SECRET" "$mp_user" "$NC"
-            printf '   %b%s:%b   %s\n' "$C_NAME" "MTProxyL-Panel пароль" "$NC" \
-                "не хранится — панель держит только хэш; сменить: mtproxyl panel password"
+            [ -n "$mp_user" ] && printf '   %b%s%b%b%s%b\n' \
+                "$C_NAME" "$(ui_pad 'Логин:' 20)" "$NC" "$C_SECRET" "$mp_user" "$NC"
+            printf '   %b%s%b%s\n' "$C_NAME" "$(ui_pad 'Пароль:' 20)" "$NC" \
+                "не хранится, панель держит хэш; сменить: mtproxyl panel password"
         fi
 
         echo ""
