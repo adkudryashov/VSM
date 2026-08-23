@@ -177,6 +177,17 @@ say "4. Конвертер awg2mihomo"
 CONV=./tools/awg2mihomo.sh
 GOOD=$(printf '[Interface]\nPrivateKey = kkk\nAddress = 10.99.0.5/32\nDNS = 1.1.1.1, 8.8.8.8\nMTU = 1280\nJc = 4\nS1 = 7\nH1 = 1-2\nI1 = <b 0xaa><t>\n[Peer]\nPublicKey = ppp\nPresharedKey = sss\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = example.com:51820\nPersistentKeepalive = 25\n')
 
+# Тот же конфиг, но 3.0. Ключи дописываются в КОНЕЦ [Interface], а не в конец
+# файла: конвертер читает их именно оттуда, и приписка после [Peer] молча
+# ничего не даёт. На этом я и попался, когда проверял конвертер вручную —
+# решил, что он потерял ключи, хотя терял их мой собственный ввод.
+V3=$(awk '/^\[Peer\]/ && !d {
+        print "HeaderProtectionKey = 3q2+7wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        print "RekeyAfterTime = 90s"
+        d = 1
+    }
+    { print }' <<< "$GOOD")
+
 t_ok() { # описание ввод ожидаемая-подстрока
     local out; out=$(printf '%s' "$2" | bash "$CONV" - 2>/dev/null)
     if grep -qF -- "$3" <<< "$out"; then ok "$1"; else bad "$1: нет «$3»"; note "$(head -3 <<< "$out")"; fi
@@ -186,6 +197,10 @@ t_fail() { # описание ввод
     out=$(printf '%s' "$2" | bash "$CONV" - 2>/dev/null); rc=$?
     if [ "$rc" -ne 0 ] && [ -z "$out" ]; then ok "$1"; else bad "$1: ожидался отказ, получен код ${rc} и $(wc -c <<< "$out") байт"; fi
 }
+t_absent() { # описание ввод запрещённая-подстрока
+    local out; out=$(printf '%s' "$2" | bash "$CONV" - 2>/dev/null)
+    if grep -qF -- "$3" <<< "$out"; then bad "$1: в выводе есть «$3», а его быть не должно"; else ok "$1"; fi
+}
 
 t_ok   "домен в Endpoint переносится как есть" "$GOOD" "server: example.com"
 t_ok   "маска у адреса клиента снимается"      "$GOOD" "ip: 10.99.0.5"
@@ -194,7 +209,23 @@ t_ok   "keepalive не теряется"                 "$GOOD" "persistent-kee
 t_ok   "два резолвера списком"                 "$GOOD" "dns: [1.1.1.1, 8.8.8.8]"
 t_ok   "обфускация во вложенном блоке"         "$GOOD" "    amnezia-wg-option:"
 t_ok   "::/0 отброшен"                         "$GOOD" "allowed-ips: ['0.0.0.0/0']"
-t_fail "отказ на 3.0"            "$(printf '%s\nHeaderProtectionKey = z\n' "$GOOD")"
+# 3.0 ПРИНИМАЕТСЯ. Здесь стояло обратное — «отказ на 3.0», — и требование
+# устарело вместе с самим конвертером: тот отказывал, пока считалось, что
+# mihomo знает AmneziaWG только до 2.0. Отказ убрали, а проверку забыли, и
+# приёмка стала падать на исправном коде. CI этого не видит: ей нужен живой
+# сервер, а сюда она не заглядывает.
+#
+# `version: 3` проверяется отдельной строкой не для красоты. Без него mihomo
+# молча берёт старую реализацию, все ключи 3.0 не действуют, и туннель не
+# встаёт при совершенно правильном на вид конфиге — ровно то, что стоило
+# владельцу пяти дней неработающего AWG.
+t_ok   "3.0 принимается, а не отвергается" "$V3" "version: 3"
+t_ok   "ключ защиты заголовков переносится" "$V3" "header-protection-key: '3q2+7wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='"
+t_ok   "тайминг 3.0 переносится"            "$V3" "rekey-after-time: '90s'"
+# Контрольный случай к трём выше: version проставляется НЕ всегда, а только для
+# 3.0. Без этой строки проверки прошли бы и у конвертера, который лепит
+# version: 3 всему подряд, — а это сломало бы рабочие конфиги 2.0.
+t_absent "контроль: у 2.0 поля version нет" "$GOOD" "version:"
 t_fail "отказ без Endpoint"      "$(grep -v '^Endpoint' <<< "$GOOD")"
 t_fail "отказ без PrivateKey"    "$(grep -v '^PrivateKey' <<< "$GOOD")"
 t_fail "отказ на пустом вводе"   ""
