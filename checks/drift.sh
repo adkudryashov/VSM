@@ -72,13 +72,17 @@ _is_baseline() { case "$1" in foreign_timers|sudoers_grants) return 0 ;; *) retu
 # ----------------------------------------------------------------------
 _accept_one() {
     local id="$1" was now
+    # Существование СНАЧАЛА, класс потом. В обратном порядке опечатка в id
+    # получала ответ «у этой позиции нет базы сравнения» — то есть человека
+    # отправляли разбираться с классом позиции, которой вообще нет.
+    if ! declare -F "read_$id" >/dev/null 2>&1; then
+        echo "  ✗ ${id}: такой позиции в реестре нет." >&2
+        echo "    Список id: bash checks/drift.sh --dry-run" >&2
+        return 1
+    fi
     if ! _is_baseline "$id"; then
         echo "  ✗ ${id}: у этой позиции нет базы сравнения — принимать нечего." >&2
         echo "    Норма задана решением проекта в lib/expectations.sh." >&2
-        return 1
-    fi
-    if ! declare -F "read_$id" >/dev/null 2>&1; then
-        echo "  ✗ ${id}: такой позиции в реестре нет." >&2
         return 1
     fi
     if ! "applies_$id" 2>/dev/null; then
