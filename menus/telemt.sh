@@ -99,13 +99,42 @@ function stack_status_line {
     fi
 }
 
-function panel_status_line {
-    if [ ! -f /etc/telemt-panel/config.toml ]; then
-        echo -e "${RED}НЕ УСТАНОВЛЕН${NC}"
-    elif systemctl is-active --quiet telemt-panel; then
-        echo -e "${GREEN}РАБОТАЕТ${NC}"
+# Строка веб-панели в шапке: ИМЯ той, что стоит, и её состояние.
+#
+# Прежде здесь безусловно печаталось «telemt_panel  НЕ УСТАНОВЛЕН», а адрес
+# MTProxyL-Panel показывался ниже без имени. На установке с MTProxyL шапка
+# читалась так: панели нет, но адрес почему-то есть. Владелец на это и
+# указал. Имя панели — не украшение: команды управления, файл с паролем и
+# способ вернуть доступ у двух панелей разные.
+#
+# Печатаем состояние ТОЙ панели, что установлена, а не обеих: вторая на
+# сервере запрещена решением проекта, и строка про её отсутствие сообщала бы
+# ровно ничего.
+function panel_name_line {
+    if panel_telemt_installed; then
+        printf 'telemt_panel'
+    elif panel_mtproxyl_installed; then
+        printf 'MTProxyL-Panel'
     else
-        echo -e "${YELLOW}ОСТАНОВЛЕН${NC}"
+        printf 'Веб-панель'
+    fi
+}
+
+function panel_any_status_line {
+    if panel_telemt_installed; then
+        if systemctl is-active --quiet telemt-panel; then
+            echo -e "${GREEN}РАБОТАЕТ${NC}"
+        else
+            echo -e "${YELLOW}ОСТАНОВЛЕНА${NC}"
+        fi
+    elif panel_mtproxyl_installed; then
+        if systemctl is-active --quiet mtproxyl-panel; then
+            echo -e "${GREEN}РАБОТАЕТ${NC}"
+        else
+            echo -e "${YELLOW}ОСТАНОВЛЕНА${NC}"
+        fi
+    else
+        echo -e "${RED}НЕ УСТАНОВЛЕНА${NC}"
     fi
 }
 
@@ -206,7 +235,16 @@ function run_diagnostics {
     echo -e "Домен REALITY:  ${YELLOW}${DOMAIN_REALITY}${NC}"
     echo -e "${BLUE}------------------------------------------------------${NC}"
     echo -e "telemt:         [$(stack_status_line)]  порт ${TELEMT_PORT}"
-    echo -e "telemt_panel:   [$(panel_status_line)]  порт ${PANEL_PORT}"
+    # Та же правка, что и в шапке: диагностика обязана называть панель, которая
+    # СТОИТ, а не ту, которой нет. Порт берём у неё же — у двух панелей он
+    # разный (9444 и 8080), и печатать чужой значит отправлять человека
+    # проверять пустой порт.
+    if panel_mtproxyl_installed; then
+        _diag_panel_port="$(mtpl_panel_port 2>/dev/null)"
+        echo -e "$(printf '%-15s' "$(panel_name_line):") [$(panel_any_status_line)]  порт ${_diag_panel_port:-8080}"
+    else
+        echo -e "$(printf '%-15s' "$(panel_name_line):") [$(panel_any_status_line)]  порт ${PANEL_PORT}"
+    fi
     echo -e "nginx:          [$(if systemctl is-active --quiet nginx; then echo -e "${GREEN}РАБОТАЕТ${NC}"; else echo -e "${RED}ОСТАНОВЛЕН${NC}"; fi)]"
     echo -e "x-ui:           [$(if systemctl is-active --quiet x-ui; then echo -e "${GREEN}РАБОТАЕТ${NC}"; else echo -e "${RED}ОСТАНОВЛЕН${NC}"; fi)]"
     echo -e "${BLUE}--- SELF-SNI МАСКИРОВКА ------------------------------${NC}"
@@ -613,17 +651,24 @@ function manage_services {
     while true; do
         clear 2>/dev/null
         echo -e "${CYAN}--- 🔧  УПРАВЛЕНИЕ СЛУЖБАМИ СТЕКА --------------------${NC}"
+        # Управляем службой ТОЙ панели, что стоит. Прежде пункт 2 всегда
+        # означал telemt-panel, и на установке с MTProxyL-Panel он открывал
+        # управление службой, которой на сервере нет: «неактивна», старт не
+        # помогает, причина не названа.
+        local _panel_unit _panel_name
+        _panel_name="$(panel_name_line)"
+        if panel_mtproxyl_installed; then _panel_unit=mtproxyl-panel; else _panel_unit=telemt-panel; fi
         echo -e "    telemt:       [$(stack_status_line)]"
-        echo -e "    telemt_panel: [$(panel_status_line)]"
+        echo -e "    $(printf '%-13s' "${_panel_name}:") [$(panel_any_status_line)]"
         echo -e "${BLUE}------------------------------------------------------${NC}"
         echo -e "1) 📊   Служба telemt (статус | старт | стоп | логи)"
-        echo -e "2) 💻   Служба telemt_panel (статус | старт | стоп | логи)"
+        echo -e "2) 💻   Служба ${_panel_name} (статус | старт | стоп | логи)"
         echo -e "X) 🔙  Назад"
         echo -e "${BLUE}------------------------------------------------------${NC}"
         read -p "Выбор: " s_choice
         case $s_choice in
             1) manage_service_status_restart telemt ;;
-            2) manage_service_status_restart telemt-panel ;;
+            2) manage_service_status_restart "$_panel_unit" ;;
             [Xx]) return ;;
             *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
         esac
@@ -939,7 +984,7 @@ function run_rebuild_nginx {
     echo -e "\n${CYAN}Состояние стека:${NC}"
     echo -e "  nginx:        ${nginx_line}"
     echo -e "  telemt:       $(stack_status_line)"
-    echo -e "  telemt-panel: $(panel_status_line)"
+    echo -e "  $(printf '%-13s' "$(panel_name_line):") $(panel_any_status_line)"
 
     if [ "$rc" -eq 0 ]; then
         echo -e "\n${BLUE}Дальше — пункт 5 «Сверить TLS маски и панели»: после удачной"
@@ -1029,7 +1074,7 @@ function run_telemt_menu {
         echo ""
         local tp_url; tp_url=$(telemt_panel_url)
         echo -e "   ${C_NAME}$(ui_pad '✈  telemt' 20)${NC}$(stack_status_line)"
-        echo -e "   ${C_NAME}$(ui_pad '🖥  telemt_panel' 20)${NC}$(panel_status_line)"
+        echo -e "   ${C_NAME}$(ui_pad "🖥  $(panel_name_line)" 20)${NC}$(panel_any_status_line)"
         # Адрес и учётки — только у установленной панели.
         #
         # Раньше проверялось наличие значений в конфиге, а не самой панели, и
@@ -1061,7 +1106,21 @@ function run_telemt_menu {
         # меню, — то же правило, что и для учёток telemt_panel.
         if panel_mtproxyl_installed; then
             local mp_url; mp_url="$(mtpl_panel_url 2>/dev/null)"
-            [ -n "$mp_url" ] && ui_kv '🌐  Адрес панели' "$mp_url" 20
+            if [ -n "$mp_url" ]; then
+                ui_kv '🌐  Адрес панели' "$mp_url" 20
+            else
+                # Панель есть, а адреса нет — значит секретный путь ей ещё не
+                # выдан. Само по себе это не поломка, но снаружи панель в таком
+                # виде недоступна, и молчать об этом нельзя: человек будет
+                # искать адрес там, где его никогда не было.
+                ui_kv '🌐  Адрес панели' 'нет — выдать: пункт 4 «Восстановить nginx»' 20
+            fi
+        fi
+        # Ни одной панели — состояние законное (страж сносит прежнюю до
+        # установки MTProxyL, а её панель ставится отдельной командой), но
+        # оставлять человека гадать не надо.
+        if ! panel_telemt_installed && ! panel_mtproxyl_installed; then
+            ui_kv '🌐  Как поставить' 'mtproxyl panel install, затем пункт 4' 20
         fi
         if mtproxyl_is_installed; then
             ui_kv '⌨  Его менеджер' 'команда mtproxyl из любой точки системы' 20
