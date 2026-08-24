@@ -29,7 +29,7 @@ bad()  { echo -e "\033[0;31m  ✗ $*\033[0m"; FAIL=1; }
 ok()   { echo -e "\033[0;32m  ✓ $*\033[0m"; }
 note() { echo -e "\033[0;90m    $*\033[0m"; }
 
-MENUS=(vsm menus/xui.sh menus/telemt.sh menus/awg.sh menus/bots.sh
+MENUS=(vsm menus/xui.sh menus/telemt.sh menus/bots.sh
        menus/setup.sh menus/tests.sh menus/utils.sh menus/warp.sh)
 
 # Признаки того, что скрипт сломался, а не отработал. Ищем в выводе, потому что
@@ -113,8 +113,6 @@ drive() { # файл ввод признак описание
 drive menus/utils.sh  '4\n3\n\nX\n'  'Netid|LISTEN|UNCONN'    'утилиты: порты (клавиша 4)'
 drive menus/utils.sh  '5\n\nX\n'     'Проверка IP'            'утилиты: внешний адрес (клавиша 5)'
 drive menus/xui.sh    '3\nX\nX\n'    'УЧЁТНЫЕ ДАННЫЕ ПАНЕЛИ'  'X-UI: учётные данные (клавиша 3)'
-drive menus/awg.sh    '2\nX\nX\n'    'LABEL.*PUBLIC_KEY'      'AWG: клиенты (клавиша 2)'
-drive menus/awg.sh    '4\n\nX\n'     'iface=awg0'             'AWG: журнал (клавиша 4)'
 drive menus/telemt.sh '6\n\nX\n'     'УЧЁТНЫЕ ДАННЫЕ СТЕКА'   'telemt: учётные данные (клавиша 6)'
 
 # ---------------------------------------------------------------------------
@@ -149,7 +147,6 @@ screen menus/telemt.sh '3\n\nX\n'          'telemt: диагностика (3)'
 screen menus/telemt.sh '7\n1\n1\n\nX\nX\n' 'telemt: служба telemt, статус (7→1→1)'
 screen menus/telemt.sh '8\nX\nX\n'         'telemt: MTProxyL (8)'
 screen menus/telemt.sh '9\n\n\nX\n'        'telemt: экран пересборки nginx (9, без подтверждения)'
-screen menus/awg.sh    '3\n\nX\n'          'AWG: проверка обновлений (3)'
 screen menus/bots.sh   '6\n\nX\n'          'боты: настройки (6)'
 screen menus/bots.sh   '7\nX\nX\n'         'боты: управление службами (7)'
 screen menus/setup.sh  '1\nX\nX\n'         'настройка: BBR (1)'
@@ -163,95 +160,6 @@ screen menus/warp.sh   '4\nX\nX\n'         'WARP: служба (4)'
 screen menus/utils.sh  '2\n4\n\nX\n'       'утилиты: ncdu, свой путь (2→4)'
 screen menus/utils.sh  '7\n\n\nX\n'        'утилиты: привязка домена (7)'
 screen menus/utils.sh  '8\nX\nX\n'         'утилиты: очистка (8, без подтверждения)'
-
-# ---------------------------------------------------------------------------
-# 4. Конвертер в mihomo — с контрольными случаями
-#
-# У каждой отрицательной проверки есть положительная пара. Без неё проверка
-# может «проходить», ничего не проверяя: за эту сессию так вышло трижды —
-# узкий терминал, конфиг с примешанным stderr и netns без своего resolv.conf.
-# Все три давали ложный результат, потому что я не показывал, что тест вообще
-# способен сработать в плюс.
-# ---------------------------------------------------------------------------
-say "4. Конвертер awg2mihomo"
-CONV=./tools/awg2mihomo.sh
-GOOD=$(printf '[Interface]\nPrivateKey = kkk\nAddress = 10.99.0.5/32\nDNS = 1.1.1.1, 8.8.8.8\nMTU = 1280\nJc = 4\nS1 = 7\nH1 = 1-2\nI1 = <b 0xaa><t>\n[Peer]\nPublicKey = ppp\nPresharedKey = sss\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = example.com:51820\nPersistentKeepalive = 25\n')
-
-# Тот же конфиг, но 3.0. Ключи дописываются в КОНЕЦ [Interface], а не в конец
-# файла: конвертер читает их именно оттуда, и приписка после [Peer] молча
-# ничего не даёт. На этом я и попался, когда проверял конвертер вручную —
-# решил, что он потерял ключи, хотя терял их мой собственный ввод.
-V3=$(awk '/^\[Peer\]/ && !d {
-        print "HeaderProtectionKey = 3q2+7wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-        print "RekeyAfterTime = 90s"
-        d = 1
-    }
-    { print }' <<< "$GOOD")
-
-t_ok() { # описание ввод ожидаемая-подстрока
-    local out; out=$(printf '%s' "$2" | bash "$CONV" - 2>/dev/null)
-    if grep -qF -- "$3" <<< "$out"; then ok "$1"; else bad "$1: нет «$3»"; note "$(head -3 <<< "$out")"; fi
-}
-t_fail() { # описание ввод
-    local out rc
-    out=$(printf '%s' "$2" | bash "$CONV" - 2>/dev/null); rc=$?
-    if [ "$rc" -ne 0 ] && [ -z "$out" ]; then ok "$1"; else bad "$1: ожидался отказ, получен код ${rc} и $(wc -c <<< "$out") байт"; fi
-}
-t_absent() { # описание ввод запрещённая-подстрока
-    local out; out=$(printf '%s' "$2" | bash "$CONV" - 2>/dev/null)
-    if grep -qF -- "$3" <<< "$out"; then bad "$1: в выводе есть «$3», а его быть не должно"; else ok "$1"; fi
-}
-
-t_ok   "домен в Endpoint переносится как есть" "$GOOD" "server: example.com"
-t_ok   "маска у адреса клиента снимается"      "$GOOD" "ip: 10.99.0.5"
-t_ok   "имя ключа pre-shared-key"              "$GOOD" "pre-shared-key:"
-t_ok   "keepalive не теряется"                 "$GOOD" "persistent-keepalive: 25"
-t_ok   "два резолвера списком"                 "$GOOD" "dns: [1.1.1.1, 8.8.8.8]"
-t_ok   "обфускация во вложенном блоке"         "$GOOD" "    amnezia-wg-option:"
-t_ok   "::/0 отброшен"                         "$GOOD" "allowed-ips: ['0.0.0.0/0']"
-# 3.0 ПРИНИМАЕТСЯ. Здесь стояло обратное — «отказ на 3.0», — и требование
-# устарело вместе с самим конвертером: тот отказывал, пока считалось, что
-# mihomo знает AmneziaWG только до 2.0. Отказ убрали, а проверку забыли, и
-# приёмка стала падать на исправном коде. CI этого не видит: ей нужен живой
-# сервер, а сюда она не заглядывает.
-#
-# `version: 3` проверяется отдельной строкой не для красоты. Без него mihomo
-# молча берёт старую реализацию, все ключи 3.0 не действуют, и туннель не
-# встаёт при совершенно правильном на вид конфиге — ровно то, что стоило
-# владельцу пяти дней неработающего AWG.
-t_ok   "3.0 принимается, а не отвергается" "$V3" "version: 3"
-t_ok   "ключ защиты заголовков переносится" "$V3" "header-protection-key: '3q2+7wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='"
-t_ok   "тайминг 3.0 переносится"            "$V3" "rekey-after-time: '90s'"
-# Контрольный случай к трём выше: version проставляется НЕ всегда, а только для
-# 3.0. Без этой строки проверки прошли бы и у конвертера, который лепит
-# version: 3 всему подряд, — а это сломало бы рабочие конфиги 2.0.
-t_absent "контроль: у 2.0 поля version нет" "$GOOD" "version:"
-t_fail "отказ без Endpoint"      "$(grep -v '^Endpoint' <<< "$GOOD")"
-t_fail "отказ без PrivateKey"    "$(grep -v '^PrivateKey' <<< "$GOOD")"
-t_fail "отказ на пустом вводе"   ""
-
-# Контрольный случай к отказам: тот же проверяющий обязан пропускать годное.
-# Без него «отказ сработал» ничего не значит — он мог отказывать всему подряд.
-out=$(printf '%s' "$GOOD" | bash "$CONV" - 2>/dev/null)
-if [ -n "$out" ]; then ok "контроль: годный конфиг НЕ отвергается"; else bad "контроль: отвергается даже годный конфиг"; fi
-
-# Разбор YAML, если есть чем. Значения i1-i5 содержат угловые скобки, и то, что
-# YAML их принимает, стоит проверять, а не предполагать.
-if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' 2>/dev/null; then
-    if printf '%s' "$GOOD" | bash "$CONV" - 2>/dev/null | python3 -c '
-import sys, yaml
-p = yaml.safe_load(sys.stdin)["proxies"][0]
-assert p["type"] == "wireguard"
-assert "amnezia-wg-option" in p
-assert isinstance(p["dns"], list) and len(p["dns"]) == 2
-' 2>/dev/null; then
-        ok "вывод разбирается yaml.safe_load"
-    else
-        bad "вывод НЕ разбирается yaml.safe_load"
-    fi
-else
-    note "python3 с yaml нет — разбор YAML пропущен"
-fi
 
 echo
 if [ "$FAIL" -eq 0 ]; then

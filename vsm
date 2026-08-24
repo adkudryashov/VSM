@@ -217,13 +217,21 @@ function show_access_info {
             fi
         fi
 
+        # Остаток прежней установки AmneziaWG.
+        #
+        # Раздел из VSM снят, но на серверах, где он работал, остаются
+        # контейнеры, свой UDP-порт в ufw и ключи клиентов. Промолчать об этом
+        # значит оставить человеку работающий узел, о котором ему больше никто
+        # не напомнит, — и открытый порт, который он считает закрытым.
         if [ -f /etc/vsm/awg.conf ]; then
-            local awg_port awg_profile
+            local awg_port
             awg_port=$(_cfg_val /etc/vsm/awg.conf AWG_PORT)
-            awg_profile=$(_cfg_val /etc/vsm/awg.conf AWG_PROFILE)
             echo ""
-            ui_section "AMNEZIAWG"
-            echo -e "   ${C_NAME}$(ui_pad '🔐  Порт' 17)${NC}${C_DESC}$(ui_pad "${awg_port}/udp" 20)${NC}${C_NAME}$(ui_pad '🎭  Профиль' 17)${NC}${C_DESC}${awg_profile}${NC}"
+            ui_section "AMNEZIAWG — ОСТАТОК ПРЕЖНЕЙ УСТАНОВКИ"
+            ui_kv '🔐  Порт' "${awg_port:-?}/udp — открыт наружу" 17
+            ui_kv '📦  Что осталось' 'контейнеры awg-server и awg-dns' 17
+            ui_kv '🧹  Убрать' 'docker rm -f awg-server awg-dns' 17
+            ui_kv '➡  Замена' 'AmneziaWG внутри 3x-ui: пункт 1 → Inbounds' 17
         fi
 
         local d_panel d_reality
@@ -490,30 +498,30 @@ fi
         st_bots="ЧАСТИЧНО ($bots_up/$bots_total)"; c_bots="$C_DANGER"
     fi
 
-    # AmneziaWG. Признак установки — свой конфиг, как у x-ui и telemt: без
-    # него «ОСТАНОВЛЕН» на чистом сервере отправлял бы запускать то, чего нет.
-    # Смотрим на контейнер, а не на службу systemd: узел живёт в Docker.
-    if [ ! -f /etc/vsm/awg.conf ]; then
-        st_awg="НЕ УСТАНОВЛЕН"; c_awg="$C_DANGER"
-    elif [ "$(docker inspect -f '{{.State.Running}}' awg-server 2>/dev/null)" = "true" ]; then
-        st_awg="РАБОТАЕТ"; c_awg="$C_OK"
-    else
-        st_awg="ОСТАНОВЛЕН"; c_awg="$C_DANGER"
-    fi
-
     # Две пары в строке. Первая колонка выравнивается по видимому тексту
     # статуса, поэтому вторая всегда начинается на своём месте — раньше она
     # ездила вслед за длиной «РАБОТАЕТ» или «НЕ УСТАНОВЛЕН».
-    echo -e "   📊  ${C_NAME}$(ui_pad 'X-UI' 11)${NC}${c_xui}$(ui_pad "$st_xui" 24)${NC}🔐  ${C_NAME}$(ui_pad 'AmneziaWG' 11)${NC}${c_awg}${st_awg}${NC}"
-    echo -e "   🛫  ${C_NAME}$(ui_pad 'telemt' 11)${NC}${c_telemt}$(ui_pad "$st_telemt" 24)${NC}🤖  ${C_NAME}$(ui_pad 'TG-боты' 11)${NC}${c_bots}${st_bots}${NC}"
+    #
+    # AmneziaWG отсюда убран вместе со всей поддержкой (24.08.2026): её взяла
+    # на себя 3x-ui 3.7.0 своим встроенным сервером. Пара во второй строке
+    # осталась одна — TG-боты; равнять её по несуществующему соседу не надо.
+    echo -e "   📊  ${C_NAME}$(ui_pad 'X-UI' 11)${NC}${c_xui}$(ui_pad "$st_xui" 24)${NC}🤖  ${C_NAME}$(ui_pad 'TG-боты' 11)${NC}${c_bots}${st_bots}${NC}"
+    echo -e "   🛫  ${C_NAME}$(ui_pad 'telemt' 11)${NC}${c_telemt}${st_telemt}${NC}"
 
     echo ""
     ui_section "СПРАВКА"
     ui_item "0" "🔑" "Доступы и домены" "Адреса панелей, учётные данные, домены"
     echo ""
     ui_section "СЕРВИСЫ"
-    ui_item "1" "📊" "Панель X-UI"     "3x-ui-pro: VLESS, Reality, Trojan, SSL"
-    ui_item "2" "🔐" "AmneziaWG"       "Обфусцированный WireGuard, свой UDP-порт"
+    # Клавиша 2 намеренно пропущена.
+    #
+    # На ней стоял AmneziaWG, снятый 24.08.2026: его заменил встроенный сервер
+    # 3x-ui 3.7.0. Сдвигать остальные пункты вверх нельзя — «Стек telemt» встал
+    # бы на 2, а его первый пункт СТИРАЕТ существующую 3x-ui. Привычка жать 2
+    # ради AWG останется надолго, и приводить её к разрушающему пункту значит
+    # нарушать правило проекта: разрушающее не двигают К привычной позиции.
+    # Дыра в нумерации — цена, и она косметическая.
+    ui_item "1" "📊" "Панель X-UI"     "3x-ui-pro: VLESS, Reality, Trojan, SSL, AmneziaWG"
     ui_item "3" "🛫" "Стек telemt"     "MTProto-прокси, веб-панель, маскировка"
     ui_item "4" "🤖" "Telegram-боты"   "Мониторинг telemt и панелей 3x-ui"
     echo ""
@@ -541,7 +549,13 @@ while true; do
     case $choice in
         0) show_access_info ;;
         1) "$VSM_DIR/menus/xui.sh" ;;
-        2) "$VSM_DIR/menus/awg.sh" ;;
+        # 2 — бывший AmneziaWG. Ветка оставлена и отвечает по делу: на серверах,
+        # где VSM стоял раньше, привычка жать 2 переживёт удаление, а молчаливое
+        # «Неверный ввод» не объяснит, куда делся раздел.
+        2) echo -e "${YELLOW}Раздел AmneziaWG убран из VSM.${NC}"
+           echo -e "${BLUE}AmneziaWG теперь внутри панели: пункт 1 → раздел Inbounds."
+           echo -e "3x-ui 3.7.0 поднимает его сама, без Docker и второй панели.${NC}"
+           read -p "Нажмите Enter..." ;;
         3) "$VSM_DIR/menus/telemt.sh" ;;
         4) "$VSM_DIR/menus/bots.sh" ;;
         5) "$VSM_DIR/menus/tests.sh" ;;
