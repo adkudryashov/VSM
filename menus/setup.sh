@@ -119,14 +119,14 @@ function show_ufw_menu {
         echo -e "${CYAN}--- 🔒 УПРАВЛЕНИЕ ФАЙРВОЛОМ (UFW) -----------------------${NC}"
         echo -e "    Статус: [$(if [ "$(get_ufw_status)" == "active" ]; then echo -e "${GREEN}ВКЛЮЧЕН${NC}"; else echo -e "${RED}ВЫКЛЮЧЕН${NC}"; fi)]"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
-        echo -e "1) 🟢  Включить UFW"
-        echo -e "2) 🔴  Выключить UFW"
-        echo -e "3) 🔓  Разрешить порт (allow)"
-        echo -e "4) 🔒  Запретить порт (deny)"
-        echo -e "5) 🧨   Удалить правило (по номеру)"
-        echo -e "6) 📜  Список правил (с номерами)"
-        echo -e "7) 🔄  Перезагрузить (reload)"
-        echo -e "X) 🔙  Назад"
+        ui_item "1" "🟢" "Включить UFW"    "Политика «запрещено», SSH открывается первым"
+        ui_item "2" "🔴" "Выключить UFW"   "Все порты сервера станут доступны снаружи"
+        ui_item "3" "🔓" "Разрешить порт"  "ufw allow: TCP, UDP или оба"
+        ui_item "4" "🔒" "Запретить порт"  "ufw deny: TCP, UDP или оба"
+        ui_item "5" "🧨" "Удалить правило" "По номеру из списка ниже"
+        ui_item "6" "📜" "Список правил"   "С номерами — для пункта 5"
+        ui_item "7" "🔄" "Перезагрузить"   "ufw reload, правила применяются заново"
+        ui_item "X" "🔙" "Назад"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
         read -p "Выбор: " u_choice
 
@@ -146,9 +146,15 @@ function show_ufw_menu {
                     continue
                 fi
 
-                echo -e "Выберите протокол для порта $p:"
-                echo -e "1) TCP\n2) UDP\n3) Оба (и TCP и UDP)\n0) Отмена"
-                read -p "Выбор [1-3, 0]: " proto_choice
+                echo -e "\n${C_NAME}Протокол для порта ${p}:${NC}"
+                ui_item "1" "🔗" "TCP"     "Обычные соединения"
+                ui_item "2" "📡" "UDP"     "Датаграммы"
+                ui_item "3" "🔀" "Оба"     "И TCP, и UDP"
+                # X, а не 0: во всех остальных экранах VSM выход — это X, и
+                # держать здесь особую клавишу значит заставлять человека
+                # помнить исключение. Любой другой ввод и так отменяет.
+                ui_item "X" "🔙" "Отмена"
+                read -p "Выбор [1-3, X]: " proto_choice
                 
                 case $proto_choice in
                     1) res=$(sudo ufw $action "$p/tcp") ;;
@@ -202,22 +208,31 @@ function set_timezone_menu {
         echo -e "${CYAN}--- 🕒 НАСТРОЙКА ЧАСОВОГО ПОЯСА -------------------------${NC}"
         echo -e "    Текущий пояс: ${GREEN}$(get_timezone_status)${NC}"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
-        echo -e "1) 🏰  Калининград (MSK-1)   5) 🗻  Екатеринбург (MSK+2)"
-        echo -e "2) 🏢   Москва (MSK)          6) 🌲 Новосибирск (MSK+4)"
-        echo -e "3) 🚀  Самара (MSK+1)        7) ⚓ Владивосток (MSK+7)"
-        echo -e "4) 🌍  UTC                   8) 🧊  Магадан (MSK+8)"
-        echo -e "X) 🔙  Назад"
+        # Список был только российским, а сервера у владельца в Казахстане:
+        # часовой пояс приходилось ставить руками мимо меню. Добавлена Алматы —
+        # с 2024 года весь Казахстан на UTC+5 одним поясом.
+        ui_item "1" "🏰" "Калининград"  "MSK−1 · Europe/Kaliningrad"
+        ui_item "2" "🏢" "Москва"       "MSK · Europe/Moscow"
+        ui_item "3" "🚀" "Самара"       "MSK+1 · Europe/Samara"
+        ui_item "4" "🗻" "Екатеринбург" "MSK+2 · Asia/Yekaterinburg"
+        ui_item "5" "🌲" "Новосибирск"  "MSK+4 · Asia/Novosibirsk"
+        ui_item "6" "⚓" "Владивосток"  "MSK+7 · Asia/Vladivostok"
+        ui_item "7" "🧊" "Магадан"      "MSK+8 · Asia/Magadan"
+        ui_item "8" "🏔" "Алматы"       "UTC+5 · Asia/Almaty — весь Казахстан"
+        ui_item "9" "🌍" "UTC"          "Всемирное время, без смещения"
+        ui_item "X" "🔙" "Назад"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
-        read -p "Выбор [1-8, X]: " t_choice
+        read -p "Выбор [1-9, X]: " t_choice
         case $t_choice in
             1) sudo timedatectl set-timezone Europe/Kaliningrad ;;
             2) sudo timedatectl set-timezone Europe/Moscow ;;
             3) sudo timedatectl set-timezone Europe/Samara ;;
-            4) sudo timedatectl set-timezone UTC ;;
-            5) sudo timedatectl set-timezone Asia/Yekaterinburg ;;
-            6) sudo timedatectl set-timezone Asia/Novosibirsk ;;
-            7) sudo timedatectl set-timezone Asia/Vladivostok ;;
-            8) sudo timedatectl set-timezone Asia/Magadan ;;
+            4) sudo timedatectl set-timezone Asia/Yekaterinburg ;;
+            5) sudo timedatectl set-timezone Asia/Novosibirsk ;;
+            6) sudo timedatectl set-timezone Asia/Vladivostok ;;
+            7) sudo timedatectl set-timezone Asia/Magadan ;;
+            8) sudo timedatectl set-timezone Asia/Almaty ;;
+            9) sudo timedatectl set-timezone UTC ;;
             [Xx]) return ;;
         esac
         echo -e "${GREEN}✅ Готово.${NC}" ; sleep 1
@@ -265,10 +280,10 @@ function show_bbr_menu {
         echo -e "${CYAN}--- 📈 УПРАВЛЕНИЕ ОПТИМИЗАЦИЕЙ BBR -----------------------${NC}"
         echo -e "    Текущий статус: [$(if [ "$STATUS" == "active" ]; then echo -e "${GREEN}АКТИВЕН${NC}"; else echo -e "${RED}ОТКЛЮЧЕН${NC}"; fi)]"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
-        echo -e "${GREEN}1) 🟢  Активировать BBR${NC}"
-        echo -e "${RED}2) 🔴  Деактивировать BBR (возврат к Cubic)${NC}"
-        echo -e "${YELLOW}3) 📋   Показать текущий алгоритм (sysctl)${NC}"
-        echo -e "${RED}X) 🔙  Назад"
+        ui_item "1" "🟢" "Активировать BBR"   "Алгоритм перегрузки TCP от Google"
+        ui_item "2" "🔴" "Деактивировать BBR" "Возврат к Cubic"
+        ui_item "3" "📋" "Показать алгоритм"  "Что стоит сейчас, по sysctl"
+        ui_item "X" "🔙" "Назад"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
         read -p "Ваш выбор [1-3, X]: " choice
         case $choice in
@@ -530,11 +545,11 @@ function manage_ssl_menu {
         echo -e "${CYAN}--- 🔐 УПРАВЛЕНИЕ СЕРТИФИКАТАМИ (SSL/ACME) ----------------${NC}"
         echo -e "    Папка сохранения: ${GREEN}$SSL_SAVE_DIR${NC}"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
-        echo -e "1) ➕  Получить сертификат (Один домен или Multi-domain SAN)"
-        echo -e "2) 📋  Список сохраненных сертификатов"
-        echo -e "3) ❌  Отозвать и удалить сертификат"
-        echo -e "4) 🔧   Изменить папку по умолчанию"
-        echo -e "X) 🔙  Назад"
+        ui_item "1" "➕" "Получить сертификат" "Один домен или несколько в SAN"
+        ui_item "2" "📋" "Список сохранённых"  "Что уже выпущено и куда сложено"
+        ui_danger_item "3" "Отозвать и удалить" "Безвозвратно; сайт останется без TLS"
+        ui_item "4" "🔧" "Папка сохранения"    "Куда складывать выпущенное"
+        ui_item "X" "🔙" "Назад"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
         read -p "Выбор: " ssl_choice
 

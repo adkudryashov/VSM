@@ -46,10 +46,10 @@ function run_utils_menu {
                 ;;
             2)
                 echo -e "\n${CYAN}--- Параметры сканирования (ncdu) ---${NC}"
-                echo -e "1) Весь диск (/)"
-                echo -e "2) Системные логи (/var/log)"
-                echo -e "3) Текущая папка ($(pwd))"
-                echo -e "4) Ввести путь вручную"
+                ui_item "1" "💽" "Весь диск"      "/ — целиком, дольше всего"
+                ui_item "2" "📜" "Системные логи" "/var/log"
+                ui_item "3" "📂" "Текущая папка"  "$(pwd)"
+                ui_item "4" "✏" "Свой путь"      "Ввести вручную"
                 read -p "Выбор: " ncdu_opt
                 case $ncdu_opt in
                     1) ncdu / ;;
@@ -87,9 +87,9 @@ function run_utils_menu {
                 echo -e "\n${CYAN}--- Пинг и Трассировка ---${NC}"
                 read -p "Введите IP или домен (например, 8.8.8.8 или google.com): " target
                 if [ -z "$target" ]; then continue; fi
-                echo -e "1) Обычный ping (4 пакета)"
-                echo -e "2) Непрерывный ping (Ctrl+C для выхода)"
-                echo -e "3) Трассировка MTR (в реальном времени)"
+                ui_item "1" "🏓" "Обычный ping"    "4 пакета и остановка"
+                ui_item "2" "♾" "Непрерывный ping" "До Ctrl+C"
+                ui_item "3" "🧭" "Трассировка MTR" "Путь до узла в реальном времени"
                 read -p "Выбор: " ping_opt
                 case $ping_opt in
                     1) ping -c 4 "$target" ;;
@@ -101,9 +101,9 @@ function run_utils_menu {
                 ;;
             4)
                 echo -e "\n${CYAN}--- Активные порты (ss) ---${NC}"
-                echo -e "1) Только TCP-порты"
-                echo -e "2) Только UDP-порты"
-                echo -e "3) Все активные порты (TCP + UDP)"
+                ui_item "1" "🔗" "Только TCP"  "Слушающие сокеты TCP"
+                ui_item "2" "📡" "Только UDP"  "Слушающие сокеты UDP"
+                ui_item "3" "🔀" "Все порты"   "TCP и UDP вместе"
                 read -p "Выбор: " port_opt
                 echo ""
                 case $port_opt in
@@ -117,9 +117,9 @@ function run_utils_menu {
                 ;;
             9)
                 echo -e "\n${CYAN}--- Завершение процессов ---${NC}"
-                echo -e "1) Найти процесс по имени (узнать PID)"
-                echo -e "2) Убить по точному PID (kill -9)"
-                echo -e "3) Убить все процессы по имени (killall -9)"
+                ui_item        "1" "🔍" "Найти по имени"  "Показать PID, ничего не трогая"
+                ui_danger_item "2" "Убить по PID"   "kill -9, без вопросов"
+                ui_danger_item "3" "Убить по имени" "killall -9 — разом все совпавшие"
                 read -p "Выбор: " kill_opt
                 case $kill_opt in
                     1)
@@ -148,12 +148,10 @@ function run_utils_menu {
                 # замере 2 ГБ занимали распакованные исходники сборки, которых
                 # не касался ни один из прежних пунктов.
                 bash "$VSM_ROOT/tools/disk-cleanup.sh" --report
-                echo -e "1) 🧹 Убрать накопившийся мусор"
-                echo -e "   ${C_DESC}исходники сборки, кэш пакетов, старые ядра, журнал сверх потолка${NC}"
-                echo -e "2) 🔧 Устранить ПРИЧИНУ роста логов"
-                echo -e "   ${C_DESC}потолок журналу и отмена дублирования в syslog — меняет настройку системы${NC}"
-                echo -e "3) 🔄 Вернуть журналирование как было"
-                echo -e "X) 🔙 Назад"
+                ui_item "1" "🧹" "Убрать мусор"        "Исходники сборки, кэш пакетов, старые ядра, журнал сверх потолка"
+                ui_item "2" "🔧" "Устранить причину"   "Потолок журналу и отмена дублирования в syslog — меняет настройку системы"
+                ui_item "3" "🔄" "Вернуть как было"    "Откат настройки журналирования"
+                ui_item "X" "🔙" "Назад"
                 read -p "Выбор: " clean_opt
                 case $clean_opt in
                     1) bash "$VSM_ROOT/tools/disk-cleanup.sh" --clean ;;

@@ -42,10 +42,10 @@ function run_scanner {
     
     echo -e "\n${CYAN}>>> ЗАПУСК Realitls Scaner${NC}"
     echo -e "${YELLOW}Доступные параметры:${NC}"
-    echo "  1) 📄  -in (Файл со списком IP/CIDR)"
-    echo "  2) 🎯  -addr (Один IP/CIDR или домен)"
-    echo "  3) 🌐  -url (URL со списком доменов)"
-    echo -e " ${RED}X) ❌  Отмена${NC}"
+    ui_item "1" "📄" "Файл со списком" "-in: путь к файлу с IP или CIDR"
+    ui_item "2" "🎯" "Один адрес"      "-addr: IP, CIDR или домен"
+    ui_item "3" "🌐" "Список по URL"   "-url: адрес списка доменов"
+    ui_item "X" "❌" "Отмена"
     
     read -p "Выберите метод ввода [1-3, X]: " method
 

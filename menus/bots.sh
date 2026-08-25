@@ -412,7 +412,14 @@ function manage_services {
     fi
     echo -e "\n${CYAN}Установленные службы:${NC}"
     local i=1; local list=()
-    for u in $units; do echo -e "  $i) $u [$(unit_status "$u")]"; list+=("$u"); i=$((i+1)); done
+    # Список собирается на лету, но рисуется теми же примитивами: экран, где
+    # пункты выглядят иначе, чем везде, читается как чужой, и клавиша выхода
+    # там ищется отдельно.
+    for u in $units; do
+        ui_item "$i" "⚙" "$u" "$(unit_status "$u")"
+        list+=("$u"); i=$((i+1))
+    done
+    ui_item "X" "🔙" "Назад"
     read -p "Выбор [1-$((i-1)), X]: " ch
     [[ "$ch" =~ ^[Xx]$ ]] && return
     [[ "$ch" =~ ^[0-9]+$ ]] && [ -n "${list[$((ch-1))]}" ] \
