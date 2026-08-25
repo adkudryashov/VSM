@@ -1,3 +1,5 @@
+import logging
+
 from aiogram import types
 from aiogram.types import InputRichMessage
 from aiogram.exceptions import TelegramBadRequest
@@ -60,6 +62,54 @@ def format_connections(value: int) -> str:
     elif value < 1_000_000: return f"{value/1000:.1f}k" if value % 1000 != 0 else f"{value//1000}k"
     else: return f"{value/1_000_000:.1f}M"
 
+# Длинный список сворачиваем в раскрывающуюся цитату.
+#
+# Telegram показывает у <blockquote expandable> первые три строки и кнопку
+# «Показать полностью». Для наших списков — адреса пользователей, детальный
+# лог IP — это разница между экраном, который надо пролистывать, и тремя
+# строками с заголовком.
+#
+# ЧЕГО ЭТО НЕ ДЕЛАЕТ: не поднимает предел в 4096 символов. Сообщение длиннее
+# по-прежнему режется send_long_message, и число сообщений не меняется —
+# меняется только их высота на экране. Обещать «одно сообщение вместо трёх»
+# было бы неправдой.
+#
+# Порог в восемь строк не случайный: свернуть четыре строки в три — значит
+# отнять содержимое и попросить взамен нажатие. Выигрыш начинается там, где
+# свёрнутого заметно больше, чем видимого.
+COLLAPSE_MIN_LINES = 8
+
+
+def collapse(body: str, header: str = "", min_lines: int = COLLAPSE_MIN_LINES) -> str:
+    """
+    Свернуть тело в раскрывающуюся цитату, если оно того стоит.
+
+    header остаётся СНАРУЖИ цитаты: свёрнутое сообщение обязано оставаться
+    узнаваемым в ленте. Заголовок внутри блока прячется вместе с ним, и в
+    чате остаётся безымянный серый прямоугольник.
+    """
+    body = body.strip("\n")
+    if not body:
+        return header
+    if body.count("\n") + 1 < min_lines:
+        return f"{header}\n{body}" if header else body
+    quoted = f"<blockquote expandable>{body}</blockquote>"
+    return f"{header}\n{quoted}" if header else quoted
+
+
+# Предупреждение о неудаче Rich Message — ОДИН раз за жизнь процесса.
+#
+# Прежде оно печаталось при каждом откате, отдельным сообщением, вместе с
+# текстом исключения. На сервере, где Rich Messages почему-либо не работают,
+# это давало по два сообщения на каждую команду: сначала жалоба с чужой
+# английской ошибкой, потом сам ответ. Причина при этом одна и та же, и
+# сообщать о ней двадцатый раз — шум, а не забота.
+#
+# Текст исключения убран из чата намеренно: он приходит от чужого API и может
+# нести внутренности, а пользы человеку не несёт — решение всё равно одно.
+_rich_warned = False
+
+
 async def send_rich_or_fallback(message: types.Message, html_content: str, fallback_text: str, reply_markup=None):
     """
     Отправляет Rich Message (Bot API 10.1); при любой ошибке API — откатывается
@@ -76,9 +126,14 @@ async def send_rich_or_fallback(message: types.Message, html_content: str, fallb
             **kwargs
         )
     except Exception as e:
-        await message.answer(
-            f"⚠️ Rich Message не отправился, показываю как обычный текст.\nОшибка: {e}"
-        )
+        global _rich_warned
+        logging.warning("Rich Message не отправился, показываю обычным текстом: %s", e)
+        if not _rich_warned:
+            _rich_warned = True
+            await message.answer(
+                "⚠️ Rich Message недоступен — показываю обычным текстом.\n"
+                "Дальше повторять не буду, причина в журнале бота."
+            )
         kwargs = {"reply_markup": reply_markup} if reply_markup is not None else {}
         await send_long_message(message, fallback_text, **kwargs)
 

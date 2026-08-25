@@ -1,4 +1,4 @@
-from telemt.utils.helpers import send_long_message, send_rich_or_fallback
+from telemt.utils.helpers import collapse, send_long_message, send_rich_or_fallback
 import asyncio
 import html
 from aiogram import Router, types
@@ -19,7 +19,7 @@ def _build_user_block(username: str, rows: list[tuple[str, str]]) -> tuple[str, 
     """
     if not rows:
         block_html = f"<details open><summary>👤 {html.escape(username)} (0)</summary><p>Нет активных IP.</p></details>"
-        block_plain = f"👤 {username} (0)\n⚠️ Нет активных IP."
+        block_plain = f"👤 {html.escape(username)} (0)\n⚠️ Нет активных IP."
         return block_html, block_plain
 
     table_rows_html = "".join(f"<tr><td>{ip}</td><td>{geo}</td></tr>" for ip, geo in rows)
@@ -27,8 +27,11 @@ def _build_user_block(username: str, rows: list[tuple[str, str]]) -> tuple[str, 
         f"<details open><summary>👤 {html.escape(username)} ({len(rows)})</summary>"
         f"<table><tr><th>IP</th><th>Гео</th></tr>{table_rows_html}</table></details>"
     )
-    plain_lines = [f"👤 {username} ({len(rows)})"] + [f"🌐 <code>{ip:<15}</code> — {geo}" for ip, geo in rows]
-    block_plain = "\n".join(plain_lines)
+    # Заголовок с именем — снаружи цитаты, адреса — внутри. Свёрнутый блок
+    # обязан отвечать на вопрос «чей это список», не раскрываясь.
+    head = f"👤 <b>{html.escape(username)}</b> ({len(rows)})"
+    body = "\n".join(f"🌐 <code>{ip:<15}</code> — {geo}" for ip, geo in rows)
+    block_plain = collapse(body, head)
     return block_html, block_plain
 
 async def _send_merged_blocks(message: types.Message, blocks: list[tuple[str, str]]):
@@ -68,7 +71,7 @@ async def _send_ip_table_chunks(message: types.Message, username: str, rows: lis
     объём и так один пользователь на несколько сообщений).
     """
     header_html = f"<h3>👤 {html.escape(username)} ({len(rows)})</h3>"
-    await send_rich_or_fallback(message, header_html, f"👤 {username} ({len(rows)})")
+    await send_rich_or_fallback(message, header_html, f"👤 {html.escape(username)} ({len(rows)})")
 
     table_rows: list[str] = []
     plain_lines: list[str] = []
@@ -76,7 +79,9 @@ async def _send_ip_table_chunks(message: types.Message, username: str, rows: lis
 
     async def _flush():
         table_html = "<table><tr><th>IP</th><th>Гео</th></tr>" + "".join(table_rows) + "</table>"
-        plain_fallback = "<blockquote>" + "\n".join(plain_lines) + "</blockquote>"
+        # Была обычная цитата — теперь раскрывающаяся: у таких пользователей
+        # счёт адресов идёт на сотни, и порция занимает экран целиком.
+        plain_fallback = collapse("\n".join(plain_lines))
         await send_rich_or_fallback(message, table_html, plain_fallback)
         await asyncio.sleep(0.05)
 

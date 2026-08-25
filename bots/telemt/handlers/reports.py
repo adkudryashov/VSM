@@ -13,7 +13,7 @@ from aiogram.filters.callback_data import CallbackData
 from aiogram.exceptions import TelegramBadRequest
 
 from telemt.utils.geo import country_flag, get_geoip_readers
-from telemt.utils.helpers import send_long_message, send_rich_or_fallback, edit_rich_or_fallback, format_traffic
+from telemt.utils.helpers import collapse, send_long_message, send_rich_or_fallback, edit_rich_or_fallback, format_traffic
 from telemt.api.client import TelemtAPIClient
 from config import settings
 
@@ -88,12 +88,22 @@ async def build_summary_data():
 
     users_data.sort(key=lambda x: x["traffic"], reverse=True)
 
-    fallback_lines = ["📊 <b>ИСТОРИЯ ПОДКЛЮЧЕНИЙ (СВОДКА)</b>", "────────────────────────\n"]
+    # Шапка и подсказка — снаружи сворачиваемого тела.
+    #
+    # Заголовок обязан остаться видимым, иначе в ленте безымянный серый блок.
+    # Подсказка «выберите пользователя ниже» — тем более: она объясняет кнопки
+    # под сообщением, и спрятать её внутрь значит спрятать инструкцию к тому,
+    # что человек видит прямо перед собой.
+    fallback_head = "📊 <b>ИСТОРИЯ ПОДКЛЮЧЕНИЙ (СВОДКА)</b>"
+    fallback_lines = []
     rich_rows = []
     kb = []
     for u in users_data:
         disp_name = f"@{u['username']}" if u['username'] and u['username'] != "Unknown" else "Неизвестный"
-        fallback_lines.append(f"👤 <b>{disp_name}</b> | 📱 {u['ip_count']} IP | 💾 {format_traffic(u['traffic'])}")
+        # Имя — в HTML-строку, значит через html.escape. В подписи кнопки
+        # ниже экранировать НЕЛЬЗЯ: она не разбирается как разметка, и
+        # &lt; там показалось бы человеку буквально.
+        fallback_lines.append(f"👤 <b>{html.escape(disp_name)}</b> | 📱 {u['ip_count']} IP | 💾 {format_traffic(u['traffic'])}")
         rich_rows.append(
             f"<tr><td>{html.escape(disp_name)}</td><td>{u['ip_count']}</td>"
             f"<td>{html.escape(format_traffic(u['traffic']))}</td></tr>"
@@ -103,7 +113,7 @@ async def build_summary_data():
             callback_data=ReportCb(action="detail", user=u['username'], page=0).pack()
         )])
 
-    fallback_lines.append("\n<i>Выберите пользователя ниже для просмотра детального лога.</i>")
+    fallback_tail = "\n<i>Выберите пользователя ниже для просмотра детального лога.</i>"
     markup = InlineKeyboardMarkup(inline_keyboard=kb)
 
     rich_html = (
@@ -113,7 +123,8 @@ async def build_summary_data():
         "<p>Выберите пользователя ниже для просмотра детального лога.</p>"
     )
 
-    return rich_html, "\n".join(fallback_lines), markup
+    fallback_text = collapse("\n".join(fallback_lines), fallback_head) + fallback_tail
+    return rich_html, fallback_text, markup
 
 
 @router.message(Command("user_report", "geo_report"))
@@ -200,7 +211,16 @@ async def cq_detail(call: types.CallbackQuery, callback_data: ReportCb):
 
     disp_name = f"@{user}" if user and user != "Unknown" else "Неизвестного пользователя"
 
-    fallback_lines = [f"📊 <b>Детальный лог IP для {disp_name}</b>", f"<i>Всего записей: {total_records}</i>", "────────────────────────\n"]
+    # Шапка отдельно от тела: она остаётся видимой, когда список свёрнут.
+    # html.escape обязателен и здесь. Rich-путь имя экранирует, а фолбэк — нет,
+    # хотя уходит с parse_mode="HTML". Имя с угловой скобкой ломает разбор, и
+    # Telegram отвергает сообщение целиком: детальный лог просто не приходит,
+    # причём только для того пользователя, чьё имя и понадобилось посмотреть.
+    fallback_head = (
+        f"📊 <b>Детальный лог IP для {html.escape(disp_name)}</b>\n"
+        f"<i>Всего записей: {total_records}</i>"
+    )
+    fallback_lines = []
     rich_rows = []
     for ip, geo_string, last_seen, count in geo_rows:
         fallback_lines.append(f"🌐 <code>{ip:<15}</code> ── {html.escape(geo_string)}")
@@ -216,7 +236,7 @@ async def cq_detail(call: types.CallbackQuery, callback_data: ReportCb):
         f"<table><tr><th>IP</th><th>Гео</th><th>Активность</th></tr>"
         + "".join(rich_rows) + "</table>"
     )
-    fallback_text = "\n".join(fallback_lines)
+    fallback_text = collapse("\n".join(fallback_lines), fallback_head)
 
     # Сборка кнопок пагинации
     nav_buttons = []
