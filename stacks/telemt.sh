@@ -130,29 +130,19 @@ wait_until() {
     return 1
 }
 
-# Ожидание освобождения блокировки dpkg. Двойник функции из
-# lib/common.sh: этот скрипт самодостаточен и утилиты меню не
-# подключает, поэтому небольшое повторение здесь дешевле связности.
+# Ожидание освобождения блокировки dpkg — теперь ждёт САМ apt.
 #
-# Нужно потому, что стек ставят на только что созданный VPS, где первые минуты
-# работает unattended-upgrades. Без ожидания apt возвращает ошибку, пакет молча
-# не ставится — так на чистой Ubuntu 24.04 не установился acl.
+# Здесь был цикл на fuser, двойник такого же в lib/deps.sh, и оба не работали
+# на системах без psmisc: команда падает с «command not found», условие цикла
+# сразу ложно, тело не выполняется ни разу. Ожидания нет, а выглядит так, будто
+# оно есть. Поймано на чистой Ubuntu 26.04 (26.08.2026) — там fuser не ставится
+# по умолчанию.
+#
+# Ключ DPkg::Lock::Timeout понимает сам apt начиная с 1.9.11 (2019). Он передан
+# каждому вызову apt-get в этом файле, поэтому функция оставлена пустой: её
+# зовут по месту прежней логики, и убирать вызовы значит трогать этапы, к
+# которым правка отношения не имеет.
 wait_for_apt() {
-    local waited=0 limit="${1:-300}"
-    while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock \
-                /var/lib/apt/lists/lock &>/dev/null; do
-        [ "$waited" -eq 0 ] && log "жду освобождения apt (идут автообновления)..."
-        sleep 3
-        waited=$((waited + 3))
-        # Возвращаем 0, а не 1. Прежнее "return 1" убивало установщик молча:
-        # оба вызова — голые команды под set -euo pipefail, поэтому сразу после
-        # слова «продолжаю» скрипт завершался, не дойдя ни до одного die. Текст
-        # прямо противоречил поведению, а на вызове перед выдачей доступа к
-        # сертификату это ещё и происходило до сохранения секрета в telemt.conf.
-        # Дубль этой функции в stacks/bots.sh с самого начала делал break, то
-        # есть действительно продолжал, — приводим копии к одному поведению.
-        [ "$waited" -ge "$limit" ] && { warn "apt занят дольше ${limit} с, продолжаю без ожидания."; return 0; }
-    done
     return 0
 }
 
@@ -270,9 +260,9 @@ log "Этап 0: предварительные проверки (режим: $M
 if ! command -v dig >/dev/null 2>&1; then
     log "  ставлю dnsutils (нужен dig для проверки DNS)..."
     wait_for_apt
-    apt-get update -qq
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq dnsutils >/dev/null 2>&1 || \
-        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bind9-dnsutils >/dev/null 2>&1 || \
+    apt-get -o DPkg::Lock::Timeout=300 update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y -qq dnsutils >/dev/null 2>&1 || \
+        DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y -qq bind9-dnsutils >/dev/null 2>&1 || \
         die "Не удалось установить dig (пакет dnsutils/bind9-dnsutils)."
 fi
 command -v openssl >/dev/null 2>&1 || die "Нужен openssl."
@@ -295,7 +285,7 @@ if [[ "$MODE" == "addon" ]]; then
     systemctl is-active --quiet nginx || die "nginx не запущен — self-SNI маскировке нужен рабочий backend."
 fi
 
-apt-get update -qq
+apt-get -o DPkg::Lock::Timeout=300 update -qq
 
 # ---------------------------------------------------------------------------
 # ЭТАП 1 — 3x-ui-pro (только в режиме full)

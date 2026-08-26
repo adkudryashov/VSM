@@ -41,22 +41,24 @@ function have_cmd {
 # чистой Ubuntu 24.04: из-за этого не установился acl, а следом умер весь
 # установщик стека.
 #
-# Ждём молча только первые пару секунд: если блокировка держится дольше,
-# пользователь должен понимать, почему всё встало.
+# Ключи, с которыми apt ждёт свой замок САМ.
+#
+# ПРЕЖНЯЯ ЗАЩИТА НЕ РАБОТАЛА. wait_for_apt крутил `while fuser … &>/dev/null`,
+# а fuser даёт пакет psmisc, которого на чистой Ubuntu 26.04 нет. Команда
+# падает с «command not found», условие цикла сразу ложно, тело не выполняется
+# ни разу — ожидания нет, но со стороны выглядит, будто оно есть. Молчаливее
+# дефекта не придумать: ни ошибки, ни строчки в выводе.
+#
+# DPkg::Lock::Timeout умеет сам apt с версии 1.9.11 (2019), то есть на всех
+# системах, которые мы поддерживаем, начиная с 20.04. Он ждёт ВСЕ свои замки,
+# знает о них больше внешней утилиты и не требует лишнего пакета.
+APT_WAIT=(-o DPkg::Lock::Timeout=300)
+
+# Оставлена ради вызывающих: ждать снаружи теперь незачем — ждёт сам apt.
+# Убрать её совсем нельзя, её зовут установщики стеков, которые
+# самодостаточны и живут своей жизнью. Пусть лучше существует и честно ничего
+# не делает, чем один из них однажды упадёт на «команда не найдена».
 function wait_for_apt {
-    local waited=0 limit="${1:-300}"
-    while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock \
-                /var/lib/apt/lists/lock &>/dev/null; do
-        if [ "$waited" -eq 0 ]; then
-            echo -e "${YELLOW}    ожидаю освобождения apt (идёт установка обновлений)...${NC}"
-        fi
-        sleep 3
-        waited=$((waited + 3))
-        if [ "$waited" -ge "$limit" ]; then
-            echo -e "${RED}    apt занят дольше ${limit} с — продолжаю без ожидания.${NC}"
-            return 1
-        fi
-    done
     return 0
 }
 
@@ -82,9 +84,9 @@ function ensure_packages {
     wait_for_apt
     # Обновление списков не через &&: его провал из-за чужого репозитория
     # не должен мешать установке пакетов из рабочих источников.
-    sudo apt-get update -qq 2>/dev/null || \
+    sudo apt-get "${APT_WAIT[@]}" update -qq 2>/dev/null || \
         echo -e "${YELLOW}    (списки пакетов обновились с ошибками, продолжаю)${NC}"
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing[@]}" || true
+    sudo DEBIAN_FRONTEND=noninteractive apt-get "${APT_WAIT[@]}" install -y "${missing[@]}" || true
 
     local failed=()
     for spec in "$@"; do
@@ -97,10 +99,10 @@ function ensure_packages {
         # Битый сторонний репозиторий — частая, но не единственная причина.
         # Называем его только если он действительно есть, иначе подсказка
         # уводила бы от настоящей проблемы (нехватка места, конфликт версий).
-        if ! sudo apt-get update -qq >/dev/null 2>&1; then
+        if ! sudo apt-get "${APT_WAIT[@]}" update -qq >/dev/null 2>&1; then
             echo -e "${YELLOW}   Списки пакетов обновляются с ошибками. Проверьте"
             echo -e "   сторонние репозитории:${NC}"
-            sudo apt-get update 2>&1 >/dev/null | grep -iE "^(E|W|Ошб|Err)" | head -3 | sed 's/^/     /'
+            sudo apt-get "${APT_WAIT[@]}" update 2>&1 >/dev/null | grep -iE "^(E|W|Ошб|Err)" | head -3 | sed 's/^/     /'
         fi
         return 1
     fi

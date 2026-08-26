@@ -182,15 +182,12 @@ if [[ ${#NEED[@]} -gt 0 ]]; then
     log "Ставлю: ${NEED[*]}"
     # На свежем VPS блокировку dpkg держит unattended-upgrades, и без ожидания
     # пакеты молча не ставятся — а без python3-venv бот просто не соберётся.
-    _waited=0
-    while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock \
-                /var/lib/apt/lists/lock &>/dev/null; do
-        [[ $_waited -eq 0 ]] && log "жду освобождения apt (идут автообновления)..."
-        sleep 3; _waited=$((_waited + 3))
-        [[ $_waited -ge 300 ]] && { log "apt занят дольше 300 с, продолжаю."; break; }
-    done
-    apt-get update -qq
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${NEED[@]}" >/dev/null
+    #
+    # Ждёт сам apt: ключ DPkg::Lock::Timeout ниже. Прежний цикл на fuser не
+    # работал на системах без psmisc — команда не находилась, условие было
+    # сразу ложным, и ожидания не было вовсе.
+    apt-get -o DPkg::Lock::Timeout=300 update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y -qq "${NEED[@]}" >/dev/null
 fi
 log "Python $(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
 

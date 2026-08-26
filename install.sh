@@ -27,16 +27,24 @@ echo -e "${YELLOW}>>> Установка необходимых пакетов..
 # На только что созданном VPS первые минуты работает unattended-upgrades и
 # держит блокировку dpkg. Без ожидания apt возвращает ошибку и пакеты молча не
 # ставятся — а это самая первая команда, которую пользователь вообще запускает.
-_waited=0
-while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock \
-            /var/lib/apt/lists/lock &>/dev/null; do
-    [ "$_waited" -eq 0 ] && echo -e "${YELLOW}    ожидаю освобождения apt (идут автообновления)...${NC}"
-    sleep 3; _waited=$((_waited + 3))
-    [ "$_waited" -ge 300 ] && { echo -e "${RED}    apt занят дольше 300 с — продолжаю.${NC}"; break; }
-done
-apt-get update -qq 2>/dev/null || \
+# Ждёт САМ apt, а не мы снаружи.
+#
+# ЗДЕСЬ БЫЛ ЦИКЛ НА fuser, И ОН НЕ РАБОТАЛ ВОВСЕ. `while fuser … &>/dev/null`
+# на системе без psmisc падает с «command not found», условие сразу ложно, и
+# тело цикла не выполняется ни разу — то есть ожидания нет, а выглядит так,
+# будто оно есть. Поймано на чистой Ubuntu 26.04 (26.08.2026): fuser там не
+# ставится по умолчанию, и защита, заведённая после реальной поломки
+# установщика, молча отсутствовала.
+#
+# DPkg::Lock::Timeout умеет сам apt начиная с 1.9.11 (2019) — то есть на всех
+# поддерживаемых нами системах, от 20.04. Он знает про свои замки больше любой
+# внешней утилиты, ждёт их все и не требует лишнего пакета. Заводить
+# зависимость ради того, чтобы подсмотреть за apt снаружи, было ошибкой.
+APT_WAIT=(-o DPkg::Lock::Timeout=300)
+echo -e "${YELLOW}    (если идут автообновления, apt подождёт их до 5 минут)${NC}"
+apt-get "${APT_WAIT[@]}" update -qq 2>/dev/null || \
     echo -e "${YELLOW}    (списки пакетов обновились с ошибками, продолжаю)${NC}"
-DEBIAN_FRONTEND=noninteractive apt-get install -y curl git bc jq ufw qrencode || true
+DEBIAN_FRONTEND=noninteractive apt-get "${APT_WAIT[@]}" install -y curl git bc jq ufw qrencode || true
 
 MISSING=""
 for c in curl git bc jq ufw qrencode; do

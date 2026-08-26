@@ -246,9 +246,9 @@ fi
 # ---------------------------------------------------------------------------
 log "Этап 1: сборка OpenSSL ${OPENSSL_VER} (долго)"
 
-apt-get update -qq
+apt-get -o DPkg::Lock::Timeout=300 update -qq
 # shellcheck disable=SC2086
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y -qq \
     build-essential zlib1g-dev perl libpcre2-dev wget $EXTRA_DEPS
 
 cd /usr/local/src
