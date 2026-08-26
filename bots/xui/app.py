@@ -96,24 +96,43 @@ async def edit_inline_keyboard():
     return builder.as_markup()
 
 
-async def send_rich_or_fallback(bot: Bot, chat_id: int, html_content: str):
+# Предупреждение о недоступности Rich Message — один раз за жизнь процесса.
+# Причина у всех откатов одна, и повторять её на каждую команду — шум.
+_rich_warned = False
+
+
+async def send_rich_or_fallback(bot: Bot, chat_id: int, html_content: str,
+                                fallback_text: str | None = None):
     """
-    Отправляет Rich Message; если API вернёт ошибку — откатывается на обычный
-    текст, чтобы бот не падал и было видно, что именно пошло не так.
+    Отправляет Rich Message; при ошибке API — откатывается на обычный текст.
+
+    fallback_text — ГОТОВЫЙ запасной вариант, собранный тем же кодом, что и
+    богатый. Раньше его не было, и запасным путём служило срезание тегов
+    регуляркой: таблица превращалась в слипшуюся строку значений без единого
+    разделителя, где «онлайн 3» и «4.1 GB» стояли вплотную. Читать это
+    невозможно, а появляется оно ровно тогда, когда что-то уже сломалось.
+    Срезание оставлено только на случай, когда запасного текста не передали.
     """
+    global _rich_warned
     try:
         await bot.send_rich_message(
             chat_id=chat_id,
             rich_message=InputRichMessage(html=html_content),
         )
     except Exception as e:
-        await bot.send_message(
-            chat_id=chat_id,
-            text=f"⚠️ Rich Message не отправился, показываю как обычный текст.\n"
-                 f"Ошибка: {html.escape(str(e))}",
-        )
-        plain = re.sub(r"<[^>]+>", " ", html_content)
-        await bot.send_message(chat_id=chat_id, text=html.escape(plain))
+        logging.warning("Rich Message не отправился, показываю обычным текстом: %s", e)
+        if not _rich_warned:
+            _rich_warned = True
+            await bot.send_message(
+                chat_id=chat_id,
+                text="⚠️ Rich Message недоступен — показываю обычным текстом.\n"
+                     "Дальше повторять не буду, причина в журнале бота.",
+            )
+        if fallback_text is not None:
+            await bot.send_message(chat_id=chat_id, text=fallback_text, parse_mode="HTML")
+        else:
+            plain = re.sub(r"<[^>]+>", " ", html_content)
+            await bot.send_message(chat_id=chat_id, text=html.escape(plain))
 
 
 # ---------------------------------------------------------------------------

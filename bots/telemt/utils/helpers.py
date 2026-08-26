@@ -62,40 +62,10 @@ def format_connections(value: int) -> str:
     elif value < 1_000_000: return f"{value/1000:.1f}k" if value % 1000 != 0 else f"{value//1000}k"
     else: return f"{value/1_000_000:.1f}M"
 
-# Длинный список сворачиваем в раскрывающуюся цитату.
-#
-# Telegram показывает у <blockquote expandable> первые три строки и кнопку
-# «Показать полностью». Для наших списков — адреса пользователей, детальный
-# лог IP — это разница между экраном, который надо пролистывать, и тремя
-# строками с заголовком.
-#
-# ЧЕГО ЭТО НЕ ДЕЛАЕТ: не поднимает предел в 4096 символов. Сообщение длиннее
-# по-прежнему режется send_long_message, и число сообщений не меняется —
-# меняется только их высота на экране. Обещать «одно сообщение вместо трёх»
-# было бы неправдой.
-#
-# Порог в восемь строк не случайный: свернуть четыре строки в три — значит
-# отнять содержимое и попросить взамен нажатие. Выигрыш начинается там, где
-# свёрнутого заметно больше, чем видимого.
-COLLAPSE_MIN_LINES = 8
-
-
-def collapse(body: str, header: str = "", min_lines: int = COLLAPSE_MIN_LINES) -> str:
-    """
-    Свернуть тело в раскрывающуюся цитату, если оно того стоит.
-
-    header остаётся СНАРУЖИ цитаты: свёрнутое сообщение обязано оставаться
-    узнаваемым в ленте. Заголовок внутри блока прячется вместе с ним, и в
-    чате остаётся безымянный серый прямоугольник.
-    """
-    body = body.strip("\n")
-    if not body:
-        return header
-    if body.count("\n") + 1 < min_lines:
-        return f"{header}\n{body}" if header else body
-    quoted = f"<blockquote expandable>{body}</blockquote>"
-    return f"{header}\n{quoted}" if header else quoted
-
+# collapse переехал в common/format.py — там его видят обе части бота.
+# Здесь оставлен реэкспорт: вызовы вида `from telemt.utils.helpers import
+# collapse` продолжают работать, а определение остаётся одно.
+from common.format import COLLAPSE_MIN_LINES, collapse  # noqa: F401
 
 # Предупреждение о неудаче Rich Message — ОДИН раз за жизнь процесса.
 #

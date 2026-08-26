@@ -3,6 +3,7 @@ import aiohttp
 import asyncio
 import json
 import html as html_lib
+from common.format import collapse
 from datetime import datetime, timedelta, timezone
 
 from common import datepicker as dp
@@ -82,9 +83,9 @@ async def fetch_panel_data(name, config):
             "cpu": 0, "traffic_gb": 0, "uptime_sec": 0, "onlines": []
         }
 
-async def get_all_servers_status_rich():
+async def get_all_servers_status_parts():
     """
-    Строит HTML для Rich Message (Bot API 10.1): таблица со статусом панелей +
+    Строит (rich_html, fallback_text) для Rich Message (Bot API 10.1): таблица со статусом панелей +
     сворачиваемый список клиентов онлайн под каждой панелью.
     """
     current_panels = await get_all_panels()
@@ -111,7 +112,14 @@ async def get_all_servers_status_rich():
         except ValueError:
             return "—"
 
-    parts = ["<h2>Текущий статус панелей</h2>"]
+    # Заголовка здесь БОЛЬШЕ НЕТ — его ставит вызывающий.
+    #
+    # Прежде эта функция открывалась своим <h2>, и вторая половина сводки —
+    # статус telemt — тоже. Два равновесных заголовка подряд читаются как два
+    # несвязанных отчёта, а не как одна сводка. Теперь обе части отдают только
+    # содержимое, а шапку выбирает тот, кто их складывает.
+    parts = []
+    plain = []
     parts.append("<table><tr><th>Панель</th><th>CPU</th><th>Онлайн</th><th>Трафик</th><th>VPS до</th></tr>")
     for r in sorted_results:
         name = html_lib.escape(r["name"])
@@ -122,8 +130,13 @@ async def get_all_servers_status_rich():
                 f"<td>{r['online_count']}</td><td>{r['traffic_gb']:.1f} GB</td>"
                 f"<td>{expiry_cell}</td></tr>"
             )
+            plain.append(
+                f"🟢 <b>{name}</b> · CPU {r['cpu']:.1f}% · онлайн {r['online_count']} "
+                f"· {r['traffic_gb']:.1f} GB · до {expiry_cell}"
+            )
         else:
             parts.append(f"<tr><td>🔴 {name}</td><td>—</td><td>—</td><td>—</td><td>{expiry_cell}</td></tr>")
+            plain.append(f"🔴 <b>{name}</b> · не отвечает · до {expiry_cell}")
     parts.append("</table>")
 
     for r in sorted_results:
@@ -134,8 +147,18 @@ async def get_all_servers_status_rich():
                 f"<details open><summary>Клиенты онлайн, {panel_name} ({len(r['onlines'])})</summary>"
                 f"<p>{names_html}</p></details>"
             )
+            # В запасном пути список клиентов сворачивается: у панели на два
+            # десятка человек он занимает экран целиком, а нужен по требованию.
+            plain.append(collapse(names_html.replace(" | ", "\n"),
+                                  f"👥 Клиенты онлайн, {panel_name} ({len(r['onlines'])})"))
 
-    return "".join(parts)
+    return "".join(parts), "\n".join(plain)
+
+
+async def get_all_servers_status_rich():
+    """Только HTML — для мест, где запасной текст не нужен."""
+    rich, _ = await get_all_servers_status_parts()
+    return rich
 
 async def get_detailed_panel_report(name, config):
     base_url = clean_base_url(config["base_url"])

@@ -7,6 +7,26 @@ from telemt.api.client import TelemtAPIClient
 router = Router()
 api = TelemtAPIClient()
 
+# Один словарь значков на весь ответ.
+#
+# Прежде здесь соседствовали три азбуки: ✅/❌ у базовых статусов, 🟢/🔴 у
+# покрытия DC и ещё раз ✅/❌ у upstream. Глаз перестраивается на каждой
+# строке, а разницы в смысле между «✅ API» и «🟢 DC» никакой не было.
+#
+# Разведено по смыслу, а не по вкусу: кружок — СОСТОЯНИЕ, у которого бывают
+# градации; ✅/⚠️/🚨 остаются событиям и тревогам, где градаций нет, и живут
+# в сторожевой карточке. Белый кружок — «данных нет»: это не поломка, и
+# красный на его месте врал бы.
+OK = "🟢"
+WARN = "🟡"
+BAD = "🔴"
+NODATA = "⚪"
+
+
+def _mark(good: bool) -> str:
+    return OK if good else BAD
+
+
 @router.message(Command("aboutall"))
 async def cmd_aboutall(message: types.Message):
     try:
@@ -27,12 +47,18 @@ async def cmd_aboutall(message: types.Message):
         if isinstance(health, dict) and health.get("data"):
             status = health["data"]["status"]
             ro = health["data"]["read_only"]
-            icon = "✅" if status == "ok" else "❌"
-            lines.append(f"🏥 API: {icon} {status} (read-only: {'🔒' if ro else '🔓'})")
+            lines.append(
+                f"🏥 API · {_mark(status == 'ok')} {status} · "
+                f"{'только чтение' if ro else 'запись разрешена'}"
+            )
         else:
-            lines.append("🏥 API: ❌ недоступен")
+            lines.append(f"🏥 API · {NODATA} недоступен")
 
-        # Runtime
+        # Runtime.
+        #
+        # Была цепочка «прием=✅ ME=✅ статус=ok (running, 100%) транспорт=tcp» —
+        # формат строки журнала, а не отчёта человеку. Плюс «прием» без ё:
+        # единственная опечатка на всю переписку ботов.
         if isinstance(gates, dict) and isinstance(init, dict):
             g = gates.get("data", {})
             i = init.get("data", {})
@@ -43,13 +69,11 @@ async def cmd_aboutall(message: types.Message):
             progress = i.get("progress_pct", 0)
             transport = i.get("transport_mode", "?")
             lines.append(
-                f"⚙️ Runtime: прием={'✅' if accept else '❌'} "
-                f"ME={'✅' if me_ready else '❌'} "
-                f"статус={status_text} ({stage}, {progress:.0f}%) "
-                f"транспорт={transport}"
+                f"⚙️ Runtime · приём {_mark(accept)} · ME {_mark(me_ready)} · "
+                f"{status_text}, {progress:.0f}% ({stage}) · транспорт {transport}"
             )
         else:
-            lines.append("⚙️ Runtime: ❌ данные недоступны")
+            lines.append(f"⚙️ Runtime · {NODATA} данных нет")
 
         # DC coverage (кратко)
         if isinstance(dcs_resp, dict) and dcs_resp.get("data", {}).get("middle_proxy_enabled"):
@@ -60,11 +84,11 @@ async def cmd_aboutall(message: types.Message):
                 cov = dc["coverage_pct"]
                 alive = dc["alive_writers"]
                 req = dc["required_writers"]
-                icon = "🟢" if cov >= 100 else ("🟡" if cov >= 80 else "🔴")
-                dc_parts.append(f"{icon} DC{dc_id}: {alive}/{req}")
-            lines.append("🌍 DC покрытие: " + " | ".join(dc_parts))
+                icon = OK if cov >= 100 else (WARN if cov >= 80 else BAD)
+                dc_parts.append(f"{icon} DC{dc_id} {alive}/{req}")
+            lines.append("🌍 Покрытие DC · " + " · ".join(dc_parts))
         else:
-            lines.append("🌍 DC покрытие: ❌ нет данных")
+            lines.append(f"🌍 Покрытие DC · {NODATA} данных нет")
 
         # ME writers (кратко)
         if isinstance(writers_resp, dict) and writers_resp.get("data", {}).get("summary"):
@@ -72,9 +96,10 @@ async def cmd_aboutall(message: types.Message):
             cov_pct = w_summary["coverage_pct"]
             alive = w_summary["alive_writers"]
             req = w_summary["required_writers"]
-            lines.append(f"✍️ ME писатели: {cov_pct:.0f}% ({alive}/{req})")
+            icon = OK if cov_pct >= 100 else (WARN if cov_pct >= 80 else BAD)
+            lines.append(f"✍️ Писатели ME · {icon} {cov_pct:.0f}% ({alive}/{req})")
         else:
-            lines.append("✍️ ME писатели: ❌ нет данных")
+            lines.append(f"✍️ Писатели ME · {NODATA} данных нет")
 
         # Upstreams
         if isinstance(upstreams_resp, dict) and upstreams_resp.get("data", {}).get("summary"):
@@ -82,10 +107,14 @@ async def cmd_aboutall(message: types.Message):
             total = us_summary["configured_total"]
             healthy = us_summary["healthy_total"]
             unhealthy = us_summary["unhealthy_total"]
-            lines.append(f"🔄 Upstream: всего {total}, здоровых {healthy}, больных {unhealthy}")
+            icon = OK if unhealthy == 0 else (WARN if healthy > unhealthy else BAD)
+            lines.append(
+                f"🔄 Upstream · {icon} здоровых {healthy} из {total}"
+                + (f" · больных {unhealthy}" if unhealthy else "")
+            )
         else:
-            lines.append("🔄 Upstream: ❌ нет данных")
+            lines.append(f"🔄 Upstream · {NODATA} данных нет")
 
-        await send_long_message(message, "\n".join(lines), )
+        await send_long_message(message, "\n".join(lines))
     except Exception as e:
         await send_long_message(message, f"❌ Ошибка: {e}")

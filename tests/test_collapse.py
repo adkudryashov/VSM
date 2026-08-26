@@ -14,7 +14,7 @@
 десятка одинаковых.
 """
 
-from telemt.utils.helpers import COLLAPSE_MIN_LINES, collapse
+from common.format import COLLAPSE_MIN_LINES, collapse
 
 ЦИТАТА = "<blockquote expandable>"
 

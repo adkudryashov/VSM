@@ -63,24 +63,68 @@ async def show_summary(message: types.Message, bot: Bot):
     """
     Сводка: общий статус панелей 3x-ui плюс статистика Telemt.
     Ровно то, ради чего боты объединялись — оба ответа одним нажатием.
+
+    ОДНИМ СООБЩЕНИЕМ, когда обе части ответили.
+    ------------------------------------------
+    Прежде их было три: заглушка «Собираю сводку…», таблица панелей и таблица
+    telemt. Заглушку никто не удалял, и каждый вызов оставлял в переписке
+    лишнюю строку навсегда — за месяц их набиралось столько же, сколько самих
+    сводок. Вместо неё индикатор «печатает»: он исчезает сам и не оставляет
+    следа.
+
+    Раздельная отправка была не прихотью, а защитой: отказ одной подсистемы не
+    должен уносить вторую. Защита сохранена — просто перевёрнута. Сначала обе
+    части СОБИРАЮТСЯ, и если обе получились, уходит одно сообщение; если
+    отвалилась любая, шлём то, что есть, и отдельным сообщением говорим, чего
+    не хватает.
     """
-    await message.answer("🔄 Собираю сводку...")
+    from xui.api import get_all_servers_status_parts
+    from xui.app import send_rich_or_fallback as send_xui
+    from telemt.handlers.common import build_status_parts, get_server_name
+    from telemt.utils.helpers import send_long_message
+    import html
 
-    # Каждая часть отправляется отдельно и независимо: если одна подсистема
-    # недоступна, вторая всё равно должна показаться.
-    from xui.api import get_all_servers_status_rich
-    from xui.app import send_rich_or_fallback
-
+    # Индикатор вместо сообщения. Сбор идёт секунды, и без единого признака
+    # работы нажатие выглядит как промах.
     try:
-        await send_rich_or_fallback(bot, message.chat.id, await get_all_servers_status_rich())
+        await bot.send_chat_action(message.chat.id, "typing")
+    except Exception:
+        pass  # Индикатор — вежливость, а не механизм: его отказ ничего не значит.
+
+    panels_rich = panels_plain = None
+    try:
+        panels_rich, panels_plain = await get_all_servers_status_parts()
     except Exception as e:
         logging.error(f"Сводка: не удалось получить статус панелей 3x-ui: {e}")
-        await message.answer("⚠️ Не удалось получить статус панелей 3x-ui.")
 
-    from telemt.handlers.common import cmd_status
-
+    telemt_rich = telemt_plain = None
     try:
-        await cmd_status(message)
+        telemt_rich, telemt_plain = await build_status_parts()
     except Exception as e:
         logging.error(f"Сводка: не удалось получить статистику Telemt: {e}")
-        await message.answer("⚠️ Не удалось получить статистику Telemt.")
+
+    if panels_rich is None and telemt_rich is None:
+        await message.answer("⚠️ Ни одна часть сводки не собралась. Подробности в журнале бота.")
+        return
+
+    # Заголовки третьего уровня под одним общим: два <h2> подряд читались как
+    # два несвязанных отчёта.
+    rich = ["<h2>Сводка</h2>"]
+    plain = ["📋 <b>Сводка</b>"]
+    if panels_rich is not None:
+        rich.append("<h3>Панели 3x-ui</h3>" + panels_rich)
+        plain.append("\n📊 <b>Панели 3x-ui</b>\n" + panels_plain)
+    if telemt_rich is not None:
+        name = get_server_name()
+        rich.append(f"<h3>telemt · {html.escape(name)}</h3>" + telemt_rich)
+        plain.append(f"\n🛫 <b>telemt · {html.escape(name)}</b>\n" + telemt_plain)
+
+    await send_xui(bot, message.chat.id, "".join(rich), "\n".join(plain))
+
+    missing = []
+    if panels_rich is None:
+        missing.append("статус панелей 3x-ui")
+    if telemt_rich is None:
+        missing.append("статистику telemt")
+    if missing:
+        await send_long_message(message, "⚠️ Не удалось получить " + " и ".join(missing) + ".")
