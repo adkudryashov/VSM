@@ -646,7 +646,7 @@ class Watchdog:
             # этого больше нет, и строка осталась единственным местом, где про
             # возможность вообще упоминается.
             lines.append("🇷🇺 Доступность из РФ: проверка выключена")
-            lines.append("<i>включить: меню VSM → Telegram-боты → Настройки</i>")
+            lines.append("<i>включить: меню VSM → Telegram-боты → Сторож</i>")
         elif self.ru_error:
             lines.append(f"🇷🇺 Доступность из РФ: {html.escape(self.ru_error)}")
         elif self.ru_last:
