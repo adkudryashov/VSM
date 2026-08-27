@@ -231,12 +231,38 @@ function run_install {
     read -p "Порт telemt [${TELEMT_PORT:-8444}]: " p_telemt
     read -p "Порт telemt_panel [${PANEL_PORT:-9444}]: " p_panel
 
+    # Ставить ли telemt_panel.
+    #
+    # Раньше она приезжала молча, четвёртым этапом, и отказаться было негде. А
+    # панелей две: тот, кто собирается ставить MTProxyL-Panel, получал сначала
+    # установку telemt_panel, а через двадцать минут её удаление стражем
+    # исключительности — с заведением системного пользователя, пятнадцати строк
+    # NOPASSWD и секретного префикса в nginx по дороге. Каждый такой круг
+    # «поставить и снести» — лишний шанс оставить за собой права root у
+    # несуществующей службы; именно так однажды и остался
+    # /etc/sudoers.d/telemt-panel.
+    #
+    # Умолчание — ставить: без панели telemt полностью работоспособен, но
+    # человек, пришедший по README, ждёт веб-интерфейс.
+    echo -e "\n${CYAN}Веб-панель управления telemt.${NC}"
+    echo -e "${C_DESC}   Их две, на сервере может быть только одна. Вторую — MTProxyL-Panel —"
+    echo -e "   ставит команда mtproxyl, и она появится позже. Любую из двух можно"
+    echo -e "   поставить или сменить потом пунктом «Веб-панель».${NC}"
+    local want_panel
+    read -p "Поставить telemt_panel сейчас? [Y/n]: " want_panel
+    case "$want_panel" in
+        [Nn]*) INSTALL_PANEL=0
+               echo -e "${BLUE}   Панель не ставится. telemt и маскировка работают без неё.${NC}" ;;
+        *)     INSTALL_PANEL=1 ;;
+    esac
+
     echo -e "\n${YELLOW}Запускаю установку. Это займёт несколько минут.${NC}\n"
     sleep 1
 
     DOMAIN_PANEL="$ASK_PANEL" \
     DOMAIN_REALITY="$ASK_REALITY" \
     TELEMT_PORT="${p_telemt:-${TELEMT_PORT:-8444}}" \
+    INSTALL_PANEL="$INSTALL_PANEL" \
     PANEL_PORT="${p_panel:-${PANEL_PORT:-9444}}" \
         bash "$STACK_SCRIPT" --mode "$mode"
 
