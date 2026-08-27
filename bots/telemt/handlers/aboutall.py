@@ -1,4 +1,5 @@
 from telemt.utils.helpers import send_long_message
+from common.format import collapse
 import asyncio
 from aiogram import Router, types
 from aiogram.filters import Command
@@ -85,8 +86,26 @@ async def cmd_aboutall(message: types.Message):
                 alive = dc["alive_writers"]
                 req = dc["required_writers"]
                 icon = OK if cov >= 100 else (WARN if cov >= 80 else BAD)
-                dc_parts.append(f"{icon} DC{dc_id} {alive}/{req}")
-            lines.append("🌍 Покрытие DC · " + " · ".join(dc_parts))
+                dc_parts.append(f"{icon} DC{dc_id} · {alive}/{req}")
+            # Тринадцать дата-центров одной строкой через разделитель — это
+            # три экранных строки сплошного текста, в которых глаз не находит
+            # ни одного красного, пока не прочитает всё. Схлопывающаяся цитата
+            # для того и заводилась, но сюда не попала: она работает по
+            # строкам, а здесь была одна длинная. Увидено на первом живом
+            # /aboutall 27.08.2026.
+            #
+            # Проблемные поднимаем НАВЕРХ и оставляем снаружи цитаты: свернуть
+            # аварию значит спрятать её, а сворачиваем мы ради того, чтобы
+            # аварию было видно.
+            bad = [d for d in dc_parts if d.startswith(BAD) or d.startswith(WARN)]
+            good = [d for d in dc_parts if d not in bad]
+            lines.append("🌍 <b>Покрытие DC</b>")
+            for d in bad:
+                lines.append(f"   {d}")
+            if good:
+                lines.append(collapse("\n".join(f"   {d}" for d in good),
+                                      f"   {OK} остальные {len(good)} — в норме",
+                                      min_lines=4))
         else:
             lines.append(f"🌍 Покрытие DC · {NODATA} данных нет")
 
