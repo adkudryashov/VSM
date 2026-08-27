@@ -285,8 +285,11 @@ fix_panel_config_api() {
 # по определению — ломать нечего.
 _orphan_rights_files() {
     local out=()
-    panel_telemt_installed   || [ ! -e "$TELEMT_PANEL_SUDOERS" ] || out+=("$TELEMT_PANEL_SUDOERS")
-    if ! panel_mtproxyl_installed; then
+    # _present, а не _installed: права снимаются молча, а молча снятое право —
+    # это сломанная наглухо чужая служба. Пока файлы панели лежат, считаем, что
+    # хозяин у прав есть. Настоящую брошенность видно, когда не осталось ничего.
+    panel_telemt_present   || [ ! -e "$TELEMT_PANEL_SUDOERS" ] || out+=("$TELEMT_PANEL_SUDOERS")
+    if ! panel_mtproxyl_present; then
         local f
         for f in "${MTPL_PANEL_SUDOERS_FILES[@]}"; do
             [ -e "$f" ] && out+=("$f")
@@ -297,7 +300,7 @@ _orphan_rights_files() {
 }
 
 applies_orphan_panel_rights() {
-    declare -F panel_telemt_installed >/dev/null 2>&1 || return 1
+    declare -F panel_telemt_present >/dev/null 2>&1 || return 1
     [ -d /etc/sudoers.d ]
 }
 want_orphan_panel_rights() { echo "нет"; }
@@ -335,14 +338,16 @@ fix_orphan_panel_rights() {
 # applies_ требует хотя бы одной: на установке вовсе без панелей вопрос
 # «сколько их» не имеет смысла, и позиция обязана молчать.
 applies_panels_single() {
-    declare -F panel_telemt_installed >/dev/null 2>&1 || return 1
-    panel_telemt_installed || panel_mtproxyl_installed
+    declare -F panel_telemt_present >/dev/null 2>&1 || return 1
+    panel_telemt_present || panel_mtproxyl_present
 }
 want_panels_single() { echo "одна"; }
+# Считаем по файлам, а не по службам: недоустановленная панель занимает те же
+# пути и те же имена, и «панелей одна» при двух наборах файлов было бы неправдой.
 read_panels_single() {
     local found=()
-    panel_telemt_installed   && found+=("telemt_panel")
-    panel_mtproxyl_installed && found+=("MTProxyL-Panel")
+    panel_telemt_present   && found+=("telemt_panel")
+    panel_mtproxyl_present && found+=("MTProxyL-Panel")
     if [ "${#found[@]}" -le 1 ]; then
         echo "одна"
     else

@@ -32,15 +32,48 @@ MTPL_PANEL_UNIT=/etc/systemd/system/mtproxyl-panel.service
 TELEMT_PANEL_SUDOERS=/etc/sudoers.d/telemt-panel
 MTPL_PANEL_SUDOERS_FILES=(/etc/sudoers.d/mtproxyl-panel /etc/sudoers.d/mtproxyl-panel-mtproxyl)
 
-# Установлена ли панель. Смотрим на юнит И на бинарь: юнит может остаться от
-# неудачного удаления, а бинарь — лежать без юнита после ручного вмешательства.
-# Достаточно одного признака: цель вопроса — «есть ли тут вторая панель», и
-# половина панели тоже считается.
-panel_telemt_installed() {
+# ДВА РАЗНЫХ ВОПРОСА, КОТОРЫЕ РАНЬШЕ БЫЛИ ОДНИМ.
+#
+# Здесь стоял единственный признак «юнит ИЛИ бинарь» с пояснением, что цель
+# вопроса — «есть ли тут вторая панель», и половина панели тоже считается. Для
+# правила исключительности это верно. Но тот же признак спрашивали экраны меню
+# и реестр, а им нужен другой ответ: работает ли служба.
+#
+# Разошлось это на приёмке 27.08.2026. Установщик MTProxyL-Panel на Ubuntu
+# 26.04 положил бинарь и конфиг и упал на генерации sudoers — sudo-rs не
+# принимает wildcard в аргументах команд. Юнита нет, служба не запущена, а VSM
+# называл панель в меню по имени, печатал её логин и требовал от неё настроек в
+# реестре. Полуустановленная панель была неотличима от рабочей.
+#
+# Теперь вопросов два, и каждый зовут по имени:
+#   _present   — файлы панели есть. Для исключительности и уборки.
+#   _installed — есть юнит, то есть служба. Для экранов, статуса и реестра.
+# Бинарь без юнита — не служба, а файл.
+panel_telemt_present() {
     [ -f "$TELEMT_PANEL_UNIT" ] || [ -x /usr/local/bin/telemt-panel ]
 }
-panel_mtproxyl_installed() {
+panel_mtproxyl_present() {
     [ -f "$MTPL_PANEL_UNIT" ] || [ -x /usr/local/bin/mtproxyl-panel ]
+}
+panel_telemt_installed() {
+    [ -f "$TELEMT_PANEL_UNIT" ]
+}
+panel_mtproxyl_installed() {
+    [ -f "$MTPL_PANEL_UNIT" ]
+}
+
+# Следы панели без юнита: недоустановка или недоудаление.
+#
+# Не служба, но и не пустое место: файлы лежат, конфиг с хэшем пароля лежит, а
+# сказать о них было некому. Меню предлагает их убрать, страж исключительности
+# убирает сам — новой панели они всё равно мешают.
+panel_telemt_leftovers() {
+    panel_telemt_installed && return 1
+    [ -e /usr/local/bin/telemt-panel ] || [ -e /etc/telemt-panel ]
+}
+panel_mtproxyl_leftovers() {
+    panel_mtproxyl_installed && return 1
+    [ -e /usr/local/bin/mtproxyl-panel ] || [ -e /etc/mtproxyl-panel ]
 }
 
 # vhost домена панели — в него вписаны блоки обеих панелей.
@@ -116,6 +149,11 @@ panel_remove_telemt() {
     systemctl daemon-reload >/dev/null 2>&1
     rm -f /usr/local/bin/telemt-panel
     rm -rf /etc/telemt-panel
+    # Рабочий каталог панели. Оставался лежать после удаления: внутри staging,
+    # куда панель клала копии своего бинаря и бинаря telemt перед обновлением.
+    # Конфиг с учётными данными мы удаляем строкой выше, так что беречь здесь
+    # нечего — а каталог с правами чужого пользователя переживал панель.
+    rm -rf /var/lib/telemt-panel
     # Блок nginx снимаем обязательно: без него 443 продолжал бы проксировать на
     # мёртвый порт, и по секретному адресу открывалась бы ошибка шлюза —
     # то есть подтверждение, что там что-то было.
@@ -151,7 +189,9 @@ panel_remove_mtproxyl() {
         ) >/dev/null 2>&1
     fi
     # Проверяем фактом: деинсталлятор автора мог смениться или не отработать.
-    if panel_mtproxyl_installed; then
+    # Спрашиваем про ФАЙЛЫ, а не про службу: снести надо и то, что осталось от
+    # неудачной установки, — иначе следующая панель споткнётся о них.
+    if panel_mtproxyl_present; then
         systemctl disable --now mtproxyl-panel >/dev/null 2>&1
         rm -f "$MTPL_PANEL_UNIT"
         systemctl daemon-reload >/dev/null 2>&1
@@ -179,7 +219,18 @@ panel_ensure_exclusive() {
         *)        return 0 ;;
     esac
 
-    "panel_${other}_installed" || return 0    # второй нет — ставим спокойно
+    # Спрашиваем про ФАЙЛЫ, а не про службу: половина панели тоже мешает.
+    #
+    # Следы неудачной установки — бинарь и конфиг без юнита — убираем молча и
+    # без вопроса. Спрашивать не о чем: службы нет, адреса нет, работать этим
+    # нельзя, а новой панели её файлы помешают. Вопрос ниже — про ЖИВУЮ панель,
+    # у которой есть что терять.
+    if ! "panel_${other}_installed" && "panel_${other}_leftovers"; then
+        echo -e "${C_DESC:-}  Убираю следы неудачной установки $(panel_human_name "$other")…${NC}"
+        "panel_remove_${other}"
+    fi
+
+    "panel_${other}_present" || return 0    # второй нет — ставим спокойно
 
     other_name="$(panel_human_name "$other")"
     echo
@@ -213,7 +264,7 @@ panel_ensure_exclusive() {
 
     # Проверка фактом. Продолжать установку поверх недоудалённой панели нельзя:
     # получится ровно то состояние, которое мы и разбираем, только запутаннее.
-    if "panel_${other}_installed"; then
+    if "panel_${other}_present"; then
         echo -e "${RED:-}  ✗ ${other_name} удалить не удалось — установка отменена.${NC}"
         echo -e "${C_DESC:-}  Уберите её вручную и повторите.${NC}"
         return 1
