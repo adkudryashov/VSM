@@ -106,9 +106,37 @@ async def build_status_parts() -> tuple[str, str]:
     success_percent = 100 - bad_percent if connections_total > 0 else 100
     good_connections = max(0, connections_total - connections_bad)
 
+    # ЧУЖИЕ РУКОПОЖАТИЯ — НЕ ПОКАЗАТЕЛЬ ЗДОРОВЬЯ.
+    #
+    # На приёмке 27.08.2026 сводка красила исправный сервер красным: 22% сбоев.
+    # Разбивка из того же ответа API объяснила всё — сбои были ОДНОГО класса,
+    # tls_handshake_bad_client, то есть «постучались и не смогли договориться по
+    # TLS». На публичном порту это интернет-сканеры, а не клиенты: в журнале
+    # nginx те же адреса ломятся по случайным путям.
+    #
+    # Судить по ним о работе прокси нельзя дважды. Во-первых, они не про нас:
+    # мы никому ничего не сломали, наоборот — маскировка отработала, сканер
+    # ушёл ни с чем. Во-вторых, счётчик накопительный от старта, и доля растёт
+    # ровно по мере того, как сервер дольше стоит в интернете. Тревога, которая
+    # со временем обязана загореться у всех, не тревога.
+    #
+    # Поэтому оценку считаем по сбоям БЕЗ этого класса, а сами чужие
+    # рукопожатия показываем отдельной строкой — они интересны, но как
+    # наблюдение, а не как авария.
+    _scanner_classes = {"tls_handshake_bad_client"}
+    _by_class = summary_data.get('connections_bad_by_class') or []
+    scanner_bad = sum(
+        int(c.get('total', 0)) for c in _by_class
+        if c.get('class') in _scanner_classes
+    )
+    real_bad = max(0, connections_bad - scanner_bad)
+    real_total = max(0, connections_total - scanner_bad)
+    real_bad_percent = (real_bad / real_total * 100) if real_total > 0 else 0
+    real_success_percent = 100 - real_bad_percent if real_total > 0 else 100
+
     current_version = sys_data.get('version', 'неизвестно')
     version_text = _version_line(current_version, latest_version)
-    mark = _quality_mark(success_percent)
+    mark = _quality_mark(real_success_percent)
 
     text = (
         f"🔹 Статус:\n"
@@ -119,8 +147,17 @@ async def build_status_parts() -> tuple[str, str]:
         f"🌐 Активных IP: {total_active_ips}\n"
         f"🌐 Всего соединений: {format_connections(connections_total)}\n"
         f"┗━ Успешных: {format_connections(good_connections)} ({format_percent(success_percent)})\n"
-        f"┗━ {mark} Сбои: {format_connections(connections_bad)} ({format_percent(bad_percent)})"
+        f"┗━ {mark} Сбои: {format_connections(real_bad)} ({format_percent(real_bad_percent)})"
+        + (f"\n┗━ 🔍 Чужие рукопожатия: {format_connections(scanner_bad)} — сканеры, не клиенты"
+           if scanner_bad else "")
     )
+    # Строку про чужие рукопожатия готовим заранее: подставить условие прямо в
+    # цепочку f-строк нельзя — после «+» соседние литералы уже не склеиваются.
+    scanner_row = (
+        f"<tr><td colspan=\"4\">🔍 Чужие рукопожатия: "
+        f"{html.escape(format_connections(scanner_bad))} — сканеры, не клиенты</td></tr>"
+    ) if scanner_bad else ""
+
     # Один экран в две колонки вместо двух таблиц одна под другой.
     # colspan в HTML-режиме проверен ответом sendRichMessage: сервер
     # возвращает заголовки как две ячейки с colspan=2.
@@ -132,7 +169,8 @@ async def build_status_parts() -> tuple[str, str]:
         f"<tr><td>Трафик</td><td>{html.escape(format_traffic(total_traffic))}</td>"
         f"<td>Успешных</td><td>{html.escape(format_connections(good_connections))} ({format_percent(success_percent)})</td></tr>"
         f"<tr><td>Активные IP</td><td>{total_active_ips}</td>"
-        f"<td>{mark} Сбои</td><td>{html.escape(format_connections(connections_bad))} ({format_percent(bad_percent)})</td></tr>"
+        f"<td>{mark} Сбои</td><td>{html.escape(format_connections(real_bad))} ({format_percent(real_bad_percent)})</td></tr>"
+        f"{scanner_row}"
         # Версия вынесена вниз во всю ширину: строка длинная и в узкой
         # ячейке переносится, а пары к ней в правой колонке всё равно нет.
         f"<tr><td colspan=\"4\">Версия: {html.escape(version_text)}</td></tr>"
