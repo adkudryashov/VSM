@@ -126,6 +126,17 @@ RU_CHECK_TOKEN="${RU_CHECK_TOKEN:-$(conf_get RU_CHECK_TOKEN)}"
 
 RU_CHECK_PORT="${RU_CHECK_PORT:-$(conf_get RU_CHECK_PORT)}"
 RU_CHECK_SNI="${RU_CHECK_SNI:-$(conf_get RU_CHECK_SNI)}"
+# Кто меряет доступность из России: auto — взять готовый вердикт MTProxyL,
+# если он установлен, иначе мерить самим; mtproxyl — только чужой; self —
+# только свои зонды.
+#
+# Значение и раньше было верным, но жило ТОЛЬКО внутри кода: в bots/.env
+# строки не было вовсе. Смысл .env в том, что настройки видны глазами, а эта
+# решает, тратим ли мы чужую квоту зондов Globalping и идёт ли к
+# маскирующемуся серверу лишний внешний трафик. Настройка такого веса не
+# должна быть невидимой.
+RU_CHECK_SOURCE="${RU_CHECK_SOURCE:-$(conf_get RU_CHECK_SOURCE)}"
+RU_CHECK_SOURCE="${RU_CHECK_SOURCE:-auto}"
 
 # Домен панели из конфига стека — нужен, чтобы отказаться вешать карту на цель
 # self-SNI маскировки. Читаем в подоболочке и только одно значение.
@@ -289,6 +300,7 @@ RU_CHECK_PROBES=$RU_CHECK_PROBES
 RU_CHECK_TOKEN=$RU_CHECK_TOKEN
 RU_CHECK_PORT=$RU_CHECK_PORT
 RU_CHECK_SNI=$RU_CHECK_SNI
+RU_CHECK_SOURCE=$RU_CHECK_SOURCE
 EOF
 chmod 600 "$ENV_FILE"
 
@@ -608,6 +620,7 @@ umask 077
     printf 'RU_CHECK_TOKEN=%q\n' "$RU_CHECK_TOKEN"
     echo "RU_CHECK_PORT=$RU_CHECK_PORT"
     echo "RU_CHECK_SNI=$RU_CHECK_SNI"
+    echo "RU_CHECK_SOURCE=$RU_CHECK_SOURCE"
 } > "$CONF"
 chmod 600 "$CONF"
 
