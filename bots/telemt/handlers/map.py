@@ -4,8 +4,6 @@ import html
 import os
 import time
 import logging
-import folium
-from folium.plugins import MarkerCluster
 from aiogram import Router, types
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -17,6 +15,32 @@ from config import settings
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+
+def _load_folium():
+    """Подключить folium в момент использования, а не при старте бота.
+
+    ПОЧЕМУ НЕ ОБЫЧНЫЙ import СВЕРХУ. folium тянет за собой numpy, а numpy,
+    начиная с версии 2, собирается с базовым уровнем x86-64-v2 и при импорте
+    падает RuntimeError на процессорах без SSE4.2, SSSE3 и POPCNT. Такие
+    процессоры — обычное дело у хостеров с эмуляцией: на приёмке 27.08.2026
+    попался «QEMU Virtual CPU version 2.5+», где из пяти признаков v2 есть
+    ровно один.
+
+    Импорт стоял на верхнем уровне модуля, модуль подключался из panel.py, и
+    падение numpy убивало ВЕСЬ бот при старте. Вместе с ним — сторожа, то есть
+    единственный источник тревог о падении прокси. Необязательная карта делала
+    непригодным всё остальное.
+
+    Теперь не запускается только карта, и она объясняет причину.
+    """
+    try:
+        import folium
+        from folium.plugins import MarkerCluster
+        return folium, MarkerCluster
+    except Exception as exc:
+        logger.warning("folium недоступен, карта отключена: %s", exc)
+        return None, None
 
 DB_PATH = settings.IP_HISTORY_DB
 MAP_HTML_PATH = settings.MAP_HTML_PATH
@@ -66,6 +90,17 @@ def _sync_build_map_data():
 
 @router.message(Command("map"))
 async def cmd_map(message: types.Message):
+    folium, MarkerCluster = _load_folium()
+    if folium is None:
+        await send_long_message(
+            message,
+            "🗺 Карта недоступна: библиотека folium не загрузилась.\n\n"
+            "Чаще всего причина — процессор без SSE4.2 и POPCNT: numpy 2.x "
+            "на таких машинах не запускается. Всё остальное работает.\n\n"
+            "Починка: <code>bots/venv/bin/pip install \"numpy&lt;2\"</code>",
+        )
+        return
+
     await send_long_message(message, "🗺 Обновляю гео-данные и строю карту...")
     try:
         coords = await asyncio.to_thread(_sync_build_map_data)
