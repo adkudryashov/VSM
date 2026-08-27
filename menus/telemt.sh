@@ -40,6 +40,13 @@ if [ -f "$VSM_LIB/nginx_mtpl_proxy.sh" ]; then
     source "$VSM_LIB/nginx_mtpl_proxy.sh"
 fi
 
+# Установка telemt_panel. Та же, что зовёт установщик стека, — пункт
+# «Веб-панель» ставит панель ровно тем же кодом, а не своей копией.
+if [ -f "$VSM_LIB/panel_install.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$VSM_LIB/panel_install.sh"
+fi
+
 # Сторонний проект MTProxyL (лимитер | тюнинг) под Telemt. Пришёл на смену
 # MTproxy-reanimation: тот заброшен на 1.2.9, разработка переехала в новый
 # репозиторий. Лицензия MIT.
@@ -75,6 +82,32 @@ MTPR_DIR="/opt/mtproxy-reanimation"
 MTPR_NFT_TABLES=(ip:MTProto inet:telemt_limit inet:mtpr_ios2_fix)
 MTPR_UNITS=(mtpr-zapret2 mtpr-syn-limit)
 MTPR_SYSCTL="/etc/sysctl.d/99-mtpr-meko-opt.conf"
+
+# Записать значение в /etc/vsm/telemt.conf: заменить, если ключ уже есть,
+# дописать, если нет.
+#
+# Раньше значения только ДОПИСЫВАЛИСЬ (printf ... >> "$STACK_CONF"). Пока это
+# делалось один раз на установку, дублей не возникало. Но панель теперь можно
+# поставить, снять и поставить снова из меню, и каждый круг оставлял бы вторую
+# строку PANEL_PREFIX. Читается конфиг через source, то есть побеждает
+# последняя строка — работать это будет, но файл, где ключ встречается трижды с
+# разными значениями, невозможно читать глазами, а именно глазами его читают,
+# когда что-то пошло не так.
+#
+# Пишем во временный файл рядом и переименовываем: обрыв на середине не должен
+# оставить конфиг стека полупустым. Права 600 — внутри пароль панели.
+function _stack_conf_set {
+    local key="$1" value="$2" tmp
+    [ -n "$key" ] || return 1
+    tmp="$(mktemp "${STACK_CONF}.XXXXXX")" || return 1
+    if [ -f "$STACK_CONF" ]; then
+        grep -v "^${key}=" "$STACK_CONF" > "$tmp" 2>/dev/null || true
+    fi
+    # %q — значение переживает повторный source без риска инъекции.
+    printf '%s=%q\n' "$key" "$value" >> "$tmp"
+    chmod 600 "$tmp"
+    mv -f "$tmp" "$STACK_CONF"
+}
 
 function load_stack_conf {
     DOMAIN_PANEL=""; DOMAIN_REALITY=""
@@ -211,6 +244,244 @@ function run_install {
     read -p "Нажмите Enter для возврата в меню..."
 }
 
+# ======================================================================
+# ВЕБ-ПАНЕЛЬ: ВЫБРАТЬ, ПОСТАВИТЬ, СНЯТЬ
+#
+# Панелей две, и они взаимоисключающие. До этого пункта выбора не было вовсе:
+# telemt_panel приезжала сама этапом 4 установки всего стека, MTProxyL-Panel
+# ставилась чужой командой мимо VSM, а снятая telemt_panel не возвращалась
+# ничем, кроме переустановки стека — то есть стирания 3x-ui вместе с базой,
+# инбаундами и всеми пользователями.
+#
+# Здесь всё в одном месте: что стоит сейчас, поставить любую из двух,
+# переключиться с одной на другую, снять совсем.
+# ======================================================================
+
+# Какая реализация sudo в системе.
+#
+# Ubuntu 26.04 ставит по умолчанию sudo-rs, и его visudo НЕ принимает символ *
+# в аргументах команд. Установщик MTProxyL-Panel генерирует семь таких правил
+# (journalctl -u telemt -n * и подобные), visudo отвергает файл целиком, и
+# установка обрывается на середине: бинарь и конфиг записаны, юнита и прав нет.
+# Поймано на приёмке 27.08.2026.
+#
+# Печатает rs, classic или пустую строку, если понять не удалось.
+function _sudo_flavor {
+    command -v sudo >/dev/null 2>&1 || return 0
+    if sudo --version 2>&1 | head -1 | grep -qi "sudo-rs"; then
+        echo "rs"
+    else
+        echo "classic"
+    fi
+}
+
+# Предупредить про sudo-rs ДО запуска чужого установщика.
+#
+# Спрашиваем, а не переключаем молча: подмена системного sudo — решение
+# владельца, а не побочный эффект установки панели. Возвращает 0, если можно
+# продолжать.
+function _panel_warn_sudo_rs {
+    [ "$(_sudo_flavor)" = "rs" ] || return 0
+
+    echo
+    echo -e "${YELLOW}❗  В системе sudo-rs — установщик панели на нём упадёт.${NC}"
+    echo -e "${BLUE}   Ubuntu 26.04 ставит sudo-rs вместо классического sudo, а его visudo"
+    echo -e "   не принимает символ * в аргументах команд. Установщик MTProxyL-Panel"
+    echo -e "   генерирует семь таких правил, и файл отвергается целиком."
+    echo -e "   Установка оборвётся на середине: бинарь ляжет, службы не будет.${NC}"
+    echo
+    echo -e "${BLUE}   Обойти можно только переключением системы на классический sudo."
+    echo -e "   Он уже установлен: /usr/bin/sudo.ws. Переключение обратимо"
+    echo -e "   (update-alternatives --auto sudo) и переживает обновления пакетов.${NC}"
+    echo
+    echo -e "${YELLOW}   Чем это грозит:${NC}${BLUE} панель получит право подменять /bin/telemt"
+    echo -e "   и перезапускать его. Если sudo когда-нибудь вернётся на sudo-rs,"
+    echo -e "   правила панели перестанут работать — она откроется, но её кнопки"
+    echo -e "   станут пустыми. Сверка с реестром об этом скажет.${NC}"
+    echo
+    local answer
+    read -r -p "$(echo -e "${YELLOW}Переключить sudo на классический и продолжить? [y/N]: ${NC}")" answer
+    case "$answer" in
+        [Yy]*) ;;
+        *) echo -e "${BLUE}Отменено. sudo не тронут, панель не ставится.${NC}"; return 1 ;;
+    esac
+
+    if [ ! -x /usr/bin/sudo.ws ]; then
+        echo -e "${RED}❌ /usr/bin/sudo.ws не найден — переключать не на что.${NC}"
+        echo -e "${YELLOW}   Поставьте пакет классического sudo и повторите.${NC}"
+        return 1
+    fi
+    if ! update-alternatives --set sudo /usr/bin/sudo.ws >/dev/null 2>&1; then
+        echo -e "${RED}❌ update-alternatives не переключил sudo.${NC}"
+        return 1
+    fi
+    # Проверяем фактом, а не кодом возврата предыдущего шага.
+    if [ "$(_sudo_flavor)" = "classic" ]; then
+        echo -e "${GREEN}  ✓ sudo переключён на классический${NC}"
+        return 0
+    fi
+    echo -e "${RED}❌ sudo всё ещё sudo-rs — установку не начинаю.${NC}"
+    return 1
+}
+
+# Установка telemt_panel из меню.
+#
+# Параметры берём из /etc/vsm/telemt.conf, недостающие заводим и дописываем туда
+# же — ровно как это делает установщик стека. Пароль не спрашиваем: генерируем и
+# показываем пунктом «Учётные данные». Один способ завести панель — один способ
+# узнать её пароль.
+function _panel_do_install_telemt {
+    if [ -z "$DOMAIN_PANEL" ]; then
+        echo -e "${RED}❌ Стек telemt не настроен — нет домена панели.${NC}"
+        echo -e "${YELLOW}   Панель подключается к 443 домена панели; без него её некуда вести.${NC}"
+        return 1
+    fi
+    panel_ensure_exclusive telemt || return 1
+
+    PANEL_PORT="${PANEL_PORT:-9444}"
+    PANEL_ADMIN_USER="${PANEL_ADMIN_USER:-admin}"
+    [ -n "$PANEL_ADMIN_PASS" ] || PANEL_ADMIN_PASS="$(openssl rand -base64 20)"
+    [ -n "$PANEL_PREFIX" ]     || PANEL_PREFIX="$(panel_proxy_gen_prefix)"
+
+    panel_install_telemt "$PANEL_ADMIN_USER" "$PANEL_ADMIN_PASS" "$PANEL_PORT" \
+                         "$DOMAIN_PANEL" "$DOMAIN_REALITY" "$PANEL_PREFIX" || return 1
+
+    # Состояние пишем ТОЛЬКО после успеха: адрес и пароль несуществующей панели
+    # в конфиге — тот же дефект, что чинили на экране доступов.
+    _stack_conf_set PANEL_PORT       "$PANEL_PORT"
+    _stack_conf_set PANEL_PREFIX     "$PANEL_PREFIX"
+    _stack_conf_set PANEL_ADMIN_USER "$PANEL_ADMIN_USER"
+    _stack_conf_set PANEL_ADMIN_PASS "$PANEL_ADMIN_PASS"
+    echo -e "${GREEN}✓ telemt_panel установлена. Адрес и пароль — пункт «Учётные данные».${NC}"
+    return 0
+}
+
+# Установка MTProxyL-Panel из меню.
+#
+# Ставит её ЕЁ ЖЕ команда: чужой установщик знает про свои каталоги, службы и
+# правила больше, чем мы, и останется верным после своих же обновлений. Наше
+# дело — страж исключительности и предупреждение про sudo-rs до, а секретный
+# путь после.
+function _panel_do_install_mtproxyl {
+    if ! command -v mtproxyl >/dev/null 2>&1; then
+        echo -e "${RED}❌ MTProxyL не установлен — его панель ставится его же командой.${NC}"
+        echo -e "${YELLOW}   Сначала пункт «MTProxyL» этого меню.${NC}"
+        return 1
+    fi
+    _panel_warn_sudo_rs || return 1
+    panel_ensure_exclusive mtproxyl || return 1
+
+    echo -e "${CYAN}>>> Запускаю mtproxyl panel install...${NC}"
+    mtproxyl panel install
+
+    # Проверяем фактом: чужой установщик мог оборваться на середине и сказать об
+    # этом только своим текстом, а код возврата у него не всегда говорящий.
+    if ! panel_mtproxyl_installed; then
+        echo -e "${RED}❌ Панель не установилась — службы mtproxyl-panel нет.${NC}"
+        echo -e "${YELLOW}   Причина напечатана выше её установщиком.${NC}"
+        return 1
+    fi
+    echo -e "${GREEN}✓ MTProxyL-Panel установлена.${NC}"
+    echo -e "${YELLOW}   Секретный путь ей ещё не выдан — снаружи она недоступна."
+    echo -e "   Выдайте пунктом «Восстановить nginx» этого меню.${NC}"
+    return 0
+}
+
+# Снять панель совсем.
+function _panel_do_remove {
+    local what name answer
+    if panel_telemt_present; then
+        what=telemt
+    elif panel_mtproxyl_present; then
+        what=mtproxyl
+    else
+        echo -e "${BLUE}Панели нет — снимать нечего.${NC}"
+        return 0
+    fi
+    name="$(panel_human_name "$what")"
+
+    echo
+    echo -e "${RED}❗  Будет удалена ${name}.${NC}"
+    echo -e "${YELLOW}   Уйдут её учётные данные, секретный префикс в nginx и настройки."
+    echo -e "   Сам telemt и маскировка продолжат работать: панель им не нужна.${NC}"
+    echo -e "${BLUE}   Резервная копия секретов снимается перед удалением.${NC}"
+    echo
+    read -r -p "$(echo -e "${RED}Введите БОЛЬШИМИ буквами ДА, чтобы удалить ${name}: ${NC}")" answer
+    if [ "$answer" != "ДА" ]; then
+        echo -e "${BLUE}Отменено.${NC}"
+        return 1
+    fi
+
+    local backup="${VSM_ROOT:-/root/VSM}/tools/vsm-backup.sh"
+    [ -x "$backup" ] && bash "$backup" >/dev/null 2>&1 \
+        && echo -e "${GREEN}  ✓ резервная копия снята${NC}"
+
+    "panel_remove_${what}"
+    if "panel_${what}_present"; then
+        echo -e "${RED}❌ ${name} удалить не удалось — уберите вручную.${NC}"
+        return 1
+    fi
+    echo -e "${GREEN}✓ ${name} удалена.${NC}"
+    return 0
+}
+
+function run_panel_menu {
+    local choice url left
+    while true; do
+        load_stack_conf
+        clear 2>/dev/null
+        ui_title "🖥  ВЕБ-ПАНЕЛЬ"
+        echo ""
+        ui_section "СЕЙЧАС"
+
+        if panel_telemt_installed || panel_mtproxyl_installed; then
+            ui_kv "🖥  Установлена" "$(panel_installed_name)" 18
+            echo -e "   ${C_NAME}$(ui_pad "🚥  Состояние" 18)${NC}$(panel_any_status_line)"
+            if panel_telemt_installed; then
+                url="$(telemt_panel_url 2>/dev/null)"
+            else
+                url="$(mtpl_panel_url 2>/dev/null)"
+            fi
+            if [ -n "$url" ]; then
+                ui_kv "🌐  Адрес" "$url" 18
+            else
+                echo -e "   ${C_NAME}$(ui_pad "🌐  Адрес" 18)${NC}${C_WARN}пути нет — пункт «Восстановить nginx»${NC}"
+            fi
+        elif panel_telemt_leftovers || panel_mtproxyl_leftovers; then
+            # Файлы без юнита. Молчать нельзя: они занимают те же пути, и
+            # следующая установка о них споткнётся.
+            left=telemt
+            panel_mtproxyl_leftovers && left=mtproxyl
+            ui_kv "⚠  Состояние" "следы неудачной установки $(panel_human_name "$left")" 18
+            ui_kv "➡  Что делать" "поставить любую панель — следы уберутся сами" 18
+        else
+            ui_kv "🖥  Установлена" "ни одной" 18
+            ui_kv "➡  Без панели" "telemt и маскировка работают полностью" 18
+        fi
+
+        echo ""
+        ui_section "ВЫБОР"
+        ui_item "1" "🇹" "telemt_panel"   "Своя: ставит и настраивает VSM"
+        ui_item "2" "🇲" "MTProxyL-Panel" "Чужая: ставит команда mtproxyl"
+        echo ""
+        ui_danger_item "3" "Снять панель совсем" "telemt при этом не трогается"
+        ui_item "X" "🔙" "Назад"
+        echo ""
+        echo -e "${C_DESC}   На сервере может быть только одна: две админки — вдвое больше"
+        echo -e "   того, что можно взломать и надо обновлять, ради одной задачи.${NC}"
+        echo ""
+
+        read -p "Ваш выбор [1-3, X]: " choice || return
+        case "$choice" in
+            1) _panel_do_install_telemt;   read -p "Нажмите Enter..." ;;
+            2) _panel_do_install_mtproxyl; read -p "Нажмите Enter..." ;;
+            3) _panel_do_remove;           read -p "Нажмите Enter..." ;;
+            [Xx]) return ;;
+            *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
 function run_diagnostics {
     clear 2>/dev/null
     load_stack_conf
@@ -338,7 +609,7 @@ function restore_mask {
         # Конфиг от прежней версии, где панель висела на 0.0.0.0:9444. Префикс
         # генерируем сейчас и дописываем в конфиг — это и есть переезд.
         PANEL_PREFIX="$(panel_proxy_gen_prefix)"
-        printf 'PANEL_PREFIX=%q\n' "$PANEL_PREFIX" >> "$STACK_CONF"
+        _stack_conf_set PANEL_PREFIX "$PANEL_PREFIX"
         echo -e "${YELLOW}    Префикс пути создан впервые — панель переезжает с порта ${PANEL_PORT} на 443.${NC}"
     fi
     # Серверная половина переезда обязательна и идёт ПЕРВОЙ: пока панель
@@ -1182,34 +1453,36 @@ function run_telemt_menu {
         ui_section "УСТАНОВКА"
         ui_danger_item "1" "Установить весь стек" "СТИРАЕТ существующую 3x-ui"
         ui_item "2" "➕" "Добавить telemt"     "К уже работающей 3x-ui-pro"
+        ui_item "3" "🖥" "Веб-панель"          "Выбрать, поставить или снять: их две"
         echo ""
         ui_section "ЭКСПЛУАТАЦИЯ"
-        ui_item "3" "🩺" "Диагностика"        "Состояние стека и проверка маскировки"
-        ui_item "4" "🔧" "Восстановить nginx"  "Настроить или вернуть маску и доступ"
-        ui_item "5" "🔬" "Сверить TLS"         "Отпечатки маски и панели, PQ"
-        ui_item "6" "🔑" "Учётные данные"      "Адреса, логины и пароли стека и панели"
-        ui_item "7" "🚥" "Управление службами" "Старт, стоп, журналы"
+        ui_item "4" "🩺" "Диагностика"        "Состояние стека и проверка маскировки"
+        ui_item "5" "🔧" "Восстановить nginx"  "Настроить или вернуть маску и доступ"
+        ui_item "6" "🔬" "Сверить TLS"         "Отпечатки маски и панели, PQ"
+        ui_item "7" "🔑" "Учётные данные"      "Адреса, логины и пароли стека и панели"
+        ui_item "8" "🚥" "Управление службами" "Старт, стоп, журналы"
         echo ""
         ui_section "ДОПОЛНИТЕЛЬНО"
-        ui_item "8" "🔒" "MTProxyL"            "Лимитер, обход, тонкая настройка"
-        ui_item "9" "🧱" "Пересборка nginx"    "OpenSSL 3.5 и постквантовый TLS"
+        ui_item "9" "🔒" "MTProxyL"            "Лимитер, обход, тонкая настройка"
+        ui_item "10" "🧱" "Пересборка nginx"   "OpenSSL 3.5 и постквантовый TLS"
         echo ""
-        ui_danger_item "10" "Удалить стек telemt" "telemt, панель, маска, конфиги"
+        ui_danger_item "11" "Удалить стек telemt" "telemt, панель, маска, конфиги"
         ui_item "X" "🔙" "Назад"
         echo ""
 
-        read -p "Ваш выбор [1-10, X]: " choice
+        read -p "Ваш выбор [1-11, X]: " choice
         case $choice in
             1) run_install full ;;
             2) run_install addon ;;
-            3) run_diagnostics ;;
-            4) restore_mask ;;
-            5) check_tls_parity ;;
-            6) show_credentials ;;
-            7) manage_services ;;
-            8) run_mtproxyl ;;
-            9) run_rebuild_nginx ;;
-            10) uninstall_stack ;;
+            3) run_panel_menu ;;
+            4) run_diagnostics ;;
+            5) restore_mask ;;
+            6) check_tls_parity ;;
+            7) show_credentials ;;
+            8) manage_services ;;
+            9) run_mtproxyl ;;
+            10) run_rebuild_nginx ;;
+            11) uninstall_stack ;;
             [Xx]) return ;;
             *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
         esac
