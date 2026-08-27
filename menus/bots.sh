@@ -88,36 +88,78 @@ function ask_params {
     fi
 
     if [ "$mode" != "3xui" ]; then
-        # Домен маскировки узнаём ЗДЕСЬ, чтобы отказать сразу, а не через
-        # десять минут установки.
+        # СПРАШИВАЕМ НЕ «КАКОЙ ДОМЕН», А «КУДА ИЗ ЭТИХ».
         #
-        # Так и вышло на приёмке 27.08.2026: домен приняли без проверки,
-        # установка дошла до настройки nginx и там отказала — правильно, но
-        # поздно, уже после сборки venv и скачивания 90 МБ баз GeoIP.
-        local _mask_domain=""
+        # Прежний вопрос звучал так: «домен, на котором отдавать карту; он
+        # должен уже существовать в конфиге nginx». Человеку, ставящему VSM
+        # впервые, это не говорит ничего: он не знает, какие домены в nginx
+        # есть, и тем более не знает, что один из них — цель self-SNI
+        # маскировки и вешать на него карту нельзя. Владелец указал на это
+        # прямо: «сейчас мы делаем вместе, а потом пользователь будет один».
+        #
+        # VSM знает и то, и другое. Значит выбор нужно ПОКАЗАТЬ, а не требовать
+        # угадать. Свободный ввод оставлен для тех, у кого на сервере есть свои
+        # домены помимо наших.
+        local _mask_domain="" _cands=() _c
         [ -r /etc/vsm/telemt.conf ] && \
             _mask_domain="$(grep -m1 -oP '^DOMAIN_PANEL=\K.*' /etc/vsm/telemt.conf 2>/dev/null | tr -d "\"'")"
 
+        # Берём имена из ЖИВОГО nginx, а не из нашего конфига: там могут быть
+        # чужие сайты, и они годятся не хуже. Домен маскировки исключаем.
+        while IFS= read -r _c; do
+            [ -n "$_c" ] || continue
+            [ "$_c" = "$_mask_domain" ] && continue
+            _cands+=("$_c")
+        done < <(
+            grep -rhoP '^\s*server_name\s+\K[^;]+' \
+                 /etc/nginx/sites-enabled/ /etc/nginx/conf.d/ 2>/dev/null \
+            | tr ' ' '\n' | grep -vE '^(_|localhost)?$' | sort -u
+        )
+
+        echo -e "\n${CYAN}--- Карта подключений ---${NC}"
+        echo -e "${C_DESC:-}Карта показывает города и провайдеров всех, кто подключался."
+        echo -e "Отдаётся по секретному пути (telemt-map- плюс 24 случайных символа),"
+        echo -e "как и веб-панели.${NC}"
+
+        if [ -n "$_mask_domain" ]; then
+            echo -e "${YELLOW}Домен ${_mask_domain} недоступен: это цель self-SNI маскировки.${NC}"
+            echo -e "${C_DESC:-}   Маска копирует у него корень и TLS, но не location-блоки:"
+            echo -e "   тот же адрес на 443 отдал бы 200, а через порт telemt — 404."
+            echo -e "   Один запрос — и порт прокси опознан.${NC}"
+        fi
+
+        echo ""
+        local _n=1 _i
+        for _i in "${_cands[@]}"; do
+            echo -e "   ${YELLOW}${_n})${NC} ${_i}"
+            _n=$((_n + 1))
+        done
+        echo -e "   ${YELLOW}${_n})${NC} ввести другой домен"
+        local _other=$_n
+        echo -e "   ${YELLOW}0)${NC} не подключать карту"
+        echo ""
+
         while true; do
-            echo -e "\n${CYAN}--- Карта подключений ---${NC}"
-            echo -e "Домен, на котором отдавать карту. Он должен уже существовать"
-            echo -e "в конфиге nginx — установщик добавит в него location по"
-            echo -e "секретному пути (${YELLOW}telemt-map-<24 случайных символа>${NC})."
-            if [ -n "$_mask_domain" ]; then
-                echo -e "${YELLOW}Нельзя: ${_mask_domain} — это цель self-SNI маскировки.${NC}"
-                echo -e "${C_DESC:-}   Маска копирует у него корень и TLS, но не location-блоки:"
-                echo -e "   тот же адрес на 443 отдал бы 200, а через порт telemt — 404."
-                echo -e "   Один запрос — и порт прокси опознан.${NC}"
+            local _sel _def=""
+            # Умолчание — единственный подходящий домен, если он один: тогда
+            # выбирать не из чего, и лишний вопрос только сбивает.
+            [ "${#_cands[@]}" -eq 1 ] && _def="1"
+            read -p "Выбор${_def:+ [$_def]}: " _sel
+            _sel="${_sel:-$_def}"
+            if [ "$_sel" = "0" ]; then
+                ASK_MAP=""; break
+            elif [ "$_sel" = "$_other" ]; then
+                read -p "Домен: " ASK_MAP
+                if [ -n "$_mask_domain" ] && [ "$ASK_MAP" = "$_mask_domain" ]; then
+                    echo -e "${RED}❌ Это домен маскировки — на него нельзя. Выберите другой.${NC}"
+                    continue
+                fi
+                break
+            elif [[ "$_sel" =~ ^[0-9]+$ ]] && [ "$_sel" -ge 1 ] && [ "$_sel" -le "${#_cands[@]}" ]; then
+                ASK_MAP="${_cands[$((_sel - 1))]}"; break
+            else
+                echo -e "${RED}❌ Неверный выбор.${NC}"
             fi
-            echo -e "${YELLOW}Пусто — карту не подключать.${NC}"
-            read -p "Домен${MAP_DOMAIN:+ [$MAP_DOMAIN]}: " in_d
-            ASK_MAP="${in_d:-$MAP_DOMAIN}"
-            if [ -n "$_mask_domain" ] && [ "$ASK_MAP" = "$_mask_domain" ]; then
-                echo -e "${RED}❌ На домен маскировки карту вешать нельзя. Выберите другой.${NC}"
-                MAP_DOMAIN=""
-                continue
-            fi
-            break
         done
     fi
     return 0
