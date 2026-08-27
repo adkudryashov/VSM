@@ -191,7 +191,23 @@ _state_set() {
 # ======================================================================
 
 # --- Панель MTProxyL --------------------------------------------------
-applies_panel_listen() { [ -r "$MTPL_PANEL_CONF" ]; }
+# Применима ли позиция, настраивающая MTProxyL-Panel.
+#
+# Мало прочитать её конфиг: конфиг переживает неудачную установку. На приёмке
+# 27.08.2026 установщик панели упал на генерации sudoers, оставив бинарь и
+# config.toml без юнита, — и четыре позиции немедленно потребовали настроек от
+# службы, которой нет. Одна из них класса fix, то есть правила бы конфиг
+# несуществующей панели и перезапускала бы её же.
+#
+# Спрашиваем и про службу тоже. Без lib/panels.sh не додумываем: проверяем как
+# раньше, по одному конфигу.
+_mtpl_panel_configurable() {
+    [ -r "$MTPL_PANEL_CONF" ] || return 1
+    declare -F panel_mtproxyl_installed >/dev/null 2>&1 || return 0
+    panel_mtproxyl_installed
+}
+
+applies_panel_listen() { _mtpl_panel_configurable; }
 want_panel_listen()    { echo "127.0.0.1"; }
 read_panel_listen()    { _toml_get "$MTPL_PANEL_CONF" "" listen | sed 's/:[0-9]*$//'; }
 fix_panel_listen() {
@@ -202,7 +218,7 @@ fix_panel_listen() {
     systemctl restart mtproxyl-panel >/dev/null 2>&1
 }
 
-applies_panel_tls() { [ -r "$MTPL_PANEL_CONF" ]; }
+applies_panel_tls() { _mtpl_panel_configurable; }
 want_panel_tls()    { echo "нет"; }
 read_panel_tls() {
     grep -qE '^[[:space:]]*\[tls\]' "$MTPL_PANEL_CONF" 2>/dev/null && echo "есть" || echo "нет"
@@ -234,7 +250,7 @@ fix_panel_tls() {
 # Удаление файла — не самодеятельность: установщик панели удаляет ровно его и
 # ровно при enabled = false. Мы приводим систему к тому же состоянию, к
 # которому её привёл бы он сам, просто не дожидаясь переустановки.
-applies_panel_mtproxyl_off() { [ -r "$MTPL_PANEL_CONF" ]; }
+applies_panel_mtproxyl_off() { _mtpl_panel_configurable; }
 want_panel_mtproxyl_off()    { echo "false"; }
 read_panel_mtproxyl_off() {
     local enabled; enabled="$(_toml_get "$MTPL_PANEL_CONF" mtproxyl enabled)"
@@ -255,7 +271,7 @@ fix_panel_mtproxyl_off() {
     systemctl restart mtproxyl-panel >/dev/null 2>&1
 }
 
-applies_panel_config_api() { [ -r "$MTPL_PANEL_CONF" ]; }
+applies_panel_config_api() { _mtpl_panel_configurable; }
 want_panel_config_api()    { echo "api"; }
 # Ключ лежит в секции [telemt], а не на верхнем уровне. Первый прогон сверки
 # читал его сверху, получал пустоту и объявлял дрейф на исправной установке —
@@ -482,7 +498,7 @@ read_nginx_blocks() {
     fi
 }
 
-applies_panel_prefix() { [ -r "$MTPL_PANEL_CONF" ] && [ -n "$(_panel_domain)" ]; }
+applies_panel_prefix() { _mtpl_panel_configurable && [ -n "$(_panel_domain)" ]; }
 want_panel_prefix()    { mtpl_panel_prefix 2>/dev/null; }
 read_panel_prefix() {
     local vhost prefix
