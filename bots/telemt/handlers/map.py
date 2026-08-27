@@ -95,9 +95,10 @@ async def cmd_map(message: types.Message):
         await send_long_message(
             message,
             "🗺 Карта недоступна: библиотека folium не загрузилась.\n\n"
-            "Чаще всего причина — процессор без SSE4.2 и POPCNT: numpy 2.x "
-            "на таких машинах не запускается. Всё остальное работает.\n\n"
-            "Починка: <code>bots/venv/bin/pip install \"numpy&lt;2\"</code>",
+            "Чаще всего причина — процессор без SSE4.2 и POPCNT: numpy 2.4 и "
+            "новее на таких машинах не запускается. Всё остальное работает.\n\n"
+            "Починка: <code>bots/venv/bin/pip install \"numpy&lt;2.4\"</code>\n"
+            "и перезапуск бота.",
         )
         return
 
