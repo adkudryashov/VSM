@@ -47,10 +47,20 @@ def keyboard() -> InlineKeyboardMarkup:
     pause = (InlineKeyboardButton(text="🔔 Снять паузу", callback_data="wd:unmute")
              if muted else
              InlineKeyboardButton(text="🔕 Пауза", callback_data="wd:mute"))
-    rows = [[
-        InlineKeyboardButton(text="🔄 Обновить", callback_data="wd:refresh"),
-        InlineKeyboardButton(text="🇷🇺 Проверить", callback_data="wd:check"),
-    ]]
+    # «Проверить» — только при включённой проверке из РФ.
+    #
+    # Правило то же, что двумя строками ниже про «Зонды», и оно там записано
+    # прямым текстом: кнопка, которая всегда отвечает одним и тем же отказом,
+    # хуже её отсутствия. К «Проверить» его забыли применить — при выключенной
+    # проверке она молча предлагала нажать и отвечала «выключено». Замечено на
+    # приёмке 27.08.2026, когда карточка впервые открылась глазами.
+    #
+    # Как включить, написано в самой карточке строкой про доступность из РФ:
+    # объяснение осталось, исчезла только пустая кнопка.
+    top = [InlineKeyboardButton(text="🔄 Обновить", callback_data="wd:refresh")]
+    if settings.RU_CHECK_ENABLED:
+        top.append(InlineKeyboardButton(text="🇷🇺 Проверить", callback_data="wd:check"))
+    rows = [top]
     # «Зонды» показываются, только когда есть что показать: кнопка, которая на
     # половине установок отвечает «данных нет», хуже её отсутствия.
     if (watchdog.ru_last or {}).get("probes"):
