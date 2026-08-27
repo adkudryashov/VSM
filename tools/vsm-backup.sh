@@ -93,6 +93,20 @@ create_backup() {
     # получить ненулевой код возврата и решить, что копия не удалась.
     local -a items=()
     [ -d "$ETC_DIR" ]                    && items+=("-C" "/" "etc/vsm")
+    # Конфиг движка. ЕГО ЗДЕСЬ НЕ БЫЛО, и это была главная дыра копии.
+    #
+    # В /etc/telemt/telemt.toml лежит ядро незаметности — mask, mask_host,
+    # mask_port, tls_domain, — и секреты пользователей в [access.users]. То
+    # есть ровно то, ради чего копия и заводилась: потеряв сервер, без этого
+    # файла восстанавливать нечего, а ссылки всех клиентов обрываются.
+    #
+    # Пропущено было незаметно: копия исправно собиралась, проверялась
+    # разворачиванием и содержала /etc/vsm — то есть выглядела полной. Найдено
+    # на приёмке 27.08.2026 случайно, при разборе совсем другого вопроса.
+    [ -f /etc/telemt/telemt.toml ]       && items+=("-C" "/" "etc/telemt/telemt.toml")
+    # Конфиг веб-панели MTProxyL: адрес, секретный путь и хэш пароля. Панель
+    # чужая, но путь к ней — наш секрет, и заново его знать неоткуда.
+    [ -f /etc/mtproxyl-panel/config.toml ] && items+=("-C" "/" "etc/mtproxyl-panel/config.toml")
     [ -f "$BOTS_DIR/.env" ]              && items+=("-C" "$VSM_ROOT" "bots/.env")
     [ -f "$BOTS_DIR/data/bot_monitor.db" ] && items+=("-C" "$VSM_ROOT" "bots/data/bot_monitor.db")
 
@@ -236,6 +250,11 @@ restore_backup() {
     # то есть мимо цели и молча.
     local failed=0
     extract_branch "$archive" "etc/vsm" "/"        || failed=1
+    # Ветки чужих конфигов. Их может не быть в старых архивах — extract_branch
+    # это переживает: отсутствие ветки не ошибка, ошибка это ветка, которая не
+    # распаковалась.
+    extract_branch "$archive" "etc/telemt/" "/"    || failed=1
+    extract_branch "$archive" "etc/mtproxyl-panel/" "/" || failed=1
     extract_branch "$archive" "bots/"  "$VSM_ROOT" || failed=1
 
     # Снимок убираем в любом исходе: в нём секреты, и лежать он не должен.
