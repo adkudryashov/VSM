@@ -58,6 +58,12 @@ def _quality_mark(success_percent: float) -> str:
     украшением: зелёный горел и при 40% успеха, красный светил при нуле сбоев.
     Значок обязан что-то означать, иначе он мешает искать глазами тот, который
     означает.
+
+    СТОИТ У СТРОКИ «СБОИ», А НЕ «УСПЕШНЫХ». Оценка считается по доле успеха, но
+    показывать её надо там, где смысл совпадает с цветом: «🔴 Успешных 72.8%»
+    читается как «успешные — это плохо», и глаз спотыкается каждый раз.
+    Красный у сбоев означает ровно то, что видно: сбоев многовато. Замечено
+    владельцем на первой живой сводке 27.08.2026.
     """
     if success_percent >= 99:
         return OK
@@ -112,8 +118,8 @@ async def build_status_parts() -> tuple[str, str]:
         f"🔹 Сетевая активность:\n"
         f"🌐 Активных IP: {total_active_ips}\n"
         f"🌐 Всего соединений: {format_connections(connections_total)}\n"
-        f"┗━ {mark} Успешных: {format_connections(good_connections)} ({format_percent(success_percent)})\n"
-        f"┗━ Сбои: {format_connections(connections_bad)} ({format_percent(bad_percent)})"
+        f"┗━ Успешных: {format_connections(good_connections)} ({format_percent(success_percent)})\n"
+        f"┗━ {mark} Сбои: {format_connections(connections_bad)} ({format_percent(bad_percent)})"
     )
     # Один экран в две колонки вместо двух таблиц одна под другой.
     # colspan в HTML-режиме проверен ответом sendRichMessage: сервер
@@ -124,9 +130,9 @@ async def build_status_parts() -> tuple[str, str]:
         f"<tr><td>Аптайм</td><td>{html.escape(format_uptime(summary_data['uptime_seconds']))}</td>"
         f"<td>Всего соединений</td><td>{html.escape(format_connections(connections_total))}</td></tr>"
         f"<tr><td>Трафик</td><td>{html.escape(format_traffic(total_traffic))}</td>"
-        f"<td>{mark} Успешных</td><td>{html.escape(format_connections(good_connections))} ({format_percent(success_percent)})</td></tr>"
+        f"<td>Успешных</td><td>{html.escape(format_connections(good_connections))} ({format_percent(success_percent)})</td></tr>"
         f"<tr><td>Активные IP</td><td>{total_active_ips}</td>"
-        f"<td>Сбои</td><td>{html.escape(format_connections(connections_bad))} ({format_percent(bad_percent)})</td></tr>"
+        f"<td>{mark} Сбои</td><td>{html.escape(format_connections(connections_bad))} ({format_percent(bad_percent)})</td></tr>"
         # Версия вынесена вниз во всю ширину: строка длинная и в узкой
         # ячейке переносится, а пары к ней в правой колонке всё равно нет.
         f"<tr><td colspan=\"4\">Версия: {html.escape(version_text)}</td></tr>"
