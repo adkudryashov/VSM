@@ -113,7 +113,20 @@ async def cmd_map(message: types.Message):
         avg_lat = sum(c[0] for c in coords) / len(coords)
         avg_lon = sum(c[1] for c in coords) / len(coords)
         
-        m = folium.Map(location=[avg_lat, avg_lon], zoom_start=3, tiles='cartodbpositron')
+        # ПОДЛОЖКА — OpenStreetMap, а не CartoDB.
+        #
+        # cartodbpositron тянул плитки с basemaps.cartocdn.com, и CartoDB
+        # закрыл их бесплатную отдачу: карта строилась, но поверх всей
+        # площади шли водяные знаки «API KEY REQUIRED». Увидено на приёмке
+        # 27.08.2026 — по коду это не отличить от исправной карты, отдаётся
+        # тот же HTTP 200 с картинкой.
+        #
+        # На приватность замена не влияет: сервер плиток в обоих случаях видит
+        # адрес смотрящего и разглядываемые районы, но не секретный путь —
+        # его прячет Referrer-Policy: no-referrer. Это тот же размен, который
+        # владелец принял при разборе карты 14.08.2026, только провайдер
+        # другой и без ключа.
+        m = folium.Map(location=[avg_lat, avg_lon], zoom_start=3, tiles='OpenStreetMap')
         cluster = MarkerCluster().add_to(m)
         
         for lat, lon, popup in coords:
