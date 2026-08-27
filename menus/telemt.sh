@@ -461,8 +461,8 @@ function run_panel_menu {
 
         echo ""
         ui_section "ВЫБОР"
-        ui_item "1" "🇹" "telemt_panel"   "Своя: ставит и настраивает VSM"
-        ui_item "2" "🇲" "MTProxyL-Panel" "Чужая: ставит команда mtproxyl"
+        ui_item "1" "🏠" "telemt_panel"   "Своя: ставит и настраивает VSM"
+        ui_item "2" "🧩" "MTProxyL-Panel" "Чужая: ставит команда mtproxyl"
         echo ""
         ui_danger_item "3" "Снять панель совсем" "telemt при этом не трогается"
         ui_item "X" "🔙" "Назад"
@@ -944,7 +944,7 @@ function show_credentials {
                     "$C_SECRET" "$mp_url" "$NC"
             else
                 printf '   %b%s%b%s\n' "$C_NAME" "$(ui_pad 'MTProxyL-Panel:' 20)" "$NC" \
-                    "путь не выдан — пункт 4 «Восстановить nginx»"
+                    "путь не выдан — пункт «Восстановить nginx»"
             fi
             [ -n "$mp_user" ] && printf '   %b%s%b%b%s%b\n' \
                 "$C_NAME" "$(ui_pad 'Логин:' 20)" "$NC" "$C_SECRET" "$mp_user" "$NC"
@@ -1037,7 +1037,7 @@ function mtproxyl_status_line {
     # нашим — состояние рабочее, но почти наверняка выбранное по ошибке.
     case "$mode" in
         reanimator) echo -e "${GREEN}УСТАНОВЛЕН${ver:+ v$ver}${NC} ${GREEN}(Reanimator)${NC}" ;;
-        manager)    echo -e "${GREEN}УСТАНОВЛЕН${ver:+ v$ver}${NC} ${YELLOW}(Manager — см. пункт 7)${NC}" ;;
+        manager)    echo -e "${GREEN}УСТАНОВЛЕН${ver:+ v$ver}${NC} ${YELLOW}(Manager — см. пункт «MTProxyL»)${NC}" ;;
         *)          echo -e "${GREEN}УСТАНОВЛЕН${ver:+ v$ver}${NC}" ;;
     esac
 }
@@ -1135,12 +1135,12 @@ function run_mtproxyl {
     fi
 
     # Своя маскировка у MTProxyL правит те же ключи [censorship], которыми
-    # управляет self-SNI маскировка VSM. Пункт 4 будет возвращать их обратно,
-    # и вдвоём они устроят качели.
+    # управляет self-SNI маскировка VSM. «Восстановить nginx» будет возвращать
+    # их обратно, и вдвоём они устроят качели.
     echo -e "${RED}❗  Selfmask в его меню — не включайте.${NC}"
-    echo -e "${YELLOW}   Маскировку в этой сборке держит VSM (пункт 4), а Selfmask"
-    echo -e "   переставит tls_domain, mask_host и mask_port на свой nginx."
-    echo -e "   Постквантовый TLS для маскировки — это пункт 8, ещё один"
+    echo -e "${YELLOW}   Маскировку в этой сборке держит VSM («Восстановить nginx»),"
+    echo -e "   а Selfmask переставит tls_domain, mask_host и mask_port на свой nginx."
+    echo -e "   Постквантовый TLS для маскировки — это «Пересборка nginx», ещё один"
     echo -e "   PQ-nginx рядом не нужен.${NC}\n"
 
     echo -e "${YELLOW}Код скачивается с GitHub автора и выполняется от root."
@@ -1424,14 +1424,14 @@ function run_telemt_menu {
                 # выдан. Само по себе это не поломка, но снаружи панель в таком
                 # виде недоступна, и молчать об этом нельзя: человек будет
                 # искать адрес там, где его никогда не было.
-                ui_kv '🌐  Адрес панели' 'нет — выдать: пункт 4 «Восстановить nginx»' 20
+                ui_kv '🌐  Адрес панели' 'нет — выдать: пункт «Восстановить nginx»' 20
             fi
         fi
         # Ни одной панели — состояние законное (страж сносит прежнюю до
         # установки MTProxyL, а её панель ставится отдельной командой), но
         # оставлять человека гадать не надо.
         if ! panel_telemt_installed && ! panel_mtproxyl_installed; then
-            ui_kv '🌐  Как поставить' 'mtproxyl panel install, затем пункт 4' 20
+            ui_kv '🌐  Как поставить' 'пункт «Веб-панель»' 20
         fi
         if mtproxyl_is_installed; then
             ui_kv '⌨  Его менеджер' 'команда mtproxyl из любой точки системы' 20
