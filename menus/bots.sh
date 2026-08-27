@@ -88,12 +88,37 @@ function ask_params {
     fi
 
     if [ "$mode" != "3xui" ]; then
-        echo -e "\n${CYAN}--- Карта подключений ---${NC}"
-        echo -e "Домен, на котором отдавать карту. Он должен уже существовать в"
-        echo -e "конфиге nginx — установщик добавит в него ${YELLOW}location /telemt-map${NC}."
-        echo -e "${YELLOW}Пусто — карту не подключать.${NC}"
-        read -p "Домен${MAP_DOMAIN:+ [$MAP_DOMAIN]}: " in_d
-        ASK_MAP="${in_d:-$MAP_DOMAIN}"
+        # Домен маскировки узнаём ЗДЕСЬ, чтобы отказать сразу, а не через
+        # десять минут установки.
+        #
+        # Так и вышло на приёмке 27.08.2026: домен приняли без проверки,
+        # установка дошла до настройки nginx и там отказала — правильно, но
+        # поздно, уже после сборки venv и скачивания 90 МБ баз GeoIP.
+        local _mask_domain=""
+        [ -r /etc/vsm/telemt.conf ] && \
+            _mask_domain="$(grep -m1 -oP '^DOMAIN_PANEL=\K.*' /etc/vsm/telemt.conf 2>/dev/null | tr -d "\"'")"
+
+        while true; do
+            echo -e "\n${CYAN}--- Карта подключений ---${NC}"
+            echo -e "Домен, на котором отдавать карту. Он должен уже существовать"
+            echo -e "в конфиге nginx — установщик добавит в него location по"
+            echo -e "секретному пути (${YELLOW}telemt-map-<24 случайных символа>${NC})."
+            if [ -n "$_mask_domain" ]; then
+                echo -e "${YELLOW}Нельзя: ${_mask_domain} — это цель self-SNI маскировки.${NC}"
+                echo -e "${C_DESC:-}   Маска копирует у него корень и TLS, но не location-блоки:"
+                echo -e "   тот же адрес на 443 отдал бы 200, а через порт telemt — 404."
+                echo -e "   Один запрос — и порт прокси опознан.${NC}"
+            fi
+            echo -e "${YELLOW}Пусто — карту не подключать.${NC}"
+            read -p "Домен${MAP_DOMAIN:+ [$MAP_DOMAIN]}: " in_d
+            ASK_MAP="${in_d:-$MAP_DOMAIN}"
+            if [ -n "$_mask_domain" ] && [ "$ASK_MAP" = "$_mask_domain" ]; then
+                echo -e "${RED}❌ На домен маскировки карту вешать нельзя. Выберите другой.${NC}"
+                MAP_DOMAIN=""
+                continue
+            fi
+            break
+        done
     fi
     return 0
 }

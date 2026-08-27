@@ -310,8 +310,19 @@ setup_nginx_map() {
     if ! out=$(python3 "$BOTS_DIR/telemt/scripts/nginx_map_location.py" \
                  --domain "$MAP_DOMAIN" --map-dir "$MAP_DIR" --path "$MAP_PATH" \
                  --mask-domain "$(conf_get_stack DOMAIN_PANEL)" 2>&1); then
+        # Домен НЕ запоминаем: nginx карту не отдаёт, и записанный адрес был бы
+        # рабочим на вид и мёртвым на деле. Тот же дефект, что чинили на экране
+        # доступов и в файле учётных данных: реквизиты несуществующей службы
+        # хуже их отсутствия — отсутствие видно сразу.
+        MAP_DOMAIN=""
+        WEB_URL=""
+        # .env пишется ДО этого шага, поэтому одной переменной мало — правим
+        # уже записанный файл. Иначе бот показывал бы кнопку «Открыть карту»,
+        # ведущую в никуда.
+        [[ -f "$ENV_FILE" ]] && sed -i 's|^WEB_URL=.*|WEB_URL=|' "$ENV_FILE"
         warn "не удалось изменить конфиг nginx:"
         echo "$out" | sed 's/^/       /'
+        warn "адрес карты НЕ записан: отдавать её сейчас некому."
         warn "подключить вручную, добавив в нужный server-блок:"
         echo "       location /$MAP_PATH/ { alias $MAP_DIR/; try_files map.html =404; }"
         return 0
