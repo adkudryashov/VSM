@@ -562,9 +562,15 @@ chmod 600 "$STACK_CONF"
     echo "Панель 3x-ui-pro:   https://${DOMAIN_PANEL}${PANEL_WEBPATH:-/}panel/"
     echo "telemt порт:        ${TELEMT_PORT}"
     echo "telemt secret:      ${TELEMT_SECRET}"
-    echo "telemt_panel:       https://${DOMAIN_PANEL}/${PANEL_PREFIX}/"
-    echo "telemt_panel логин: ${PANEL_ADMIN_USER}"
-    echo "telemt_panel пароль: ${PANEL_ADMIN_PASS}"
+    # Панель могла не ставиться: владелец отказался при вводе параметров или
+    # оставил чужую. Писать её адрес и пароль в файл учётных данных в таком
+    # случае значит выдать рабочие на вид реквизиты от несуществующей службы —
+    # тот же дефект, что чинили на экране доступов.
+    if [[ "${SKIP_PANEL:-0}" -eq 0 ]]; then
+        echo "telemt_panel:       https://${DOMAIN_PANEL}/${PANEL_PREFIX}/"
+        echo "telemt_panel логин: ${PANEL_ADMIN_USER}"
+        echo "telemt_panel пароль: ${PANEL_ADMIN_PASS}"
+    fi
 } > "$STACK_CREDS"
 chmod 600 "$STACK_CREDS"
 
@@ -573,16 +579,18 @@ cat << SUMMARY
 ════════════════════════════════════════════════════════════════
 УСТАНОВКА ЗАВЕРШЕНА (режим: ${MODE})
 
-  Панель 3x-ui-pro:    https://${DOMAIN_PANEL}${PANEL_WEBPATH:-/<путь из вывода установщика>/}panel/
+  Домен панели:        ${DOMAIN_PANEL}
   REALITY SNI-ключ:    ${DOMAIN_REALITY}
   telemt порт:         ${TELEMT_PORT}  (self-SNI цель: ${DOMAIN_PANEL})
-  telemt_panel:        https://${DOMAIN_PANEL}/${PANEL_PREFIX}/
-                       (порт ${PANEL_PORT} только на 127.0.0.1, наружу не открыт)
-  Логин панели telemt: ${PANEL_ADMIN_USER}
+  Веб-панель:          порт ${PANEL_PORT} только на 127.0.0.1, наружу не открыт
 
-  Секрет и пароль НЕ печатаются здесь намеренно — они сохранены в
-  ${STACK_CREDS} (права 600).
-  Посмотреть: пункт меню "Показать учётные данные".
+  АДРЕСА, ЛОГИНЫ, ПАРОЛИ И СЕКРЕТ ЗДЕСЬ НЕ ПЕЧАТАЮТСЯ.
+  Они сохранены в ${STACK_CREDS} (права 600).
+  Посмотреть: меню стека telemt, пункт "Учётные данные".
+
+  Секретный путь к панели — такой же секрет, как пароль: кто его знает,
+  тот видит форму входа. Вывод этой установки уходит в журнал сеанса,
+  в скриншоты и в пересланный текст, поэтому пути здесь нет.
 
 ДАЛЬШЕ:
   • SYN FIX (MEKO) — отдельный пункт меню.

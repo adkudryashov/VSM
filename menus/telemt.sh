@@ -451,6 +451,66 @@ function _panel_do_remove {
     return 0
 }
 
+# Сменить секретный путь панели.
+#
+# Путь — это пароль от входа: знающий его видит форму входа в админку. Утечь он
+# может как угодно — скриншотом, журналом сеанса, пересланным выводом, — и
+# сменить его до сих пор было НЕЧЕМ. mtpl_panel_set_prefix звали только когда
+# пути нет вовсе, а у telemt_panel префикс писался один раз при установке.
+# Единственным способом отреагировать на утечку оставалась переустановка
+# панели.
+#
+# Меняем и в панели, и в nginx, и проверяем фактом, что новый адрес отвечает.
+# Новый путь на экран НЕ печатаем — за ним идут в «Учётные данные».
+function _panel_do_rotate_prefix {
+    local new pv code port
+    if [ -z "$DOMAIN_PANEL" ]; then
+        echo -e "${RED}❌ Нет домена панели — путь некуда прикладывать.${NC}"
+        return 1
+    fi
+    if ! panel_telemt_installed && ! panel_mtproxyl_installed; then
+        echo -e "${BLUE}Панели нет — менять нечего.${NC}"
+        return 0
+    fi
+    pv="$(nginx_mask_panel_vhost "$DOMAIN_PANEL")" || {
+        echo -e "${RED}❌ Не найден vhost домена ${DOMAIN_PANEL}.${NC}"
+        return 1
+    }
+    new="$(panel_proxy_gen_prefix)"
+
+    echo -e "${YELLOW}   Прежний адрес перестанет работать сразу.${NC}"
+
+    if panel_mtproxyl_installed; then
+        port="$(mtpl_panel_port)"
+        # set_prefix сам проверяет живую панель и откатывается, если она не
+        # отдаёт новый путь: конфиг и nginx не должны разъехаться ни на миг.
+        if ! mtpl_panel_set_prefix "$new" >/dev/null; then
+            echo -e "${RED}❌ Панель не приняла новый путь — ничего не менялось.${NC}"
+            return 1
+        fi
+        mtpl_proxy_apply "$pv" "$new" "$port" || {
+            echo -e "${RED}❌ nginx не принял новый блок (причина выше).${NC}"
+            return 1
+        }
+    else
+        port="${PANEL_PORT:-9444}"
+        panel_proxy_apply "$pv" "$new" "$port" || {
+            echo -e "${RED}❌ nginx не принял новый блок (причина выше).${NC}"
+            return 1
+        }
+        _stack_conf_set PANEL_PREFIX "$new"
+    fi
+
+    if code="$(panel_proxy_verify "$DOMAIN_PANEL" "$new")"; then
+        echo -e "${GREEN}✓ Путь сменён, панель отвечает ($code).${NC}"
+        echo -e "${BLUE}   Новый адрес — пункт «Учётные данные».${NC}"
+        return 0
+    fi
+    echo -e "${RED}❌ По новому адресу панель вернула $code.${NC}"
+    echo -e "${YELLOW}   Повторите пункт «Восстановить nginx».${NC}"
+    return 1
+}
+
 function run_panel_menu {
     local choice url left
     while true; do
@@ -479,7 +539,11 @@ function run_panel_menu {
             left=telemt
             panel_mtproxyl_leftovers && left=mtproxyl
             ui_kv "⚠  Состояние" "следы неудачной установки $(panel_human_name "$left")" 18
-            ui_kv "➡  Что делать" "поставить любую панель — следы уберутся сами" 18
+            # Страж исключительности убирает следы ЧУЖОЙ панели. Следы той же
+            # самой он не трогает, и обещать обратное нельзя: на приёмке
+            # 27.08.2026 экран сказал «уберутся сами», а выручил чужой
+            # установщик, не VSM.
+            ui_kv "➡  Что делать" "снять панель совсем — уберёт следы" 18
         else
             ui_kv "🖥  Установлена" "ни одной" 18
             ui_kv "➡  Без панели" "telemt и маскировка работают полностью" 18
@@ -490,18 +554,22 @@ function run_panel_menu {
         ui_item "1" "🏠" "telemt_panel"   "Своя: ставит и настраивает VSM"
         ui_item "2" "🧩" "MTProxyL-Panel" "Чужая: ставит команда mtproxyl"
         echo ""
-        ui_danger_item "3" "Снять панель совсем" "telemt при этом не трогается"
+        ui_section "ОБСЛУЖИВАНИЕ"
+        ui_item "3" "🔀" "Сменить путь"   "Если секретный адрес засветился"
+        echo ""
+        ui_danger_item "4" "Снять панель совсем" "telemt при этом не трогается"
         ui_item "X" "🔙" "Назад"
         echo ""
         echo -e "${C_DESC}   На сервере может быть только одна: две админки — вдвое больше"
         echo -e "   того, что можно взломать и надо обновлять, ради одной задачи.${NC}"
         echo ""
 
-        read -p "Ваш выбор [1-3, X]: " choice || return
+        read -p "Ваш выбор [1-4, X]: " choice || return
         case "$choice" in
             1) _panel_do_install_telemt;   read -p "Нажмите Enter..." ;;
             2) _panel_do_install_mtproxyl; read -p "Нажмите Enter..." ;;
-            3) _panel_do_remove;           read -p "Нажмите Enter..." ;;
+            3) _panel_do_rotate_prefix;    read -p "Нажмите Enter..." ;;
+            4) _panel_do_remove;           read -p "Нажмите Enter..." ;;
             [Xx]) return ;;
             *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
         esac
@@ -653,7 +721,10 @@ function restore_mask {
         # конфига. nginx принял файл — это ещё ничего не значит.
         code="$(panel_proxy_verify "$DOMAIN_PANEL" "$PANEL_PREFIX")" && proxy_ok=1
         if [ "$proxy_ok" = 1 ]; then
-            echo -e "${GREEN}✅ Панель отвечает ($code): ${CYAN}https://${DOMAIN_PANEL}/${PANEL_PREFIX}/${NC}"
+            # Адрес не печатаем: секретный путь это и есть пароль от входа, а
+            # вывод этого пункта попадает в журналы сеанса и в скриншоты.
+            echo -e "${GREEN}✅ Панель отвечает ($code) по своему секретному пути.${NC}"
+            echo -e "${BLUE}   Адрес — пункт «Учётные данные».${NC}"
         else
             echo -e "${RED}❌ Блок в nginx применён, но панель по адресу вернула $code.${NC}"
             echo -e "${YELLOW}   Смотри journalctl -u telemt-panel и /var/log/nginx/error.log${NC}"
@@ -728,11 +799,22 @@ function mtpl_restore_proxy {
         # Как и у telemt_panel: успех печатаем по ответу, а не по тому, что
         # nginx принял файл.
         if code="$(panel_proxy_verify "$DOMAIN_PANEL" "$prefix")"; then
-            echo -e "${GREEN}✅ MTProxyL-Panel отвечает ($code):${NC}"
-            echo -e "   ${CYAN}https://${DOMAIN_PANEL}/${prefix}/${NC}"
+            # Адрес НЕ печатаем.
+            #
+            # Секретный путь — это и есть пароль от входа: знающий его видит
+            # форму входа в админку. Этот пункт запускают в обычном терминале,
+            # его вывод попадает в журналы сеанса, в скриншоты и в переписку.
+            # Проверено на приёмке 27.08.2026: путь утёк именно так, из вывода
+            # этого пункта, — и это третий случай за проект. Вывод сверки
+            # маскируется с 15.08.2026, а тут маскировки не было.
+            #
+            # Место для секретов одно — «Учётные данные», и туда заходят
+            # осознанно.
+            echo -e "${GREEN}✅ MTProxyL-Panel отвечает ($code) по своему секретному пути.${NC}"
+            echo -e "${BLUE}   Адрес — пункт «Учётные данные».${NC}"
         else
             echo -e "${RED}❌ Блок применён, но панель по адресу вернула $code.${NC}"
-            echo -e "${YELLOW}   Проверьте, что base_path в конфиге панели равен ${prefix}.${NC}"
+            echo -e "${YELLOW}   Сверьте base_path в ${MTPL_PANEL_CONF} с блоком в ${pv}.${NC}"
         fi
     else
         echo -e "${RED}❌ Доступ к MTProxyL-Panel не подключён (причина выше).${NC}"
