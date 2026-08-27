@@ -133,6 +133,10 @@ async def build_status_parts() -> tuple[str, str]:
     real_total = max(0, connections_total - scanner_bad)
     real_bad_percent = (real_bad / real_total * 100) if real_total > 0 else 0
     real_success_percent = 100 - real_bad_percent if real_total > 0 else 100
+    # Доля успешных считается от ТОГО ЖЕ знаменателя, что и доля сбоев.
+    # Иначе рядом стоят «Сбои 0 (0%)» и «Успешных 78.7%», и верят той строке,
+    # которая пугает: если сбоев ноль, успешных обязано быть сто. Замечено
+    # сразу после первой правки — половину дроби починил, половину нет.
 
     current_version = sys_data.get('version', 'неизвестно')
     version_text = _version_line(current_version, latest_version)
@@ -146,7 +150,7 @@ async def build_status_parts() -> tuple[str, str]:
         f"🔹 Сетевая активность:\n"
         f"🌐 Активных IP: {total_active_ips}\n"
         f"🌐 Всего соединений: {format_connections(connections_total)}\n"
-        f"┗━ Успешных: {format_connections(good_connections)} ({format_percent(success_percent)})\n"
+        f"┗━ Успешных: {format_connections(good_connections)} ({format_percent(real_success_percent)})\n"
         f"┗━ {mark} Сбои: {format_connections(real_bad)} ({format_percent(real_bad_percent)})"
         + (f"\n┗━ 🔍 Чужие рукопожатия: {format_connections(scanner_bad)} — сканеры, не клиенты"
            if scanner_bad else "")
@@ -167,7 +171,7 @@ async def build_status_parts() -> tuple[str, str]:
         f"<tr><td>Аптайм</td><td>{html.escape(format_uptime(summary_data['uptime_seconds']))}</td>"
         f"<td>Всего соединений</td><td>{html.escape(format_connections(connections_total))}</td></tr>"
         f"<tr><td>Трафик</td><td>{html.escape(format_traffic(total_traffic))}</td>"
-        f"<td>Успешных</td><td>{html.escape(format_connections(good_connections))} ({format_percent(success_percent)})</td></tr>"
+        f"<td>Успешных</td><td>{html.escape(format_connections(good_connections))} ({format_percent(real_success_percent)})</td></tr>"
         f"<tr><td>Активные IP</td><td>{total_active_ips}</td>"
         f"<td>{mark} Сбои</td><td>{html.escape(format_connections(real_bad))} ({format_percent(real_bad_percent)})</td></tr>"
         f"{scanner_row}"
