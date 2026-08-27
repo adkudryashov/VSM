@@ -346,11 +346,55 @@ if [[ "$MODE" == "full" ]]; then
         XUI_VER_ARG=(-version "$XUI_VERSION")
         log "  версия 3x-ui задана явно: ${XUI_VERSION}"
     fi
+    # ЛОВИМ УЧЁТНЫЕ ДАННЫЕ ПАНЕЛИ.
+    #
+    # Установщик 3x-ui-pro генерирует случайные логин и пароль и печатает их
+    # ОДИН РАЗ, двумя строками в середине многоминутного вывода. Панель хранит
+    # bcrypt-хэш, прочитать пароль обратно нельзя ничем. Дальше VSM показывал
+    # адрес панели и молчал про вход — а владелец обнаруживал это через
+    # несколько часов, когда панель понадобилась, и в прокрутке терминала уже
+    # ничего не было.
+    #
+    # Классическая для этого проекта поломка: чужой софт сообщает важное один
+    # раз и вскользь, а мы этого не подхватываем. Ровно то же было с секретным
+    # путём панели MTProxyL.
+    #
+    # Пишем в файл с umask 077: пароль не должен полежать в /tmp доступным всем
+    # даже секунду. Файл удаляем сразу после разбора.
+    XUI_LOG="$(umask 077; mktemp /tmp/vsm-xui-install.XXXXXX.log)"
     bash x-ui-latest.sh \
         -install y \
         "${XUI_VER_ARG[@]}" \
         -subdomain "$DOMAIN_PANEL" \
-        -reality_domain "$DOMAIN_REALITY"
+        -reality_domain "$DOMAIN_REALITY" 2>&1 | tee "$XUI_LOG"
+
+    # "|| ..." обязателен: при set -e неудачный grep уронил бы установку уже
+    # после того, как панель встала. Отсутствие строк — не повод падать,
+    # повод сказать об этом.
+    XUI_ADMIN_USER="$(grep -m1 -E '^Username:' "$XUI_LOG" | awk '{print $2}')" || XUI_ADMIN_USER=""
+    XUI_ADMIN_PASS="$(grep -m1 -E '^Password:' "$XUI_LOG" | awk '{print $2}')" || XUI_ADMIN_PASS=""
+    rm -f "$XUI_LOG"
+
+    if [[ -n "$XUI_ADMIN_USER" && -n "$XUI_ADMIN_PASS" ]]; then
+        # Формат тот же, что у lib/config.sh (xui_credentials_save): %q, чтобы
+        # значение пережило source, и права 600. Копия намеренная — установщики
+        # стеков библиотек меню не подключают. Меняете здесь — проверьте там.
+        mkdir -p /etc/vsm && chmod 700 /etc/vsm
+        XUI_TMP="$(umask 077; mktemp /etc/vsm/.xui.XXXXXX)"
+        {
+            printf '# Создано VSM, не редактируй вручную.\n'
+            printf 'XUI_ADMIN_USER=%q\n' "$XUI_ADMIN_USER"
+            printf 'XUI_ADMIN_PASS=%q\n' "$XUI_ADMIN_PASS"
+        } > "$XUI_TMP"
+        chmod 600 "$XUI_TMP"
+        mv -f "$XUI_TMP" /etc/vsm/xui.conf
+        log "  логин и пароль панели 3x-ui сохранены (пункт «Учётные данные»)"
+    else
+        warn "не удалось выхватить логин и пароль 3x-ui из вывода установщика."
+        warn "Найдите строки Username и Password выше и запишите их:"
+        warn "  меню «Панель X-UI» → «Учётные данные»."
+        warn "Панель хранит хэш — прочитать пароль обратно нельзя."
+    fi
 else
     log "Этап 1: пропущен (режим addon, панель уже установлена)"
 fi
@@ -560,6 +604,12 @@ chmod 600 "$STACK_CONF"
     # так его собирает xui_panel_url для шапок меню. Короткая форма работала,
     # но расходилась с шапками, и было не понять, какая из двух правильная.
     echo "Панель 3x-ui-pro:   https://${DOMAIN_PANEL}${PANEL_WEBPATH:-/}panel/"
+    # Учётки панели — сюда же. Раньше в этом файле был только её адрес, и
+    # человек, открывший «учётные данные стека», получал ссылку без входа.
+    if [[ -n "${XUI_ADMIN_USER:-}" && -n "${XUI_ADMIN_PASS:-}" ]]; then
+        echo "3x-ui логин:        ${XUI_ADMIN_USER}"
+        echo "3x-ui пароль:       ${XUI_ADMIN_PASS}"
+    fi
     echo "telemt порт:        ${TELEMT_PORT}"
     echo "telemt secret:      ${TELEMT_SECRET}"
     # Панель могла не ставиться: владелец отказался при вводе параметров или
