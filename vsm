@@ -197,7 +197,12 @@ function show_access_info {
         # Тот же дефект уже чинили в шапке стека telemt, но сюда он не переехал,
         # потому что определение имени панели жило внутри того меню. Теперь оно
         # общее — panel_installed_name в lib/panels.sh.
-        echo -e "   ${C_NAME}$(ui_pad '🖥  Какая стоит' 17)${NC}${C_DESC}$(panel_installed_name)${NC}"
+        # Имя печатаем только когда панель есть: на пустом сервере строка
+        # «Какая стоит — Веб-панель» не сообщает ничего, а про отсутствие ниже
+        # сказано прямо.
+        if panel_telemt_installed || panel_mtproxyl_installed; then
+            echo -e "   ${C_NAME}$(ui_pad '🖥  Какая стоит' 17)${NC}${C_DESC}$(panel_installed_name)${NC}"
+        fi
 
         if panel_telemt_installed; then
             # Адрес собирается из домена и секретного префикса, которые лежат в
