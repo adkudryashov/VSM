@@ -22,7 +22,7 @@ def panel_keyboard():
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="📊 Статус", callback_data="cmd:status"),
-                InlineKeyboardButton(text="📋 Всё о сервисе", callback_data="cmd:aboutall"),
+                InlineKeyboardButton(text="🩺 Всё о сервисе", callback_data="cmd:aboutall"),
             ],
             [
                 InlineKeyboardButton(text="👥 Активные IP", callback_data="cmd:usersstatus"),
@@ -51,7 +51,7 @@ async def cmd_panel(message: types.Message):
 async def btn_status(message: types.Message):
     await cmd_status(message)
 
-@router.message(StateFilter(None), F.text == "📋 Всё о сервисе")
+@router.message(StateFilter(None), F.text == "🩺 Всё о сервисе")
 async def btn_aboutall(message: types.Message):
     await cmd_aboutall(message)
 

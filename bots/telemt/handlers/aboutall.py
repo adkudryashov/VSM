@@ -42,7 +42,7 @@ async def cmd_aboutall(message: types.Message):
             return_exceptions=True
         )
 
-        lines = ["📋 <b>Базовые статусы сервиса</b>\n"]
+        lines = ["🩺 <b>Базовые статусы сервиса</b>\n"]
 
         # Health
         if isinstance(health, dict) and health.get("data"):
