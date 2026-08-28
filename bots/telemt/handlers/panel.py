@@ -10,6 +10,7 @@ from telemt.handlers.stats import cmd_writers, cmd_dcs, cmd_runtime
 from telemt.handlers.reports import cmd_user_report  # Исправлено имя функции
 from telemt.handlers.metrics import cmd_metrics
 from telemt.handlers.map import cmd_map
+from telemt.handlers.aboutall import cmd_aboutall
 from telemt.handlers.cleanup import show_cleanup
 from config import settings
 
@@ -21,7 +22,7 @@ def panel_keyboard():
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="📊 Статус", callback_data="cmd:status"),
-                InlineKeyboardButton(text="⚙️ Метрики", callback_data="cmd:metrics"),
+                InlineKeyboardButton(text="📋 Всё о сервисе", callback_data="cmd:aboutall"),
             ],
             [
                 InlineKeyboardButton(text="👥 Активные IP", callback_data="cmd:usersstatus"),
@@ -50,9 +51,9 @@ async def cmd_panel(message: types.Message):
 async def btn_status(message: types.Message):
     await cmd_status(message)
 
-@router.message(StateFilter(None), F.text == "⚙️ Метрики")
-async def btn_metrics(message: types.Message):
-    await cmd_metrics(message)
+@router.message(StateFilter(None), F.text == "📋 Всё о сервисе")
+async def btn_aboutall(message: types.Message):
+    await cmd_aboutall(message)
 
 @router.message(StateFilter(None), F.text == "👥 Активные IP")
 async def btn_usersstatus(message: types.Message):
@@ -76,6 +77,7 @@ async def process_panel_callback(callback: types.CallbackQuery):
         "usersstatus": cmd_usersstatus,
         "usagereport": cmd_user_report,  # Исправлено имя функции
         "map": cmd_map,
+        "aboutall": cmd_aboutall,
         "cleanup": show_cleanup,
     }
 

@@ -218,4 +218,30 @@ async def cmd_metrics(message: types.Message):
 
         await send_rich_or_fallback(message, "".join(rich), fallback_text)
     except Exception as e:
-        await send_long_message(message, f"❌ Ошибка получения метрик: {e}", )
+        # РАЗЛИЧАЕМ «СЛОМАЛОСЬ» И «НЕ ПРЕДУСМОТРЕНО».
+        #
+        # Экран показывал голое «Connection refused», и это читается как поломка:
+        # человек идёт чинить то, чего нет. А нет в этой сборке telemt самого
+        # экспортёра Prometheus — проверено на приёмке 28.08.2026: ни флага в
+        # бинаре, ни ключа в конфиге, ни /metrics на порту API. Телеметрия при
+        # этом собирается (general.telemetry.core_enabled = true) и отдаётся
+        # через REST, откуда её и берут сводка, /aboutall и сторож.
+        #
+        # Команда оставлена: там, где экспортёр есть, она даёт то, чего нет
+        # больше нигде — сбои keepalive, дрифт ключей, отклонённые рукопожатия,
+        # переполнение очереди, рассинхронизацию. Убирать рабочий код из-за
+        # того, что у нас не настроено, неправильно.
+        if isinstance(e, (httpx.ConnectError, httpx.ConnectTimeout, OSError)):
+            await send_long_message(
+                message,
+                "📉 <b>Экспортёр метрик не отвечает</b>\n\n"
+                f"Адрес: <code>{PROMETHEUS_URL}</code>\n\n"
+                "<i>Скорее всего, в этой сборке telemt его просто нет: счётчики "
+                "собираются, но отдаются через REST API, а не отдельным портом "
+                "Prometheus. Это не поломка.</i>\n\n"
+                "Те же данные без метрик — /aboutall и /status.\n"
+                "Если экспортёр у вас есть, поправьте PROMETHEUS_METRICS_URL "
+                "в bots/.env и перезапустите бота.",
+            )
+            return
+        await send_long_message(message, f"❌ Ошибка получения метрик: {e}")

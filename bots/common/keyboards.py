@@ -35,7 +35,15 @@ BTN_XUI_MANAGE_BACK = "◀️ К панелям"
 BTN_TELEMT_WATCH = "🛡 Сторож"
 # Метла, а не шестерёнка: шестерёнка занята «Метриками», и две рядом путались бы.
 BTN_TELEMT_CLEANUP = "🧹 Очистка"
-TELEMT_BUTTONS = ["📊 Статус", "⚙️ Метрики", "👥 Активные IP", "📋 Лог IP",
+# «Всё о сервисе» вместо «Метрик».
+#
+# Метрики требуют экспортёра Prometheus, которого в сборке telemt может не быть
+# вовсе — на приёмке 28.08.2026 кнопка отвечала «Connection refused» и никогда
+# не могла ответить иначе. Команда /metrics осталась для установок, где
+# экспортёр есть; кнопку занял /aboutall — он работает всегда, потому что берёт
+# данные из REST API, и до этого не имел кнопки, хотя владелец им пользуется.
+BTN_TELEMT_ABOUT = "📋 Всё о сервисе"
+TELEMT_BUTTONS = ["📊 Статус", BTN_TELEMT_ABOUT, "👥 Активные IP", "📋 Лог IP",
                   "🗺 Карта", BTN_TELEMT_WATCH, BTN_TELEMT_CLEANUP]
 XUI_BUTTONS = [BTN_XUI_STATUS, BTN_XUI_MANAGE]
 XUI_MANAGE_BUTTONS = [BTN_XUI_ADD, BTN_XUI_DELETE, BTN_XUI_EDIT_DATE, BTN_XUI_MANAGE_BACK]
