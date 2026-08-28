@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 
 from aiogram import types
 from aiogram.types import InputRichMessage
@@ -38,6 +39,40 @@ def format_percent(value: float) -> str:
     if value > 99.9:
         return ">99.9%"
     return f"{value:.1f}%"
+
+def _local_dt(value):
+    """ISO-строка из базы → datetime в местном поясе. Не разобралось — None."""
+    try:
+        dt = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    # В базе время пишется в UTC, но у старых записей может не быть пояса —
+    # тогда считаем UTC, иначе astimezone сдвинет их на местный дважды.
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone()
+
+
+def format_period(first: str | None, last: str | None) -> str:
+    """
+    Период по-человечески: «28.08, 09:17 — 10:43».
+
+    В базе лежит ISO с поясом — «2026-08-28T04:17+00:00». Печатать это как есть
+    нельзя: строка длинная, время чужое (UTC при сервере в +05), и читать её
+    приходится по складам. Замечено владельцем на живом экране очистки.
+
+    Один день — дата пишется один раз. Одна запись — одно время, без тире:
+    диапазон из точки в ту же точку выглядит как ошибка.
+    """
+    a, b = _local_dt(first), _local_dt(last)
+    if a is None or b is None:
+        return ""
+    if a == b:
+        return f"{a:%d.%m в %H:%M}"
+    if a.date() == b.date():
+        return f"{a:%d.%m}, {a:%H:%M} — {b:%H:%M}"
+    return f"{a:%d.%m %H:%M} — {b:%d.%m %H:%M}"
+
 
 def format_uptime(seconds: float) -> str:
     """Аптайм словами: недели-дни-часы-минуты, пустые разряды опускаются."""

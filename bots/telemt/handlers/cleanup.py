@@ -24,7 +24,7 @@ from aiogram.filters import Command, StateFilter
 
 from config import settings
 from telemt.utils import storage
-from telemt.utils.helpers import send_long_message
+from telemt.utils.helpers import format_period, send_long_message
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -87,9 +87,8 @@ def _stats_text(st: dict) -> str:
             "Записи появятся после первых подключений.</i>"
         )
 
-    period = ""
-    if st["first"] and st["last"]:
-        period = f"\n🕒 Период: {st['first']} — {st['last']}"
+    period = format_period(st["first"], st["last"])
+    period = f"\n🕒 Период: {period}" if period else ""
 
     have_map = os.path.exists(MAP_HTML_PATH)
     return (
