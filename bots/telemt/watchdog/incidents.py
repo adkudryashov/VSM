@@ -223,6 +223,13 @@ class WatchState:
     engine: Flap = field(default_factory=Flap)
     writers: Flap = field(default_factory=Flap)
     ru_access: Flap = field(default_factory=Flap)
+    # Чужой вердикт доступности перестал обновляться — то есть встал
+    # таймер MTProxyL, и про вход мы больше ничего не знаем. Порог один
+    # опрос, а не три, как у остальных: условие уже сглажено временем
+    # (RU_CHECK_STALE_MINUTES), возраст растёт только вверх и мигать не
+    # может, поэтому счёт опросов сверху ничего не отфильтровал бы —
+    # только отложил бы тревогу ещё на три такта.
+    ru_stale: Flap = field(default_factory=lambda: Flap(threshold=1))
     # Жёсткие отказы исходящих подключений — сломан выход к Telegram.
     hard_fails: Flap = field(default_factory=Flap)
     # Домен подключения не ведёт на этот сервер — переехали, забыли DNS.
@@ -258,6 +265,7 @@ class WatchState:
             "engine": self.engine.to_dict(),
             "writers": self.writers.to_dict(),
             "ru_access": self.ru_access.to_dict(),
+            "ru_stale": self.ru_stale.to_dict(),
             "hard_fails": self.hard_fails.to_dict(),
             "dns": self.dns.to_dict(),
             "ip": self.ip.to_dict(),
@@ -277,6 +285,8 @@ class WatchState:
             engine=Flap.from_dict(data.get("engine", {}), threshold),
             writers=Flap.from_dict(data.get("writers", {}), threshold),
             ru_access=Flap.from_dict(data.get("ru_access", {}), threshold),
+            # Порог свой, не общий из настроек — обоснование у поля выше.
+            ru_stale=Flap.from_dict(data.get("ru_stale", {}), 1),
             hard_fails=Flap.from_dict(data.get("hard_fails", {}), threshold),
             dns=Flap.from_dict(data.get("dns", {}), threshold),
             ip=IPWatch.from_dict(data.get("ip", {})),
