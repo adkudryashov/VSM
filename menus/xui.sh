@@ -460,6 +460,139 @@ function uninstall_xui_pro {
     read -p "Нажмите Enter для продолжения..."
 }
 
+# ======================================================================
+# AMNEZIAWG ИЗ ПАНЕЛИ — КОНФИГ ДЛЯ РОУТЕРА
+#
+# ЗАЧЕМ ПУНКТ, ЕСЛИ ПАНЕЛЬ ВСЁ УМЕЕТ САМА. Она умеет не всё, и недостающее
+# молчаливо. Проверено на приёмке 28.08.2026:
+#
+#   • Фаервол панель не трогает вовсе — ни ufw, ни iptables, ни nft в её
+#     бинаре не упоминаются. Соединения по TCP это не задевает: перед панелью
+#     стоит nginx с ssl_preread, весь TCP приходит на 443 и разводится по
+#     имени домена. У пакета WireGuard такого имени нет, он идёт прямо на свой
+#     порт — и если порт закрыт, соединение просто не работает, без единого
+#     сообщения.
+#   • PersistentKeepalive в клиентский .conf панель пишет, только когда поле
+#     заполнено вручную, а по умолчанию оно пустое. Клиент почти всегда за
+#     NAT, и без keepalive туннель замолкает через минуту-две.
+#   • Для mihomo (XKeen на роутере) формат другой, и перенос руками дважды
+#     давал нерабочий конфиг — см. шапку tools/awg2mihomo.sh.
+#
+# Пункт закрывает все три: показывает состояние порта и предлагает открыть,
+# подставляет keepalive, отдаёт готовый блок mihomo.
+# ======================================================================
+function xui_awg_mihomo {
+    local db=/etc/x-ui/x-ui.db
+    local conv="${VSM_ROOT}/tools/awg2mihomo.sh"
+    local port emails count email out
+
+    if ! have_cmd sqlite3 || [ ! -r "$db" ]; then
+        echo -e "${RED}❌ База панели не читается — панель не установлена?${NC}"
+        read -p "Нажмите Enter для возврата..."
+        return 1
+    fi
+
+    port="$(sqlite3 "$db" "select port from inbounds where protocol='amneziawg' limit 1;" 2>/dev/null)"
+    if [ -z "$port" ]; then
+        echo -e "${YELLOW}В панели нет соединения AmneziaWG.${NC}"
+        echo ""
+        echo "Создайте его в панели: Подключения → Создать подключение,"
+        echo "протокол amneziawg. Порт возьмите свободный, НЕ 443:"
+        echo "на 443/udp обычно уже слушает hysteria2."
+        echo ""
+        read -p "Нажмите Enter для возврата..."
+        return 1
+    fi
+
+    echo -e "${GREEN}Соединение AmneziaWG найдено, порт ${port}/udp.${NC}"
+    echo ""
+
+    # --- порт в фаерволе ---
+    #
+    # Спрашиваем, а не открываем молча: правило ufw меняет доступность сервера
+    # из интернета. Такие вещи в VSM показываются и ждут человека.
+    if have_cmd ufw && ufw status 2>/dev/null | grep -q "Status: active"; then
+        if ufw status 2>/dev/null | grep -qE "^${port}/udp[[:space:]]+ALLOW"; then
+            echo -e "  ${GREEN}✔${NC} порт ${port}/udp открыт в фаерволе"
+        else
+            echo -e "  ${RED}✘${NC} порт ${port}/udp ЗАКРЫТ в фаерволе"
+            echo -e "     ${GRAY}Панель порты не открывает. Пока порт закрыт,${NC}"
+            echo -e "     ${GRAY}соединение не работает и никак об этом не сообщает.${NC}"
+            echo ""
+            read -p "  Открыть ${port}/udp сейчас? [y/N]: " ans
+            if [[ "$ans" =~ ^[YyДд]$ ]]; then
+                if ufw allow "${port}/udp" comment "AmneziaWG (3x-ui)" >/dev/null 2>&1 \
+                   && ufw status 2>/dev/null | grep -qE "^${port}/udp[[:space:]]+ALLOW"; then
+                    echo -e "  ${GREEN}✔${NC} открыт, проверено по ufw status"
+                else
+                    echo -e "  ${RED}✘${NC} открыть не удалось — сделайте вручную:"
+                    echo -e "     ${GRAY}ufw allow ${port}/udp${NC}"
+                fi
+            fi
+        fi
+    else
+        echo -e "  ${GRAY}ufw выключен — порты пропускаются все, открывать нечего.${NC}"
+    fi
+    echo ""
+
+    # --- выбор клиента ---
+    emails="$(sqlite3 "$db" "select settings from inbounds where protocol='amneziawg' limit 1;" 2>/dev/null \
+              | jq -r '.clients[]?.email' 2>/dev/null)"
+    count="$(printf '%s\n' "$emails" | grep -c . || true)"
+    if [ "${count:-0}" -eq 0 ]; then
+        echo -e "${YELLOW}У соединения нет клиентов — заведите хотя бы одного в панели.${NC}"
+        read -p "Нажмите Enter для возврата..."
+        return 1
+    elif [ "$count" -eq 1 ]; then
+        email="$emails"
+    else
+        echo "Клиенты:"
+        printf '%s\n' "$emails" | nl -w3 -s') '
+        echo ""
+        read -p "Номер клиента: " n
+        email="$(printf '%s\n' "$emails" | sed -n "${n}p")"
+        [ -n "$email" ] || { echo -e "${RED}Нет такого номера.${NC}"; read -p "Enter..."; return 1; }
+    fi
+
+    # --- конфиг ---
+    #
+    # Файл, а не вывод на экран: в нём приватный ключ, а экран меню владелец
+    # регулярно показывает в переписке — снимок главного меню лежит в публичном
+    # README. Правило проекта: секреты в файл с правами 600, на экран путь.
+    out="/root/awg-${email}-mihomo.yaml"
+    umask 077
+    if ! bash "$conv" --from-panel "$email" > "$out" 2>/tmp/vsm-awg.err; then
+        echo -e "${RED}❌ Не удалось собрать конфиг:${NC}"
+        sed 's/^/   /' /tmp/vsm-awg.err
+        rm -f "$out" /tmp/vsm-awg.err
+        read -p "Нажмите Enter для возврата..."
+        return 1
+    fi
+    chmod 600 "$out"
+    rm -f /tmp/vsm-awg.err
+
+    echo -e "${GREEN}✔ Конфиг для mihomo готов:${NC} ${out}"
+    echo ""
+    echo -e "${GRAY}Забрать на свой компьютер:${NC}"
+    echo -e "  scp root@\$(hostname -I | awk '{print \$1}'):${out} ."
+    echo ""
+    echo -e "${GRAY}Внутри — блок proxies для mihomo (XKeen). Добавьте его в${NC}"
+    echo -e "${GRAY}конфиг роутера и заведите правило на прокси с этим именем.${NC}"
+    echo -e "${GRAY}В файле приватный ключ: после переноса удалите его отсюда.${NC}"
+    echo ""
+    echo -e "${GRAY}PersistentKeepalive = 25 подставлен здесь автоматически.${NC}"
+    echo -e "${GRAY}Панель эту строку пишет, только если поле у клиента заполнено,${NC}"
+    echo -e "${GRAY}а по умолчанию оно пустое — и туннель за NAT замолкает через${NC}"
+    echo -e "${GRAY}минуту-две. Выглядит как «работало и перестало».${NC}"
+    echo ""
+    echo -e "${GRAY}Для приложений Amnezia конвертер не нужен — панель отдаёт${NC}"
+    echo -e "${GRAY}им готовый .conf и ссылку vpn:// прямо в списке клиентов.${NC}"
+    echo -e "${YELLOW}Но keepalive там та же беда:${NC} ${GRAY}впишите клиенту в панели${NC}"
+    echo -e "${GRAY}поле «Keep alive» = 25, иначе строки в .conf не будет.${NC}"
+    echo ""
+    read -p "Нажмите Enter для возврата..."
+}
+
 function manage_xui_service {
     local SERVICE_NAME=$XUI_SERVICE
     while true; do
@@ -515,15 +648,17 @@ function manage_xui_service {
         echo ""
         ui_section "ДОПОЛНИТЕЛЬНО"
         ui_item "7" "🔒" "AdGuard Home"       "DNS-over-HTTPS и блокировка рекламы"
+        ui_item "8" "🌐" "AmneziaWG для роутера" "Конфиг mihomo (XKeen) и проверка порта"
         echo ""
-        # Удаление уехало с 7 на 8 из-за нового пункта. Сдвиг безопасен именно
-        # в эту сторону: кто по привычке нажмёт 7, попадёт на экран учёток, а
-        # не на снос панели. Обратный порядок был бы недопустим.
-        ui_danger_item "8" "Удалить X-UI Pro" "Панель, база и nginx целиком"
+        # Удаление уехало с 7 на 8, а затем на 9 — каждый раз из-за нового
+        # пункта над ним. Сдвиг безопасен только в эту сторону: кто по привычке
+        # нажмёт прежний номер, попадёт на безобидный экран, а не на снос
+        # панели. Обратный порядок был бы недопустим.
+        ui_danger_item "9" "Удалить X-UI Pro" "Панель, база и nginx целиком"
         ui_item "X" "🔙" "Назад"
         echo ""
 
-        read -p "Ваш выбор [1-8, X]: " choice
+        read -p "Ваш выбор [1-9, X]: " choice
         echo ""
 
         case $choice in
@@ -548,7 +683,8 @@ function manage_xui_service {
                 read -p "Нажмите Enter для возврата в меню..."
                 ;;
             7) manage_adguard ;;
-            8) uninstall_xui_pro ;;
+            8) xui_awg_mihomo ;;
+            9) uninstall_xui_pro ;;
             [Xx]) return ;;
             *) echo -e "${RED}❌ Неверный ввод.${NC}" ;;
         esac
