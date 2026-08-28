@@ -10,6 +10,7 @@ from telemt.handlers.stats import cmd_writers, cmd_dcs, cmd_runtime
 from telemt.handlers.reports import cmd_user_report  # Исправлено имя функции
 from telemt.handlers.metrics import cmd_metrics
 from telemt.handlers.map import cmd_map
+from telemt.handlers.cleanup import show_cleanup
 from config import settings
 
 router = Router()
@@ -28,6 +29,12 @@ def panel_keyboard():
             ],
             [
                 InlineKeyboardButton(text="🗺 Web-карта", callback_data="cmd:map"),
+            ],
+            # Очистка есть и на постоянной клавиатуре. Держим в обеих: панели
+            # почти повторяют друг друга, и кнопка, которая есть на одной и нет
+            # на другой, — расхождение, которое некому заметить.
+            [
+                InlineKeyboardButton(text="🧹 Очистка", callback_data="cmd:cleanup"),
             ],
         ]
     )
@@ -69,6 +76,7 @@ async def process_panel_callback(callback: types.CallbackQuery):
         "usersstatus": cmd_usersstatus,
         "usagereport": cmd_user_report,  # Исправлено имя функции
         "map": cmd_map,
+        "cleanup": show_cleanup,
     }
 
     if command not in simple_handlers:

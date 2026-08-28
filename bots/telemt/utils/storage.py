@@ -1,3 +1,4 @@
+import os
 import aiosqlite
 from datetime import datetime, timedelta, timezone
 
@@ -75,5 +76,80 @@ async def cleanup_old_ips(retention_hours: int) -> int:
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=retention_hours)).isoformat(timespec='minutes')
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute("DELETE FROM ip_log WHERE last_seen < ?", (cutoff,))
+        await db.commit()
+        return cursor.rowcount
+
+
+# ======================================================================
+# РУЧНАЯ ОЧИСТКА ИСТОРИИ
+#
+# Второе и последнее место в проекте, где данные удаляются безвозвратно. Первое
+# — cleanup_old_ips выше, и оно работает по расписанию; здесь удаляет человек
+# нажатием кнопки.
+#
+# ip_history.db НЕ входит в резервную копию (там /etc/vsm, конфиги движка и
+# панели, .env и база мониторинга). Восстановить удалённое неоткуда, и это
+# осознанно: в таблице лежит, кто с каких адресов подключался.
+#
+# Ошибки наружу не глушим. Функция, которая при сбое базы возвращает ноль,
+# неотличима от «нечего было удалять», и человек уйдёт уверенным, что стёр.
+# ======================================================================
+
+async def history_stats() -> dict:
+    """
+    Сводка для экрана очистки: сколько записей, адресов, имён и границы времени.
+
+    База может не существовать вовсе — на свежей установке сбор ещё не шёл.
+    Это не ошибка, а пустая история.
+    """
+    if not os.path.exists(DB_PATH):
+        return {"rows": 0, "ips": 0, "users": 0, "first": None, "last": None}
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT COUNT(*), COUNT(DISTINCT ip), COUNT(DISTINCT username), "
+            "MIN(first_seen), MAX(last_seen) FROM ip_log"
+        )
+        row = await cursor.fetchone()
+
+    return {
+        "rows": row[0] or 0,
+        "ips": row[1] or 0,
+        "users": row[2] or 0,
+        "first": row[3],
+        "last": row[4],
+    }
+
+
+async def history_usernames() -> list[tuple[str, int]]:
+    """Имена в логе и число записей у каждого, по убыванию. Пусто — пустой список."""
+    if not os.path.exists(DB_PATH):
+        return []
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT username, COUNT(*) FROM ip_log GROUP BY username ORDER BY COUNT(*) DESC, username"
+        )
+        return [(r[0], r[1]) for r in await cursor.fetchall()]
+
+
+async def purge_history(username: str | None = None) -> int:
+    """
+    Удаляет историю целиком либо записи одного пользователя.
+
+    Возвращает число удалённых строк. username=None — всё.
+
+    Файл карты здесь НЕ трогаем: за него отвечает вызывающий. Причина — это
+    модуль работы с базой, и лазить из него в /var/www значит прятать действие
+    над файловой системой внутри функции с именем про историю.
+    """
+    if not os.path.exists(DB_PATH):
+        return 0
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        if username is None:
+            cursor = await db.execute("DELETE FROM ip_log")
+        else:
+            cursor = await db.execute("DELETE FROM ip_log WHERE username = ?", (username,))
         await db.commit()
         return cursor.rowcount

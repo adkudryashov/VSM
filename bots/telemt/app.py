@@ -12,7 +12,8 @@ from aiogram.types import BotCommand
 
 from config import settings
 from telemt.api.client import TelemtAPIClient
-from telemt.handlers import common, users, stats, reports, panel, metrics, map, aboutall, watch
+from telemt.handlers import (common, users, stats, reports, panel, metrics, map,
+                             aboutall, watch, cleanup)
 from telemt.utils.storage import init_db, bulk_save_ips, cleanup_old_ips
 from telemt.watchdog.monitor import watchdog_loop  # noqa: F401  (реэкспорт для точек входа)
 
@@ -27,6 +28,7 @@ ROUTERS = [
     map.router,
     aboutall.router,
     watch.router,
+    cleanup.router,
 ]
 
 COMMANDS = [

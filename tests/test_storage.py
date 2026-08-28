@@ -117,3 +117,72 @@ async def test_init_db_идемпотентна(база):
     await storage.bulk_save_ips([("вася", "1.2.3.4")])
     await storage.init_db()
     assert len(await storage.get_all_ips_by_user()) == 1
+
+
+# ======================================================================
+# РУЧНАЯ ОЧИСТКА
+#
+# Второе безвозвратное удаление в проекте, и в отличие от cleanup_old_ips его
+# запускает человек кнопкой. Защиты «ничего не делать по умолчанию» здесь нет
+# по замыслу: нажали — стёрли. Поэтому проверяется не наличие предохранителя, а
+# ТОЧНОСТЬ ПРИЦЕЛА: удаление по имени обязано унести только это имя.
+#
+# И обратная сторона: несуществующее имя не должно уносить ничего. Без этой
+# проверки «удаляет по имени» подтверждалось бы и полным стиранием таблицы.
+# ======================================================================
+
+async def test_очистка_по_имени_уносит_только_это_имя(база):
+    await storage.init_db()
+    await storage.bulk_save_ips([("вася", "1.1.1.1"), ("вася", "2.2.2.2"),
+                                 ("петя", "3.3.3.3")])
+
+    удалено = await storage.purge_history("вася")
+
+    assert удалено == 2
+    assert set(await storage.get_all_ips_by_user()) == {"петя"}
+
+
+async def test_очистка_несуществующего_имени_не_трогает_ничего(база):
+    """Обратная сторона: без неё «удаляет по имени» подтверждалось бы и стиранием всего."""
+    await storage.init_db()
+    await storage.bulk_save_ips([("вася", "1.1.1.1"), ("петя", "3.3.3.3")])
+
+    удалено = await storage.purge_history("никого-нет")
+
+    assert удалено == 0
+    assert set(await storage.get_all_ips_by_user()) == {"вася", "петя"}
+
+
+async def test_очистка_всего_опустошает_таблицу(база):
+    await storage.init_db()
+    await storage.bulk_save_ips([("вася", "1.1.1.1"), ("петя", "3.3.3.3")])
+
+    удалено = await storage.purge_history()
+
+    assert удалено == 2
+    assert await storage.get_all_ips_by_user() == []
+
+
+async def test_очистка_на_отсутствующей_базе_не_падает(база):
+    """Свежая установка: сбор ещё не шёл, файла нет. Это не ошибка, а пустая история."""
+    assert await storage.purge_history() == 0
+    assert await storage.purge_history("вася") == 0
+
+
+async def test_сводка_на_отсутствующей_базе_пуста(база):
+    st = await storage.history_stats()
+    assert st["rows"] == 0 and st["users"] == 0
+    assert await storage.history_usernames() == []
+
+
+async def test_сводка_считает_записи_адреса_и_имена(база):
+    await storage.init_db()
+    await storage.bulk_save_ips([("вася", "1.1.1.1"), ("вася", "2.2.2.2"),
+                                 ("петя", "1.1.1.1")])
+
+    st = await storage.history_stats()
+
+    assert st["rows"] == 3      # три пары «имя + адрес»
+    assert st["ips"] == 2       # адресов всего два
+    assert st["users"] == 2
+    assert dict(await storage.history_usernames()) == {"вася": 2, "петя": 1}

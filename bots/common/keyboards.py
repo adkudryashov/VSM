@@ -33,8 +33,10 @@ BTN_XUI_MANAGE_BACK = "◀️ К панелям"
 # списка, и при добавлении мимо него кнопка, нажатая посреди пошагового
 # диалога, стала бы введённым значением.
 BTN_TELEMT_WATCH = "🛡 Сторож"
+# Метла, а не шестерёнка: шестерёнка занята «Метриками», и две рядом путались бы.
+BTN_TELEMT_CLEANUP = "🧹 Очистка"
 TELEMT_BUTTONS = ["📊 Статус", "⚙️ Метрики", "👥 Активные IP", "📋 Лог IP",
-                  "🗺 Карта", BTN_TELEMT_WATCH]
+                  "🗺 Карта", BTN_TELEMT_WATCH, BTN_TELEMT_CLEANUP]
 XUI_BUTTONS = [BTN_XUI_STATUS, BTN_XUI_MANAGE]
 XUI_MANAGE_BUTTONS = [BTN_XUI_ADD, BTN_XUI_DELETE, BTN_XUI_EDIT_DATE, BTN_XUI_MANAGE_BACK]
 PANEL_PREFIX = "📱 "
@@ -69,11 +71,13 @@ def telemt_keyboard(with_back: bool = True) -> ReplyKeyboardMarkup:
     b = ReplyKeyboardBuilder()
     for text in TELEMT_BUTTONS:
         b.add(KeyboardButton(text=text))
+    # Семь кнопок: три ряда по две и седьмая отдельно. С «Назад» — восемь,
+    # четыре ряда по две.
     if with_back:
         b.add(KeyboardButton(text=BTN_BACK))
-        b.adjust(2, 2, 2, 1)
+        b.adjust(2, 2, 2, 2)
     else:
-        b.adjust(2, 2, 2)
+        b.adjust(2, 2, 2, 1)
     return b.as_markup(resize_keyboard=True, one_time_keyboard=False)
 
 
