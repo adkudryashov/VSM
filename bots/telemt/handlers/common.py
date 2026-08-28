@@ -8,7 +8,8 @@ import tomli
 from pathlib import Path                                                                                                                                                         
 from aiogram import Router, types                                                                                                                                                
 from aiogram.filters import Command                                                                                                                                              
-from telemt.api.client import TelemtAPIClient                                                                                                                                           
+from telemt.api.client import TelemtAPIClient
+from telemt.watchdog import mtproxyl
 from config import settings
 from telemt.keyboards.inline import get_main_keyboard                                                                                                                                                      
                                                                                                                                                                                  
@@ -72,6 +73,85 @@ def _quality_mark(success_percent: float) -> str:
     return BAD
 
 
+
+
+# Классы отказов, которые НЕ говорят о работе прокси.
+#
+# Сюда telemt относит всех, кто постучался в порт и не оказался клиентом
+# MTProto: сканер, браузер, наш собственный зонд доступности, чужой софт,
+# перепутавший порт. Разобрать их между собой счётчик не позволяет — см.
+# _stray_line.
+_STRAY_CLASSES = {"tls_handshake_bad_client"}
+
+# Порог «необычно много» для соединений, не ставших клиентами, в час.
+#
+# Взят из единственного пока замера (стенд, 28.08.2026): в спокойные часы этот
+# счётчик прибавляет от 15 до 100 в час — фон интернета плюс наши же зонды. С
+# 09:00 до 13:58:59 того дня он рос по 2700 в час пять часов подряд и оборвался
+# так же резко, как начался. Порог 300 отстоит от обоих значений на порядок:
+# колебания фона его не задевают, а событие такого размера видно сразу.
+#
+# Это НЕ тревога и никого не будит — строка лишь перестаёт молчать.
+STRAY_RATE_HIGH = 300.0
+
+
+def _stray_line(total: int, uptime_seconds: float, own_per_hour: float = 0.0) -> str:
+    """
+    Строка про соединения, которые не стали клиентами. Пустая, если их нет.
+
+    ЧТО ЭТО ЗА СЧЁТЧИК. Всё, что не прошло маскировку: маскировка отдала гостя
+    на запасную страницу, сессии не возникло. Мы никому ничего не сломали —
+    наоборот, защита отработала.
+
+    ПОЧЕМУ ЗДЕСЬ НЕТ СЛОВА «СКАНЕРЫ». Прежде строка называла их сканерами, и
+    это было домыслом, а не измерением. Разбор 28.08.2026 по журналам nginx на
+    стенде: из 13 754 таких соединений за 11 часов до HTTP-запроса дошли 710,
+    и только 100 из них имели узнаваемую подпись сканера (zgrab, l9scan,
+    CensysInspect, GenomeCrawler); 440 оказались НАШИМИ зондами доступности, а
+    остальные 12 740 не осилили TLS даже с запасной страницей — слали вообще
+    не TLS, и адрес их нигде не записан. То есть 93% цифры не подтверждено
+    ничем, а часть её мы создаём сами.
+
+    Контрольный случай на том же стенде: обычный `openssl s_client` и восемь
+    байт мусора через `nc` подняли счётчик на два. В этот класс попадает ЛЮБОЙ
+    не подошедший гость — включая клиента владельца с устаревшей ссылкой.
+    Поэтому назвать их чужими нельзя, а показать — нужно.
+
+    ПОЧЕМУ ОНИ ВНЕ ОЦЕНКИ ЗДОРОВЬЯ. Счётчик накопительный от старта, и его доля
+    растёт ровно по мере того, как сервер дольше стоит в интернете: 27.08.2026
+    сводка на этом основании красила исправный сервер красным. Оценка, которая
+    со временем обязана испортиться у всех, ничего не оценивает.
+
+    ПОЧЕМУ РЯДОМ СКОРОСТЬ. Вычитать класс молча опасно: если однажды сменится
+    секрет, отказы всех клиентов лягут ровно сюда, и сводка покажет «успешных
+    100%» при полностью неработающем прокси. Скорость в час — то немногое, что
+    отличает спокойный фон от события, и она остаётся на виду.
+
+    ОГОВОРКА: скорость средняя от старта службы, поэтому она запаздывает —
+    закончившийся всплеск держит её высокой ещё несколько часов. Для «сказать»
+    этого хватает, для тревоги — нет, и тревоги здесь нет.
+    """
+    if total <= 0:
+        return ""
+
+    hours = uptime_seconds / 3600.0 if uptime_seconds > 0 else 0.0
+    rate = total / hours if hours > 0 else 0.0
+    high = rate >= STRAY_RATE_HIGH
+
+    line = f"{WARN if high else '🔍'} Не стали клиентами: {format_connections(total)}"
+    if hours > 0:
+        line += f" · {format_connections(int(round(rate)))}/час"
+
+    # Наши зонды показываем отдельно, а не вычитаем из общего числа: их
+    # количество СЧИТАНО из настроек, а не измерено, и подмешивать расчётное к
+    # измеренному в одну цифру значит потерять разницу между ними навсегда.
+    own_total = min(own_per_hour * hours, float(total)) if own_per_hour > 0 else 0.0
+    if own_total >= 1:
+        line += f" (наши зонды ≈{format_connections(int(round(own_total)))})"
+
+    return line + (" — необычно много, в оценку не входят" if high
+                   else " — в оценку не входят")
+
 def _version_line(current: str, latest: str) -> str:
     """
     Версия одной строкой, читаемой раньше, чем прочитана.
@@ -106,41 +186,29 @@ async def build_status_parts() -> tuple[str, str]:
     success_percent = 100 - bad_percent if connections_total > 0 else 100
     good_connections = max(0, connections_total - connections_bad)
 
-    # ЧУЖИЕ РУКОПОЖАТИЯ — НЕ ПОКАЗАТЕЛЬ ЗДОРОВЬЯ.
-    #
-    # На приёмке 27.08.2026 сводка красила исправный сервер красным: 22% сбоев.
-    # Разбивка из того же ответа API объяснила всё — сбои были ОДНОГО класса,
-    # tls_handshake_bad_client, то есть «постучались и не смогли договориться по
-    # TLS». На публичном порту это интернет-сканеры, а не клиенты: в журнале
-    # nginx те же адреса ломятся по случайным путям.
-    #
-    # Судить по ним о работе прокси нельзя дважды. Во-первых, они не про нас:
-    # мы никому ничего не сломали, наоборот — маскировка отработала, сканер
-    # ушёл ни с чем. Во-вторых, счётчик накопительный от старта, и доля растёт
-    # ровно по мере того, как сервер дольше стоит в интернете. Тревога, которая
-    # со временем обязана загореться у всех, не тревога.
-    #
-    # Поэтому оценку считаем по сбоям БЕЗ этого класса, а сами чужие
-    # рукопожатия показываем отдельной строкой — они интересны, но как
-    # наблюдение, а не как авария.
-    _scanner_classes = {"tls_handshake_bad_client"}
+    # Соединения, не ставшие клиентами, — отдельно от оценки здоровья.
+    # Разбор счётчика, порог и почему в строке больше нет слова «сканеры» —
+    # в _stray_line выше.
     _by_class = summary_data.get('connections_bad_by_class') or []
-    scanner_bad = sum(
+    stray_bad = sum(
         int(c.get('total', 0)) for c in _by_class
-        if c.get('class') in _scanner_classes
+        if c.get('class') in _STRAY_CLASSES
     )
-    real_bad = max(0, connections_bad - scanner_bad)
-    real_total = max(0, connections_total - scanner_bad)
+    real_bad = max(0, connections_bad - stray_bad)
+    real_total = max(0, connections_total - stray_bad)
     real_bad_percent = (real_bad / real_total * 100) if real_total > 0 else 0
     real_success_percent = 100 - real_bad_percent if real_total > 0 else 100
     # Доля успешных считается от ТОГО ЖЕ знаменателя, что и доля сбоев.
     # Иначе рядом стоят «Сбои 0 (0%)» и «Успешных 78.7%», и верят той строке,
     # которая пугает: если сбоев ноль, успешных обязано быть сто. Замечено
     # сразу после первой правки — половину дроби починил, половину нет.
-
     current_version = sys_data.get('version', 'неизвестно')
     version_text = _version_line(current_version, latest_version)
     mark = _quality_mark(real_success_percent)
+    # Строку готовим заранее: подставить условие прямо в цепочку f-строк
+    # нельзя — после «+» соседние литералы уже не склеиваются.
+    stray_text = _stray_line(stray_bad, summary_data['uptime_seconds'],
+                             mtproxyl.own_probes_per_hour())
 
     text = (
         f"🔹 Статус:\n"
@@ -152,15 +220,11 @@ async def build_status_parts() -> tuple[str, str]:
         f"🌐 Всего соединений: {format_connections(connections_total)}\n"
         f"┗━ Успешных: {format_connections(good_connections)} ({format_percent(real_success_percent)})\n"
         f"┗━ {mark} Сбои: {format_connections(real_bad)} ({format_percent(real_bad_percent)})"
-        + (f"\n┗━ 🔍 Чужие рукопожатия: {format_connections(scanner_bad)} — сканеры, не клиенты"
-           if scanner_bad else "")
+        + (f"\n┗━ {stray_text}" if stray_text else "")
     )
-    # Строку про чужие рукопожатия готовим заранее: подставить условие прямо в
-    # цепочку f-строк нельзя — после «+» соседние литералы уже не склеиваются.
-    scanner_row = (
-        f"<tr><td colspan=\"4\">🔍 Чужие рукопожатия: "
-        f"{html.escape(format_connections(scanner_bad))} — сканеры, не клиенты</td></tr>"
-    ) if scanner_bad else ""
+    stray_row = (
+        f"<tr><td colspan=\"4\">{html.escape(stray_text)}</td></tr>"
+    ) if stray_text else ""
 
     # Один экран в две колонки вместо двух таблиц одна под другой.
     # colspan в HTML-режиме проверен ответом sendRichMessage: сервер
@@ -174,7 +238,7 @@ async def build_status_parts() -> tuple[str, str]:
         f"<td>Успешных</td><td>{html.escape(format_connections(good_connections))} ({format_percent(real_success_percent)})</td></tr>"
         f"<tr><td>Активные IP</td><td>{total_active_ips}</td>"
         f"<td>{mark} Сбои</td><td>{html.escape(format_connections(real_bad))} ({format_percent(real_bad_percent)})</td></tr>"
-        f"{scanner_row}"
+        f"{stray_row}"
         # Версия вынесена вниз во всю ширину: строка длинная и в узкой
         # ячейке переносится, а пары к ней в правой колонке всё равно нет.
         f"<tr><td colspan=\"4\">Версия: {html.escape(version_text)}</td></tr>"

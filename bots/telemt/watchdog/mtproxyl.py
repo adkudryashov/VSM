@@ -130,3 +130,54 @@ def read_verdict(path: str = VERDICT_PATH) -> Optional[dict]:
         # нечего, и показывать наш остаток при этом источнике незачем.
         "charged": 0,
     }
+
+
+# Путь задан автором и одинаков на всех установках MTProxyL.
+SETTINGS_PATH = "/opt/mtproxyl/settings.conf"
+
+
+def own_probes_per_hour(path: str = SETTINGS_PATH) -> float:
+    """
+    Сколько раз в час МЫ САМИ стучимся в свой прокси проверкой доступности.
+
+    ЗАЧЕМ. Зонд Globalping приходит на порт telemt обычным TLS-клиентом, а не
+    клиентом MTProto: маскировка его не узнаёт, отдаёт на запасную страницу и
+    засчитывает в `tls_handshake_bad_client`. То есть часть «чужих» соединений
+    создаём мы сами своим же наблюдением, и без этой поправки сводка выдаёт их
+    за посторонних.
+
+    ЗАМЕРЕНО 28.08.2026: за 11 часов работы telemt через маску прошло 710
+    HTTP-запросов, из них 440 с `User-Agent: globalping probe` — при настройке
+    20 зондов каждые 30 минут, то есть ровно 40 в час. Совпадение расчёта с
+    журналом nginx и есть подтверждение, что считаем то самое.
+
+    Возвращает ноль, когда источника нет: MTProxyL не установлен, проверка
+    выключена, файл нечитаем или в нём чепуха. Ноль означает «не знаем», и
+    сводка тогда просто не показывает эту составляющую — врать поправкой,
+    взятой из воздуха, хуже, чем не поправлять вовсе.
+    """
+    values: dict[str, str] = {}
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, raw = line.partition("=")
+                values[key.strip()] = raw.strip().strip("'\"")
+    except FileNotFoundError:
+        return 0.0
+    except Exception as exc:
+        logging.info("Сторож: настройки MTProxyL не прочитаны: %s", exc)
+        return 0.0
+
+    if values.get("AVAILABILITY_ENABLED", "").lower() != "true":
+        return 0.0
+    try:
+        probes = int(values.get("AVAILABILITY_PROBES") or 0)
+        interval_min = float(values.get("AVAILABILITY_INTERVAL") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if probes <= 0 or interval_min <= 0:
+        return 0.0
+    return probes * 60.0 / interval_min

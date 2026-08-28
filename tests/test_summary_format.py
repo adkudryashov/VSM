@@ -72,3 +72,138 @@ def test_период_из_мусора_пуст():
     """Обратная сторона: неразобранное не должно печататься как есть."""
     assert format_period("не дата", "тоже нет") == ""
     assert format_period(None, None) == ""
+
+
+# --- СОЕДИНЕНИЯ, НЕ СТАВШИЕ КЛИЕНТАМИ --------------------------------
+#
+# Эта строка один раз уже соврала: она называла их сканерами, хотя счётчик
+# намерения не различает. Разбор 28.08.2026 показал, что 93% числа ничем не
+# подтверждено, а часть его создают наши же зонды доступности. Формулировку
+# исправили — тесты держат её, чтобы прежнее утверждение не вернулось.
+
+from telemt.handlers.common import STRAY_RATE_HIGH, _stray_line
+from telemt.watchdog.mtproxyl import own_probes_per_hour
+
+СУТКИ = 86400.0
+СМЕНА = 39684.0  # аптайм telemt в момент замера на стенде, 11 часов 1 минута
+
+
+def test_ничего_не_показываем_когда_нечего():
+    assert _stray_line(0, СМЕНА) == ""
+    assert _stray_line(0, 0) == ""
+
+
+def test_строка_не_называет_их_сканерами():
+    """
+    Главное, ради чего всё правилось. Счётчик считает всех, кто не подошёл, —
+    контрольный случай на стенде поднял его обычным openssl s_client.
+    """
+    got = _stray_line(13754, СМЕНА)
+    assert "Не стали клиентами" in got
+    assert "сканер" not in got.lower()
+
+
+def test_скорость_считается_и_показывается():
+    """Ровный случай: 2400 за сутки — это сотня в час."""
+    got = _stray_line(2400, СУТКИ)
+    assert "100/час" in got
+
+
+def test_всплеск_помечен_жёлтым():
+    """Замер со стенда: 13 754 за 11 часов — это 1.2k в час."""
+    got = _stray_line(13754, СМЕНА)
+    assert got.startswith(WARN)
+    assert "необычно много" in got
+
+
+def test_спокойный_фон_не_помечен():
+    """
+    Обратная сторона: без этого проверка выше прошла бы и у функции, которая
+    жалуется всегда. 710 за те же 11 часов — 64 в час, обычный фон.
+    """
+    got = _stray_line(710, СМЕНА)
+    assert got.startswith("🔍")
+    assert "необычно много" not in got
+    assert "в оценку не входят" in got
+
+
+def test_порог_разделяет_фон_и_всплеск():
+    """Порог взят из замера; проверяем, что он и правда посередине."""
+    час = 3600.0
+    assert not _stray_line(int(STRAY_RATE_HIGH) - 1, час).startswith(WARN)
+    assert _stray_line(int(STRAY_RATE_HIGH) + 1, час).startswith(WARN)
+
+
+def test_наши_зонды_названы_отдельно():
+    """
+    40 зондов в час за 11 часов — примерно 441. В журнале nginx за то же время
+    440 запросов с подписью globalping: расчёт сходится с фактом.
+    """
+    got = _stray_line(13754, СМЕНА, own_per_hour=40.0)
+    assert "наши зонды ≈441" in got
+
+
+def test_без_источника_про_зонды_молчим():
+    """
+    Ноль означает «не знаем». Поправка, взятая из воздуха, хуже отсутствия
+    поправки: её потом прочитают как измерение.
+    """
+    assert "зонды" not in _stray_line(13754, СМЕНА, own_per_hour=0.0)
+
+
+def test_зонды_не_превышают_общего_числа():
+    """
+    Расчётное число зондов может обогнать измеренный счётчик — например, сразу
+    после перезапуска telemt. «Наши зонды ≈440» при сорока соединениях всего
+    выглядело бы как ошибка счётчика.
+    """
+    got = _stray_line(10, СМЕНА, own_per_hour=40.0)
+    assert "≈10" in got
+
+
+def test_без_аптайма_не_падаем_и_не_врём():
+    """Аптайм нулевой сразу после старта: скорости нет, делить не на что."""
+    got = _stray_line(50, 0)
+    assert "/час" not in got
+    assert "Не стали клиентами: 50" in got
+
+
+# --- ЧАСТОТА НАШИХ СОБСТВЕННЫХ ЗОНДОВ --------------------------------
+
+def _settings(tmp_path, text):
+    path = tmp_path / "settings.conf"
+    path.write_text(text, encoding="utf-8")
+    return str(path)
+
+
+def test_частота_зондов_из_настроек(tmp_path):
+    """Настройки стенда: 20 зондов каждые 30 минут — сорок в час."""
+    path = _settings(tmp_path, "AVAILABILITY_ENABLED='true'\n"
+                               "AVAILABILITY_PROBES='20'\n"
+                               "AVAILABILITY_INTERVAL='30'\n")
+    assert own_probes_per_hour(path) == 40.0
+
+
+def test_проверка_выключена_значит_ноль(tmp_path):
+    path = _settings(tmp_path, "AVAILABILITY_ENABLED='false'\n"
+                               "AVAILABILITY_PROBES='20'\n"
+                               "AVAILABILITY_INTERVAL='30'\n")
+    assert own_probes_per_hour(path) == 0.0
+
+
+def test_нет_mtproxyl_значит_ноль(tmp_path):
+    assert own_probes_per_hour(str(tmp_path / "нет-такого")) == 0.0
+
+
+def test_чужой_формат_не_роняет_и_даёт_ноль(tmp_path):
+    """
+    Мы читаем ЧУЖОЙ файл. Всё, что не разобралось, — «не знаем», а не повод
+    падать посреди сводки: правило то же, что и для вердикта доступности.
+    """
+    for мусор in ("AVAILABILITY_ENABLED='true'\nAVAILABILITY_PROBES='много'\n"
+                  "AVAILABILITY_INTERVAL='30'\n",
+                  "AVAILABILITY_ENABLED='true'\nAVAILABILITY_INTERVAL='0'\n"
+                  "AVAILABILITY_PROBES='20'\n",
+                  "{ \"это\": \"вообще json\" }\n",
+                  ""):
+        assert own_probes_per_hour(_settings(tmp_path, мусор)) == 0.0
