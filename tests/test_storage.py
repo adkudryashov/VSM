@@ -160,7 +160,7 @@ async def test_очистка_всего_опустошает_таблицу(б�
     удалено = await storage.purge_history()
 
     assert удалено == 2
-    assert await storage.get_all_ips_by_user() == []
+    assert await storage.get_all_ips_by_user() == {}
 
 
 async def test_очистка_на_отсутствующей_базе_не_падает(база):
