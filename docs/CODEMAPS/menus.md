@@ -32,21 +32,29 @@
 какое-то время будет промахиваться, но опасного нет — экран стека
 представляется заголовком, а его разрушающий пункт требует слова СТЕРЕТЬ.
 
+Своего раздела AmneziaWG у VSM больше нет и не будет: сервер даёт панель
+3x-ui, а VSM закрывает то, чего панель не делает, — пунктом 8 в меню X-UI
+(порт в фаерволе, keepalive, конфиг для mihomo). Проверено на живом туннеле
+28.08.2026.
+
 ## Управление X-UI — `menus/xui.sh` (335 строк)
 
 ```
 1 install_xui_pro        xui_installer_fetch: отпечаток + снятие check_cpu;
                        оба домена обязательны, автоопределения больше нет
 2 patch_xui_pro          отпечаток + run_remote_script x-ui-patch.sh
-   (учётные данные переехали на 3, AdGuard на 7; разрушающий пункт 8
-    намеренно не сдвигался — правило «только от привычной позиции»)
-3 manage_adguard         x-ui-adguard.sh, install | uninstall
+3 manage_xui_credentials → xui_credentials_save (/etc/vsm/xui.conf, 600)
 4 manage_backup          ensure_backup_script → x-ui-backup backup|list|restore
 5 manage_service_status_restart x-ui
 6 x-ui                   штатное меню апстрима
-7 manage_xui_credentials → xui_credentials_save (/etc/vsm/xui.conf, 600)
-8 uninstall_xui_pro      УДАЛИТЬ; снимает apt-mark hold от пересборки, иначе
+7 manage_adguard         x-ui-adguard.sh, install | uninstall
+8 xui_awg_mihomo         AmneziaWG из панели → блок mihomo для XKeen;
+                       проверяет порт в ufw и предлагает открыть
+9 uninstall_xui_pro      УДАЛИТЬ; снимает apt-mark hold от пересборки, иначе
                        purge nginx не проходит; вычищает /etc/nginx целиком
+
+Разрушающий пункт уезжал дважды (7 → 8 → 9) и только ВНИЗ: кто нажмёт по
+привычке прежний номер, попадёт на безобидный экран, а не на снос панели.
 ```
 
 `warn_telemt_after_panel_change` вызывается после 1 и 2: патч чистит
