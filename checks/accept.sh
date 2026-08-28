@@ -161,6 +161,9 @@ screen() { # файл ввод описание [признак]
 screen menus/xui.sh    '4\nX\nX\nX\n'      'X-UI: бэкапы (4)'
 screen menus/xui.sh    '5\n1\n\nX\nX\n'    'X-UI: служба, статус (5→1)'
 screen menus/xui.sh    '7\nX\nX\nX\n'      'X-UI: AdGuard (7)'
+# Признаком берём заголовок экрана, а не успех: на сервере без соединения
+# AmneziaWG пункт обязан вежливо отказать, и это тоже правильный экран.
+screen menus/xui.sh    '8\n\nX\nX\n'       'X-UI: AmneziaWG для роутера (8)' 'AmneziaWG'
 screen menus/telemt.sh '3\nX\nX\n'         'telemt: веб-панель (3)' 'ВЕБ-ПАНЕЛЬ'
 screen menus/telemt.sh '4\n\nX\n'          'telemt: диагностика (4)' 'СТАТУС И ДИАГНОСТИКА СТЕКА'
 screen menus/telemt.sh '8\n1\n1\n\nX\nX\n' 'telemt: служба telemt, статус (8→1→1)' 'Loaded:|Active:|could not be found'
