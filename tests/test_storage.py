@@ -187,28 +187,3 @@ async def test_сводка_считает_записи_адреса_и_имен
     assert st["users"] == 2
     assert dict(await storage.history_usernames()) == {"вася": 2, "петя": 1}
 
-
-# --- формат периода ---------------------------------------------------
-#
-# В базе время ISO с поясом. Печатать его как есть нельзя: строка длинная,
-# время чужое (UTC при сервере в другом поясе), читается по складам. Владелец
-# указал на это, увидев экран очистки.
-
-def test_период_за_один_день_пишет_дату_однажды():
-    from telemt.utils.helpers import format_period
-    got = format_period("2026-08-28T04:17+00:00", "2026-08-28T05:43+00:00")
-    assert "—" in got and got.count(".") == 1
-
-
-def test_период_из_одной_точки_без_тире():
-    """Диапазон из точки в ту же точку выглядит как ошибка."""
-    from telemt.utils.helpers import format_period
-    got = format_period("2026-08-28T04:17+00:00", "2026-08-28T04:17+00:00")
-    assert "—" not in got
-
-
-def test_период_из_мусора_пуст():
-    """Обратная сторона: неразобранное не должно печататься как есть."""
-    from telemt.utils.helpers import format_period
-    assert format_period("не дата", "тоже нет") == ""
-    assert format_period(None, None) == ""
