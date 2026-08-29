@@ -25,6 +25,7 @@ import socket
 from typing import Optional
 
 import httpx
+from common.http import shared_httpx
 
 from telemt.watchdog import quota
 
@@ -64,7 +65,7 @@ class RateLimited(GlobalpingError):
 
 async def public_ip(timeout: float = 6.0) -> str:
     """Внешний адрес сервера. Пустая строка, если не удалось узнать."""
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with shared_httpx(timeout) as client:
         for url in IP_SERVICES:
             try:
                 resp = await client.get(url)
@@ -203,7 +204,7 @@ async def check(host: str, port: int, sni: str, probes: int,
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    async with httpx.AsyncClient(timeout=20.0) as client:
+    async with shared_httpx(20.0) as client:
         resp = await client.post(f"{API_URL}/measurements",
                                  json=build_request(host, port, sni, probes),
                                  headers=headers)

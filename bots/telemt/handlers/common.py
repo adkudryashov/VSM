@@ -4,6 +4,7 @@ from telemt.utils.helpers import (send_long_message, send_rich_or_fallback,
 import asyncio
 import html                                                                                                                                                                   
 import httpx                                                                                                                                                                     
+from common.http import shared_httpx
 import tomli                                                                                                                                                                     
 from pathlib import Path                                                                                                                                                         
 from aiogram import Router, types                                                                                                                                                
@@ -30,7 +31,7 @@ def get_server_name() -> str:
 async def get_latest_version() -> str | None:                                                                                                                                    
     if not settings.CHECK_VERSION: return None                                                                                                                                   
     try:                                                                                                                                                                         
-        async with httpx.AsyncClient(timeout=5) as client:                                                                                                                       
+        async with shared_httpx(5) as client:                                                                                                                       
             resp = await client.get("https://api.github.com/repos/telemt/telemt/releases/latest")                                                                                
             if resp.status_code == 200: return resp.json().get("tag_name", "").lstrip("v")                                                                                       
     except Exception: pass                                                                                                                                                       

@@ -118,3 +118,65 @@ def test_без_таймаута_ничего_не_подставляем():
     з = Заглушка()
     http._Timed(з, None).get("https://example.com")
     assert "timeout" not in з.kw
+
+
+# --- ОБЩИЙ КЛИЕНТ HTTPX ----------------------------------------------
+#
+# Это и был главный источник утечки, а не aiohttp: сторож зовёт public_ip
+# раз в минуту, и каждый вызов создавал свой AsyncClient. Замер против
+# настоящего внешнего адреса — 0.76 МБ на вызов при наблюдаемом росте бота
+# 0.8 МБ в минуту.
+
+def test_httpx_клиент_один_на_несколько_вызовов():
+    async def сценарий():
+        async with http.shared_httpx() as первый:
+            a = первый._client
+        async with http.shared_httpx() as второй:
+            b = второй._client
+        await http.close()
+        return a, b
+
+    a, b = прогнать(сценарий())
+    assert a is b
+
+
+def test_httpx_блок_не_закрывает_клиента():
+    async def сценарий():
+        async with http.shared_httpx() as к:
+            клиент = к._client
+        после_блока = клиент.is_closed
+        await http.close()
+        return после_блока, клиент.is_closed
+
+    после_блока, после_close = прогнать(сценарий())
+    assert после_блока is False
+    assert после_close is True
+
+
+def test_httpx_закрытого_заменяем_новым():
+    async def сценарий():
+        async with http.shared_httpx() as первый:
+            a = первый._client
+        await http.close()
+        async with http.shared_httpx() as второй:
+            b = второй._client
+        await http.close()
+        return a, b
+
+    a, b = прогнать(сценарий())
+    assert a is not b
+    assert a.is_closed is True
+
+
+def test_httpx_таймаут_подставляется_и_не_затирается():
+    class Заглушка:
+        def __init__(self): self.kw = None
+        def get(self, url, **kw): self.kw = kw; return kw
+
+    з = Заглушка()
+    http._TimedHttpx(з, "общий").get("https://example.com")
+    assert з.kw["timeout"] == "общий"
+    http._TimedHttpx(з, "общий").get("https://example.com", timeout="свой")
+    assert з.kw["timeout"] == "свой"
+    http._TimedHttpx(з, None).get("https://example.com")
+    assert "timeout" not in з.kw
