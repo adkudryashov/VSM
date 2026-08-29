@@ -13,6 +13,7 @@ import re
 from datetime import date, datetime
 
 import aiohttp
+from common.http import shared_session
 from aiogram import Bot, F, Router, types
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
@@ -409,7 +410,7 @@ async def _notify_admins(bot: Bot, text: str):
 async def check_single_panel_status(base_url, headers):
     timeout = aiohttp.ClientTimeout(total=4.0)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with shared_session(timeout) as session:
             async with session.get(f"{base_url}/panel/api/server/status", headers=headers) as resp:
                 if resp.status == 200:
                     json_data = await resp.json()

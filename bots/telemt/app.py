@@ -12,6 +12,7 @@ from aiogram.types import BotCommand
 
 from config import settings
 from telemt.api.client import TelemtAPIClient
+from common import http
 from telemt.handlers import (common, users, stats, reports, panel, metrics, map,
                              aboutall, watch, cleanup)
 from telemt.utils.storage import init_db, bulk_save_ips, cleanup_old_ips
@@ -94,3 +95,7 @@ async def setup():
 
 async def shutdown(*_args, **_kwargs):
     await TelemtAPIClient().close()
+    # Общая сессия aiohttp живёт весь процесс — закрываем её здесь, а не
+    # в местах вызова: там она нарочно не закрывается, иначе вернулась бы
+    # та самая утечка, ради которой её и завели (см. common/http.py).
+    await http.close()

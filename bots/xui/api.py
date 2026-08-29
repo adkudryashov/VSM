@@ -4,6 +4,7 @@ import asyncio
 import json
 import html as html_lib
 from common.format import collapse
+from common.http import shared_session
 from datetime import datetime, timedelta, timezone
 
 from common import datepicker as dp
@@ -41,7 +42,7 @@ async def fetch_panel_data(name, config):
     timeout = aiohttp.ClientTimeout(total=5.0)
 
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with shared_session(timeout) as session:
             # Три запроса выполняются параллельно вместо последовательного ожидания каждого
             status_data, onlines_obj, inbounds_obj = await asyncio.gather(
                 _safe_request(session, "GET", f"{base_url}/panel/api/server/status", headers, {}),
@@ -178,7 +179,7 @@ async def get_detailed_panel_report(name, config):
     timeout = aiohttp.ClientTimeout(total=5.0)
 
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with shared_session(timeout) as session:
             async with session.get(f"{base_url}/panel/api/inbounds/list", headers=headers) as r_inb, \
                      session.post(f"{base_url}/panel/api/clients/onlines", headers=headers) as r_onl, \
                      session.post(f"{base_url}/panel/api/clients/lastOnline", headers=headers) as r_lst:
