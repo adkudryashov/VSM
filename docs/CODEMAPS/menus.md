@@ -60,29 +60,37 @@
 `warn_telemt_after_panel_change` вызывается после 1 и 2: патч чистит
 `sites-enabled`, а там живёт блок доступа к telemt_panel.
 
-## Стек telemt — `menus/telemt.sh` (898 строк)
+## Стек telemt — `menus/telemt.sh` (1799 строк)
 
 ```
 УСТАНОВКА
 1 run_install full     СТЕРЕТЬ → stacks/telemt.sh --mode full
 2 run_install addon    → stacks/telemt.sh --mode addon
+3 run_panel_menu       выбрать, поставить или снять веб-панель: их две
 
 ЭКСПЛУАТАЦИЯ
-3 run_diagnostics      службы, порты, HTTP-коды, сквозной self-SNI тест,
+4 run_diagnostics      службы, порты, HTTP-коды, сквозной self-SNI тест,
                        сверка с реестром решений (checks/drift.sh --dry-run)
-4 restore_mask         nginx_mask_apply + panel_proxy_localize + panel_proxy_apply
+5 restore_mask         nginx_mask_apply + panel_proxy_localize + panel_proxy_apply
                        + mtpl_restore_proxy (MTProxyL-Panel, если установлена)
                        + panel_proxy_verify; здесь же миграция старых установок
-5 check_tls_parity     отпечаток / протокол / шифр / группа / ALPN + PQ
-6 show_credentials     telemt-credentials.txt, адрес панели подставляется живой
-7 manage_services      telemt, telemt-panel
+6 check_tls_parity     отпечаток / протокол / шифр / группа / ALPN + PQ
+7 show_credentials     telemt-credentials.txt, адрес панели подставляется живой
+8 manage_services      telemt и та панель, что установлена
 
 ДОПОЛНИТЕЛЬНО
-8  run_mtproxyl        сторонний лимитер, режим Reanimator
-9  run_rebuild_nginx   stacks/nginx-openssl35.sh, 20–40 минут; читает rc и
-                       печатает фактическое состояние nginx/telemt/telemt-panel
-10 uninstall_stack     УДАЛИТЬ; снимает блок панели и ACL на ключ LE
+9  run_mtproxyl        сторонний лимитер, режим Reanimator
+10 run_rebuild_nginx   stacks/nginx-openssl35.sh, 20–40 минут; читает rc и
+                       печатает фактическое состояние nginx/telemt/панели
+11 run_web_proxy       WEB Proxy: состояние обеих половин, включение и возврат
+                       блока nginx, ссылки tg://webproxy в файл 600
+12 uninstall_stack     УДАЛИТЬ; снимает блок панели и ACL на ключ LE
 ```
+
+> Нумерация менялась трижды. Пункт удаления двигался только ВНИЗ — 10 → 11 →
+> 12: разрушающее не сдвигают К привычной позиции, только от неё. Ссылаться на
+> пункты именем, а не номером: две подсказки в коде уже указывали не туда, и
+> заметить это было нельзя — они выглядели осмысленно.
 
 ## Telegram-боты — `menus/bots.sh` (343 строки)
 
