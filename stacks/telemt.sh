@@ -25,6 +25,7 @@ set -euo pipefail
 #   TELEMT_SECRET=<hex32>   MTProto-секрет (по умолчанию генерируется;
 #                           при повторном запуске переиспользуется старый)
 #   INSTALL_PANEL=1         ставить ли telemt_panel (0 — пропустить этапы 4 и 5)
+#   INSTALL_WEB=1           включать ли WEB Proxy (0 — пропустить этап 6)
 #   PANEL_ADMIN_USER=admin
 #   PANEL_ADMIN_PASS=<...>  (по умолчанию генерируется)
 #   XUI_VERSION=<3.6.0>     поставить ИМЕННО эту версию 3x-ui вместо последней
@@ -169,6 +170,10 @@ VSM_LIB="$VSM_ROOT/lib"
     die "Не найден $VSM_LIB/nginx_panel_proxy.sh — обнови VSM (install.sh) и повтори."
 # shellcheck disable=SC1091
 . "$VSM_LIB/nginx_panel_proxy.sh"
+
+[[ -f "$VSM_LIB/nginx_web.sh" ]] || \n    die "Не найден $VSM_LIB/nginx_web.sh — обнови VSM (install.sh) и повтори."
+# Строго ПОСЛЕ nginx_panel_proxy.sh: берёт оттуда strip/insert/apply_block.
+. "$VSM_LIB/nginx_web.sh"
 . "$VSM_LIB/panel_install.sh"
 
 # Страж «одна панель на сервер». Не обязателен: на установке, обновлённой не
@@ -571,6 +576,39 @@ fi
 # копию нельзя — ровно так разошлись две копии wait_for_apt.
 if [[ "${SKIP_PANEL:-0}" -eq 0 ]]; then
     panel_install_telemt "$PANEL_ADMIN_USER" "$PANEL_ADMIN_PASS" "$PANEL_PORT"                          "$DOMAIN_PANEL" "$DOMAIN_REALITY" "$PANEL_PREFIX"         || die "установка telemt_panel не удалась (причина выше)."
+fi
+
+# ---------------------------------------------------------------------------
+# ЭТАП 6 — WEB Proxy
+# ---------------------------------------------------------------------------
+# MTProto внутри обычного HTTPS или WebSocket. Ставится ПОСЛЕ маски и панели:
+# блок врезается в тот же vhost домена, что и доступ к панели, и порядок здесь
+# тот же, что у остальных блоков.
+#
+# ПОРЯДОК ВНУТРИ ЭТАПА ВАЖЕН: сначала движок, потом nginx. Наоборот nginx
+# начал бы проксировать на мёртвый порт, и корень домена отдавал бы СНАРУЖИ
+# 502 — то есть маскировочный сайт перестал бы быть похож на сайт.
+#
+# НЕ ФАТАЛЬНО. Не получилось — стек остаётся рабочим без WEB, и об этом
+# говорится вслух. Ронять из-за него уже поднятый прокси незачем: FakeTLS
+# работает и без WEB, а вернуть WEB можно пунктом меню в любой момент.
+if [[ "${INSTALL_WEB:-1}" -eq 1 ]]; then
+    log "Этап 6: WEB Proxy на домене ${DOMAIN_PANEL}"
+    if web_toml_enable "$DOMAIN_PANEL"; then
+        if web_engine_restart_verified "$DOMAIN_PANEL" "$TELEMT_PORT"; then
+            if web_nginx_apply "$DOMAIN_PANEL"; then
+                log "WEB Proxy включён — ссылки tg://webproxy в меню стека"
+            else
+                warn "WEB Proxy: блок nginx не применился, стек работает без WEB"
+            fi
+        else
+            warn "WEB Proxy: движок не поднялся с новым конфигом — откатываю"
+            mv -f "${WEB_TOML}.vsm-before-web" "$WEB_TOML" 2>/dev/null || true
+            systemctl restart telemt >/dev/null 2>&1 || true
+        fi
+    else
+        warn "WEB Proxy: не смог включить в конфиге движка, стек работает без WEB"
+    fi
 fi
 
 # ---------------------------------------------------------------------------

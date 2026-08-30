@@ -33,6 +33,17 @@ else
     exit 1
 fi
 
+# WEB Proxy: блок в nginx и секции в конфиге движка. Строго ПОСЛЕ
+# nginx_panel_proxy.sh по той же причине — берёт оттуда strip/insert/
+# apply_block, а из nginx_mask.sh поиск vhost домена.
+if [ -f "$VSM_LIB/nginx_web.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$VSM_LIB/nginx_web.sh"
+else
+    echo -e "${RED}❌ Не найден $VSM_LIB/nginx_web.sh — обнови VSM (install.sh).${NC}"
+    exit 1
+fi
+
 # Тот же приём для MTProxyL-Panel, если она установлена. Строго ПОСЛЕ
 # nginx_panel_proxy.sh: берёт оттуда общие strip/insert/apply_block.
 if [ -f "$VSM_LIB/nginx_mtpl_proxy.sh" ]; then
@@ -1476,6 +1487,127 @@ function run_rebuild_nginx {
     read -p "Нажмите Enter для возврата..."
 }
 
+# ----------------------------------------------------------------------
+# WEB Proxy: состояние, включение и возврат блока nginx
+#
+# ЗАЧЕМ ОТДЕЛЬНЫЙ ЭКРАН. WEB держится на двух частях в разных местах: секции
+# в конфиге движка (наш файл, переживает всё) и блок в vhost домена (файл
+# 3x-ui-pro, переписывается его патчем целиком). Пропажа второй половины
+# беззвучна — сайт и панель отвечают как обычно, а клиенты просто перестают
+# подключаться. Реестр это заметит и скажет; вернуть должно быть чем.
+# ----------------------------------------------------------------------
+run_web_proxy() {
+    local domain choice
+    while true; do
+        clear 2>/dev/null
+        ui_header "WEB PROXY" "MTProto внутри обычного HTTPS и WebSocket"
+
+        # Домен берём из состояния стека, как и весь остальной экран:
+        # load_stack_conf уже наполнил DOMAIN_PANEL перед показом меню.
+        load_stack_conf
+        domain="$DOMAIN_PANEL"
+
+        if [ -z "$domain" ]; then
+            echo -e "   ${RED}Не знаю домена стека — сначала установите стек.${NC}"
+            echo ""
+            read -r -p "Enter — назад "
+            return
+        fi
+
+        echo -e "   ${C_DESC}Домен:${NC} ${C_NAME}${domain}${NC}"
+        echo ""
+
+        if web_toml_enabled; then
+            echo -e "   ${GREEN}✓${NC} Секции в конфиге движка на месте"
+        else
+            echo -e "   ${YELLOW}—${NC} В конфиге движка WEB не включён"
+        fi
+
+        if web_nginx_present "$domain"; then
+            echo -e "   ${GREEN}✓${NC} Блок в nginx на месте"
+        else
+            echo -e "   ${RED}✗${NC} Блока в nginx НЕТ — клиенты WEB не подключатся"
+            echo -e "      ${C_DESC}чаще всего его уносит патч 3x-ui-pro: он переписывает vhost целиком${NC}"
+        fi
+
+        echo ""
+        ui_section "ДЕЙСТВИЯ"
+        ui_item "1" "🌐" "Включить или вернуть" "Обе части: конфиг движка и блок nginx"
+        ui_item "2" "🔗" "Ссылки пользователям" "tg://webproxy, в файл с правами 600"
+        ui_item "X" "🔙" "Назад"
+        echo ""
+        read -r -p "Ваш выбор [1-2, X]: " choice
+        case "$choice" in
+            1) _web_apply "$domain" ;;
+            2) _web_links ;;
+            [Xx]) return ;;
+            *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+# Включение целиком: сначала движок, потом nginx.
+#
+# ПОРЯДОК ВАЖЕН. Наоборот nginx начал бы проксировать на мёртвый порт, и
+# корень домена отдавал бы СНАРУЖИ 502 — то есть маскировочный сайт перестал
+# бы быть похож на сайт. Замечено при первой сборке 29.08.2026.
+_web_apply() {
+    local domain="$1" port
+    echo ""
+    if ! web_toml_enabled; then
+        echo -e "${C_DESC}Правлю конфиг движка...${NC}"
+        if ! web_toml_enable "$domain"; then
+            echo -e "${RED}❌ Не смог включить WEB в конфиге движка.${NC}"
+            read -r -p "Enter — назад "; return
+        fi
+        port="${TELEMT_PORT:-8444}"
+        echo -e "${C_DESC}Перезапускаю движок и проверяю, что FakeTLS жив...${NC}"
+        if ! web_engine_restart_verified "$domain" "$port"; then
+            echo -e "${RED}❌ Движок не поднялся как надо — откатываю конфиг.${NC}"
+            mv -f "${WEB_TOML}.vsm-before-web" "$WEB_TOML" 2>/dev/null
+            systemctl restart telemt >/dev/null 2>&1
+            read -r -p "Enter — назад "; return
+        fi
+        echo -e "${GREEN}✓ Движок работает, FakeTLS отвечает.${NC}"
+    else
+        echo -e "${C_DESC}В конфиге движка WEB уже включён.${NC}"
+    fi
+
+    echo -e "${C_DESC}Врезаю блок в nginx...${NC}"
+    if web_nginx_apply "$domain"; then
+        echo -e "${GREEN}✓ WEB Proxy включён.${NC}"
+        echo -e "  ${C_DESC}Ссылки пользователям — пункт 2. Формат dd, а не ee.${NC}"
+    else
+        echo -e "${RED}❌ Блок в nginx не применился, причина выше.${NC}"
+    fi
+    echo ""
+    read -r -p "Enter — назад "
+}
+
+# Ссылки — В ФАЙЛ, а не на экран: в них секреты, а экран уходит в историю
+# терминала и в снимки. Тот же приём, что у конфигов AmneziaWG.
+_web_links() {
+    local out="/root/web-links.txt"
+    echo ""
+    if ! web_toml_enabled; then
+        echo -e "${YELLOW}WEB не включён — ссылок нет.${NC}"
+        read -r -p "Enter — назад "; return
+    fi
+    if ! command -v mtproxyl >/dev/null 2>&1; then
+        echo -e "${YELLOW}Собрать ссылки нечем: mtproxyl не установлен.${NC}"
+        echo -e "${C_DESC}Движок ссылки WEB через API не отдаёт — в /v1/users только${NC}"
+        echo -e "${C_DESC}classic, secure, tls и tls_domains. Их собирают из домена и${NC}"
+        echo -e "${C_DESC}секрета пользователя с префиксом dd.${NC}"
+        read -r -p "Enter — назад "; return
+    fi
+    ( umask 077; mtproxyl web links 2>&1 | sed -E 's/\x1B\[[0-9;]*[mK]//g' > "$out" )
+    chmod 600 "$out"
+    echo -e "${GREEN}✓ Ссылки записаны:${NC} ${C_NAME}${out}${NC} ${C_DESC}(права 600)${NC}"
+    echo -e "  ${C_DESC}На экран не печатаю: в ссылках секреты.${NC}"
+    echo ""
+    read -r -p "Enter — назад "
+}
+
 function uninstall_stack {
     clear 2>/dev/null
     echo -e "${RED}======================================================${NC}"
@@ -1636,12 +1768,13 @@ function run_telemt_menu {
         ui_section "ДОПОЛНИТЕЛЬНО"
         ui_item "9" "🔒" "MTProxyL"            "Лимитер, обход, тонкая настройка"
         ui_item "10" "🧱" "Пересборка nginx"   "OpenSSL 3.5 и постквантовый TLS"
+        ui_item "11" "🌐" "WEB Proxy"          "MTProto внутри HTTPS: включить и вернуть"
         echo ""
-        ui_danger_item "11" "Удалить стек telemt" "telemt, панель, маска, конфиги"
+        ui_danger_item "12" "Удалить стек telemt" "telemt, панель, маска, конфиги"
         ui_item "X" "🔙" "Назад"
         echo ""
 
-        read -p "Ваш выбор [1-11, X]: " choice
+        read -p "Ваш выбор [1-12, X]: " choice
         case $choice in
             1) run_install full ;;
             2) run_install addon ;;
@@ -1653,7 +1786,8 @@ function run_telemt_menu {
             8) manage_services ;;
             9) run_mtproxyl ;;
             10) run_rebuild_nginx ;;
-            11) uninstall_stack ;;
+            11) run_web_proxy ;;
+            12) uninstall_stack ;;
             [Xx]) return ;;
             *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
         esac
