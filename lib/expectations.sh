@@ -678,9 +678,20 @@ applies_web_nginx_block() {
     [ "$(_toml_get "$TELEMT_TOML" web enabled)" = "true" ]
 }
 want_web_nginx_block() { echo "на месте"; }
+# Файл ищем ТАК ЖЕ, как его правит lib/nginx_web.sh: сначала sites-enabled,
+# который nginx и читает. Иначе позиция и правка смотрят в разные файлы и
+# согласованно ошибаются — поймано 30.08.2026, блок лёг в sites-available,
+# WEB не работал, а позиция рапортовала «на месте».
+_web_vhost_for_check() {
+    local domain="$1" candidate
+    for candidate in "/etc/nginx/sites-enabled/$domain"                      "/etc/nginx/conf.d/${domain}.conf"                      "/etc/nginx/sites-available/$domain"; do
+        [ -e "$candidate" ] && { readlink -f "$candidate"; return 0; }
+    done
+    return 1
+}
 read_web_nginx_block() {
     local vhost missing=()
-    vhost="$(nginx_mask_panel_vhost "$(_panel_domain)" 2>/dev/null)"
+    vhost="$(_web_vhost_for_check "$(_panel_domain)" 2>/dev/null)"
     [ -r "$vhost" ] || { echo "vhost не найден"; return 0; }
 
     grep -qF "$WEB_BLOCK_MARK" "$vhost" 2>/dev/null || missing+=("блок в vhost")
