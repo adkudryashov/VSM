@@ -1500,7 +1500,9 @@ run_web_proxy() {
     local domain choice
     while true; do
         clear 2>/dev/null
-        ui_header "WEB PROXY" "MTProto внутри обычного HTTPS и WebSocket"
+        ui_title "🌐  WEB PROXY"
+        echo -e "   ${C_DESC}MTProto внутри обычного HTTPS и WebSocket${NC}"
+        echo ""
 
         # Домен берём из состояния стека, как и весь остальной экран:
         # load_stack_conf уже наполнил DOMAIN_PANEL перед показом меню.
