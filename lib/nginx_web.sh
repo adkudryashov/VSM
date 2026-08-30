@@ -39,6 +39,35 @@ WEB_MAP_FILE="/etc/nginx/conf.d/telemt-web-map.conf"
 WEB_LISTEN_PORT="${WEB_LISTEN_PORT:-15080}"
 
 # ----------------------------------------------------------------------
+# Путь к файлу vhost, который nginx ДЕЙСТВИТЕЛЬНО читает.
+#
+# ЗАЧЕМ СВОЙ, А НЕ web_vhost_path. Тот предпочитает sites-available —
+# так принято, когда sites-enabled это каталог ссылок. Но установщик
+# 3x-ui-pro кладёт в sites-enabled ОБЫЧНЫЙ ФАЙЛ, а в sites-available свою
+# отдельную копию, и это разные inode. Поймано 30.08.2026: блок лёг в
+# sites-available, nginx его не увидел, WEB молча не работал — при том что и
+# позиция реестра, и экран меню рапортовали «на месте», потому что смотрели
+# в тот же неверный файл. Две проверки согласились, потому что обе ошибались
+# одинаково; поймалось только запросом снаружи.
+#
+# nginx включает sites-enabled/*, поэтому истина там. readlink -f нужен для
+# обычной раскладки, где это ссылка: править надо файл, а не ссылку.
+# ----------------------------------------------------------------------
+web_vhost_path() {
+    local domain="$1" candidate
+    for candidate in "/etc/nginx/sites-enabled/$domain" \
+                     "/etc/nginx/conf.d/${domain}.conf" \
+                     "/etc/nginx/sites-available/$domain"; do
+        if [ -e "$candidate" ]; then
+            readlink -f "$candidate"
+            return 0
+        fi
+    done
+    echo "не найден vhost домена $domain" >&2
+    return 1
+}
+
+# ----------------------------------------------------------------------
 # Карты для http-контекста.
 # ----------------------------------------------------------------------
 web_maps_write() {
@@ -132,7 +161,7 @@ web_nginx_apply() {
     local domain="$1" vhost
     [ -n "$domain" ] || { echo "не задан домен для WEB Proxy" >&2; return 1; }
 
-    vhost="$(nginx_mask_panel_vhost "$domain")" || return 1
+    vhost="$(web_vhost_path "$domain")" || return 1
     web_maps_write || { echo "не удалось записать $WEB_MAP_FILE" >&2; return 1; }
 
     panel_proxy_apply_block "$vhost" "$WEB_PROXY_BEGIN" "$WEB_PROXY_END" \
@@ -144,7 +173,7 @@ web_nginx_apply() {
 # ----------------------------------------------------------------------
 web_nginx_remove() {
     local domain="$1" vhost content
-    vhost="$(nginx_mask_panel_vhost "$domain" 2>/dev/null)" || return 0
+    vhost="$(web_vhost_path "$domain" 2>/dev/null)" || return 0
     [ -f "$vhost" ] || return 0
 
     content="$(panel_proxy_strip "$WEB_PROXY_BEGIN" "$WEB_PROXY_END" < "$vhost")"
@@ -159,7 +188,7 @@ web_nginx_remove() {
 # ----------------------------------------------------------------------
 web_nginx_present() {
     local domain="$1" vhost
-    vhost="$(nginx_mask_panel_vhost "$domain" 2>/dev/null)" || return 1
+    vhost="$(web_vhost_path "$domain" 2>/dev/null)" || return 1
     [ -f "$vhost" ] || return 1
     grep -qF "$WEB_PROXY_BEGIN" "$vhost" 2>/dev/null && [ -r "$WEB_MAP_FILE" ]
 }
