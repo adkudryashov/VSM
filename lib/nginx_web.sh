@@ -164,7 +164,13 @@ web_nginx_apply() {
     vhost="$(web_vhost_path "$domain")" || return 1
     web_maps_write || { echo "не удалось записать $WEB_MAP_FILE" >&2; return 1; }
 
-    web_apply_block "$vhost" "$(web_proxy_block)"
+    # Общий помощник: снятие прежнего блока, поиск server{} с
+    # ssl_certificate, nginx -t и откат — всё там. Своя копия жила
+    # здесь ровно до тех пор, пока общая клала резервный файл рядом с
+    # vhost; теперь она кладёт его вне каталога, и вторая копия стала
+    # лишней. Две копии однажды разойдутся именно в обращении с откатом.
+    panel_proxy_apply_block "$vhost" "$WEB_PROXY_BEGIN" "$WEB_PROXY_END" \
+        "$(web_proxy_block)" "WEB Proxy"
 }
 
 # ----------------------------------------------------------------------
@@ -355,61 +361,5 @@ web_engine_restart_verified() {
         sleep 5
         waited=$((waited + 5))
     done
-    return 1
-}
-
-# ----------------------------------------------------------------------
-# Врезка блока со своей копией — ВНЕ каталога, который читает nginx.
-#
-# ЗАЧЕМ НЕ panel_proxy_apply_block. Тот кладёт копию рядом с оригиналом:
-# "${vhost}.vsm-bak". Пока vhost жил в sites-available, это было безвредно.
-# Наш vhost лежит в sites-enabled, а nginx включает ВЕСЬ этот каталог — и
-# подхватывает копию как второй конфиг. Замерено 30.08.2026:
-#
-#   [emerg] limit_req_zone "diag_api" is already bound ...
-#           in /etc/nginx/sites-enabled/adkrw.kagis.kz.vsm-bak:2
-#
-# Дальше nginx -t падает, врезка честно откатывается — и применить её нельзя
-# в принципе. Поэтому копия уходит в /var/backups/vsm/nginx.
-#
-# ЭТО ЖЕ КАСАЕТСЯ И БЛОКОВ ПАНЕЛЕЙ: помощник общий, и на такой раскладке они
-# упрутся в то же самое. Здесь не трогаем — правка чужих блоков это отдельное
-# решение владельца.
-# ----------------------------------------------------------------------
-WEB_BACKUP_DIR="/var/backups/vsm/nginx"
-
-web_apply_block() {
-    local vhost="$1" block="$2" content backup
-    [ -f "$vhost" ] || { echo "не найден vhost: $vhost" >&2; return 1; }
-
-    content="$(panel_proxy_strip "$WEB_PROXY_BEGIN" "$WEB_PROXY_END" < "$vhost" \
-               | panel_proxy_insert "$block")" || {
-        echo "в $vhost не найден server{} с ssl_certificate — WEB некуда подключить" >&2
-        return 1
-    }
-
-    mkdir -p "$WEB_BACKUP_DIR" 2>/dev/null
-    chmod 700 "$WEB_BACKUP_DIR" 2>/dev/null
-    backup="${WEB_BACKUP_DIR}/$(basename "$vhost").before-web"
-    cp -p "$vhost" "$backup" || { echo "не сохранил копию vhost" >&2; return 1; }
-
-    if ! printf '%s\n' "$content" > "$vhost"; then
-        echo "не удалось записать $vhost" >&2
-        cp -p "$backup" "$vhost"
-        return 1
-    fi
-
-    if nginx -t >/dev/null 2>&1; then
-        systemctl reload nginx >/dev/null 2>&1 || {
-            echo "конфиг принят nginx -t, но reload не сработал" >&2
-            return 1
-        }
-        return 0
-    fi
-
-    echo "конфиг с блоком WEB отклонён nginx -t, изменения откачены" >&2
-    nginx -t 2>&1 | tail -3 >&2
-    cp -p "$backup" "$vhost"
-    nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1
     return 1
 }

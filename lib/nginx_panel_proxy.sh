@@ -203,9 +203,27 @@ panel_proxy_insert() {
 # спрятать вторую панель (MTProxyL-Panel). Копия этой функции отличалась бы от
 # оригинала одной строкой рендера — и однажды разошлась бы с ним в обращении с
 # откатом, то есть ровно там, где ошибка дороже всего.
+# КОПИЯ ЛОЖИТСЯ ВНЕ КАТАЛОГА VHOST. Прежде это было "${vhost}.vsm-bak" —
+# рядом с оригиналом. Пока vhost жил в sites-available, безвредно. Но
+# установщик 3x-ui-pro кладёт его в sites-enabled, а nginx включает ВЕСЬ этот
+# каталог: копия подхватывалась как второй конфиг, и nginx -t падал на дубле
+# зоны лимита. Замерено 30.08.2026 при врезке блока WEB:
+#
+#   [emerg] limit_req_zone "diag_api" is already bound ...
+#           in /etc/nginx/sites-enabled/adkrw.kagis.kz.vsm-bak:2
+#
+# Дальше откат отрабатывал честно — и блок было НЕВОЗМОЖНО применить вовсе.
+# Дефект молчаливый: на прежней раскладке его не видно, на новой не видно
+# причины. Каталог копий создаётся с правами 700: в vhost лежат секретные
+# префиксы панелей.
+PANEL_PROXY_BACKUP_DIR="${PANEL_PROXY_BACKUP_DIR:-/var/backups/vsm/nginx}"
+
 panel_proxy_apply_block() {
     local vhost="$1" begin="$2" end="$3" block="$4" label="$5"
-    local backup="${vhost}.vsm-bak" content
+    local content backup
+    mkdir -p "$PANEL_PROXY_BACKUP_DIR" 2>/dev/null
+    chmod 700 "$PANEL_PROXY_BACKUP_DIR" 2>/dev/null
+    backup="${PANEL_PROXY_BACKUP_DIR}/$(basename "$vhost").vsm-bak"
 
     if [ ! -f "$vhost" ]; then
         echo "не найден vhost панели: $vhost" >&2
