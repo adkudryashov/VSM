@@ -34,7 +34,7 @@ from aiogram import Bot
 
 from config import settings, DATA_DIR
 from telemt.api.client import TelemtAPIClient
-from telemt.watchdog import drift, globalping, mtproxyl, upstreams
+from telemt.watchdog import drift, globalping, mtproxyl, upgrades, upstreams
 from telemt.watchdog.incidents import CLEAR, FIRE, REPEAT, REPEAT_SECONDS, WatchState
 
 STATE_PATH = Path(DATA_DIR) / "watchdog.json"
@@ -187,8 +187,17 @@ class Watchdog:
 
         started = str(info.get("process_started_at_epoch_secs") or "")
         if self.state.started_at.update(started):
+            # Причину называем, если она видна. Владелец два дня подряд
+            # получал «движок перезапустился» и каждый раз выяснял почему
+            # заново, а причина была одна: ночное автообновление системы,
+            # после которого needrestart дёргает всё, что слинковано с
+            # обновлённой библиотекой. Не нашли причину — строки не будет.
+            pkgs = upgrades.recent_packages()
+            why = ("\nПохоже на автообновление системы: "
+                   + html.escape(", ".join(pkgs))) if pkgs else ""
             await self._notify(bot, "♻️ <b>Движок перезапустился</b>\n"
-                                    f"Версия: {html.escape(str(info.get('version', '?')))}")
+                                    f"Версия: {html.escape(str(info.get('version', '?')))}"
+                                    f"{why}")
 
         config_hash = str(info.get("config_hash") or "")
         if self.state.config_hash.update(config_hash):
