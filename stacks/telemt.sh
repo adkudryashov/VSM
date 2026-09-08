@@ -510,6 +510,15 @@ toml_set_in_section "$TOML" censorship mask true
 toml_set_in_section "$TOML" censorship mask_host '"127.0.0.1"'
 toml_set_in_section "$TOML" censorship mask_port "$TELEMT_MASK_PORT"
 
+# Экспортёр Prometheus. Движок умеет его в любой сборке, но по умолчанию не
+# поднимает, и слушает СВОЙ порт, а не порт API — из-за этого его однажды
+# сочли отсутствующим вовсе (разбор в bots/telemt/handlers/metrics.py).
+# Только петля и белый список: наружу счётчики не выносим. 9090 совпадает с
+# умолчанием PROMETHEUS_METRICS_URL у бота, чтобы экран /metrics заработал
+# сразу. Ключи не горячие — применяются перезапуском ниже.
+toml_set_in_section "$TOML" server metrics_listen '"127.0.0.1:9090"'
+toml_set_in_section "$TOML" server metrics_whitelist '["127.0.0.1/32"]'
+
 systemctl daemon-reload
 systemctl restart telemt
 verify_or_die systemctl is-active --quiet telemt
