@@ -200,6 +200,11 @@ st.quota.record(10, now=0)
 back = WatchState.from_dict(st.to_dict(), 3)
 check("тревога жёстких отказов сохранилась", back.hard_fails.firing, True)
 check("квота сохранилась", back.quota.spent(now=1), 10)
+st.dc_dead.update(True, now=0); st.dc_dead.update(True, now=1); st.dc_dead.update(True, now=2)
+back2 = WatchState.from_dict(st.to_dict(), 3)
+check("тревога пустого дата-центра сохранилась", back2.dc_dead.firing, True)
+check("старое состояние без dc_dead читается", WatchState.from_dict(
+    {"engine": {"bad": 0, "firing": False}}, 3).dc_dead.firing, False)
 check("старый файл состояния читается", WatchState.from_dict(
     {"engine": {"bad": 0, "firing": False}}, 3).hard_fails.firing, False)
 

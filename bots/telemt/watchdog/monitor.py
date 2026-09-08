@@ -34,7 +34,7 @@ from aiogram import Bot
 
 from config import settings, DATA_DIR
 from telemt.api.client import TelemtAPIClient
-from telemt.watchdog import drift, globalping, mtproxyl, upgrades, upstreams
+from telemt.watchdog import dcs, drift, globalping, mtproxyl, upgrades, upstreams
 from telemt.watchdog.incidents import CLEAR, FIRE, REPEAT, REPEAT_SECONDS, WatchState
 
 STATE_PATH = Path(DATA_DIR) / "watchdog.json"
@@ -225,6 +225,34 @@ class Watchdog:
                      "Клиенты будут подключаться и зависать.",
                 clear="✅ <b>ПИСАТЕЛИ ВОССТАНОВЛЕНЫ</b>\n"
                       f"Покрытие: {float(coverage):.0f}%",
+            )
+
+        # Пустая группа дата-центров. Отдельно от покрытия выше: то — среднее
+        # по серверу, а среднее прячет целиком мёртвую группу. Замер
+        # 08.09.2026: покрытие 77% при пороге 50, тревоги нет, а DC 5 и -5
+        # пусты полностью, и так сутки. Обоснование целиком в dcs.py.
+        dc_payload = None
+        try:
+            dc_payload = await self.api.dcs()
+        except Exception as exc:
+            logging.info("Сторож: список дата-центров не пришёл: %s", exc)
+        verdict = dcs.read_verdict(dc_payload)
+        # Групп не видно — это отсутствие данных, а не отсутствие аварии:
+        # состояние тревоги тогда не трогаем вовсе.
+        if verdict.total:
+            await self._fire_or_clear(
+                bot, self.state.dc_dead.update(is_bad=verdict.partial),
+                self.state.dc_dead,
+                fire="🚨 <b>ДАТА-ЦЕНТР TELEGRAM БЕЗ ПИСАТЕЛЕЙ</b>\n"
+                     f"Пусто: DC {html.escape(verdict.label())} — "
+                     f"{len(verdict.dead)} из {verdict.total} групп.\n"
+                     "Клиенты, чьи учётные записи живут там, будут "
+                     "подключаться и зависать.\n"
+                     "Общее покрытие писателей при этом остаётся выше порога: "
+                     "оно усредняет и такую пропажу не показывает.\n"
+                     "Чаще всего это закрытый путь до серверов Telegram, "
+                     "а не поломка прокси.",
+                clear="✅ <b>ДАТА-ЦЕНТРЫ TELEGRAM СНОВА С ПИСАТЕЛЯМИ</b>",
             )
 
         await self._poll_hard_fails(bot, started)

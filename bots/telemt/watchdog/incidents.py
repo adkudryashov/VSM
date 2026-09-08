@@ -222,6 +222,10 @@ class WatchState:
 
     engine: Flap = field(default_factory=Flap)
     writers: Flap = field(default_factory=Flap)
+    # Дата-центр Telegram без единого писателя. Отдельно от writers, потому
+    # что то — среднее по серверу, а среднее прячет целиком пустую группу:
+    # 77% покрытия при двух мёртвых группах из двенадцати (замер 08.09.2026).
+    dc_dead: Flap = field(default_factory=Flap)
     ru_access: Flap = field(default_factory=Flap)
     # Чужой вердикт доступности перестал обновляться — то есть встал
     # таймер MTProxyL, и про вход мы больше ничего не знаем. Порог один
@@ -264,6 +268,7 @@ class WatchState:
         return {
             "engine": self.engine.to_dict(),
             "writers": self.writers.to_dict(),
+            "dc_dead": self.dc_dead.to_dict(),
             "ru_access": self.ru_access.to_dict(),
             "ru_stale": self.ru_stale.to_dict(),
             "hard_fails": self.hard_fails.to_dict(),
@@ -284,6 +289,7 @@ class WatchState:
         return cls(
             engine=Flap.from_dict(data.get("engine", {}), threshold),
             writers=Flap.from_dict(data.get("writers", {}), threshold),
+            dc_dead=Flap.from_dict(data.get("dc_dead", {}), threshold),
             ru_access=Flap.from_dict(data.get("ru_access", {}), threshold),
             # Порог свой, не общий из настроек — обоснование у поля выше.
             ru_stale=Flap.from_dict(data.get("ru_stale", {}), 1),
