@@ -130,3 +130,48 @@ def test_ответ_без_обёртки_data_тоже_читается():
     assert в.total == 2
     assert в.dead == [1]
     assert в.partial
+
+
+def test_просевшие_группы_названы_с_покрытием():
+    # Подробность внутри уже поднятой тревоги: у пустой группы покрытие всегда
+    # ноль, а вот соседнее состояние — какие ещё держатся и насколько — это то,
+    # с чего человек начинает разбираться.
+    в = dcs.read_verdict(АВАРИЯ)
+    assert в.weak == [(4, 20), (-4, 67)]
+    assert в.weak_label() == "4 — 20%, -4 — 67%"
+
+
+def test_пустые_группы_в_просевшие_не_попадают():
+    в = dcs.read_verdict(АВАРИЯ)
+    номера = [dc for dc, _ in в.weak]
+    assert 5 not in номера and -5 not in номера
+
+
+def test_полное_покрытие_просевшим_не_считается():
+    в = dcs.read_verdict(_группы((1, 3), (2, 3)))
+    # _группы не задаёт coverage_pct вовсе — выдумывать ноль нельзя.
+    assert в.weak == []
+
+
+def test_отсутствие_покрытия_не_превращается_в_ноль():
+    # Писатели у группы есть. Написать про неё «0%» значило бы объявить
+    # аварию там, где её нет, — и на глазах у человека, который читает
+    # тревогу и решает, куда бежать.
+    ответ = {"data": {"dcs": [
+        {"dc": 1, "alive_writers": 0, "required_writers": 3, "coverage_pct": 0.0},
+        {"dc": 2, "alive_writers": 3, "required_writers": 3},
+        {"dc": 3, "alive_writers": 3, "required_writers": 3, "coverage_pct": "нет"},
+    ]}}
+    в = dcs.read_verdict(ответ)
+    assert в.dead == [1]
+    assert в.weak == []
+
+
+def test_просевшие_идут_от_худшего():
+    # Порядок не косметика: первым в строке стоит то, с чего начинать.
+    в = dcs.read_verdict({"data": {"dcs": [
+        {"dc": 1, "alive_writers": 3, "required_writers": 3, "coverage_pct": 80.0},
+        {"dc": 2, "alive_writers": 1, "required_writers": 3, "coverage_pct": 33.0},
+        {"dc": 3, "alive_writers": 0, "required_writers": 3, "coverage_pct": 0.0},
+    ]}})
+    assert в.weak == [(2, 33), (1, 80)]

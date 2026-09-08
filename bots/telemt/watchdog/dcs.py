@@ -38,6 +38,11 @@ class DcVerdict:
 
     total: int = 0
     dead: list = field(default_factory=list)
+    # Группы, где писатели есть, но их меньше, чем нужно. НЕ повод для тревоги:
+    # это подробность внутри уже поднятой, порогом она не служит. У пустой
+    # группы покрытие всегда ноль, писать «DC 5 — 0%» незачем; ценно как раз
+    # соседнее состояние — какие группы просели, но ещё держатся.
+    weak: list = field(default_factory=list)
 
     @property
     def partial(self) -> bool:
@@ -47,6 +52,10 @@ class DcVerdict:
     def label(self) -> str:
         """Список пустых групп для сообщения: 5, -5."""
         return ", ".join(str(d) for d in self.dead)
+
+    def weak_label(self) -> str:
+        """Просевшие группы с покрытием: 4 — 20%, -4 — 67%."""
+        return ", ".join(f"{dc} — {pct}%" for dc, pct in self.weak)
 
 
 def _as_int(value):
@@ -78,6 +87,7 @@ def read_verdict(payload) -> DcVerdict:
 
     total = 0
     dead = []
+    weak = []
     for group in groups:
         if not isinstance(group, dict):
             continue
@@ -91,6 +101,16 @@ def read_verdict(payload) -> DcVerdict:
         total += 1
         if alive == 0:
             dead.append(dc)
+            continue
+        # Покрытия в ответе нет — молчим про эту группу, а не пишем «0%»:
+        # писатели-то у неё есть, и выдуманный ноль читался бы как авария.
+        raw = group.get("coverage_pct")
+        if not isinstance(raw, (int, float)) or isinstance(raw, bool):
+            continue
+        pct = int(round(raw))
+        if pct < 100:
+            weak.append((dc, pct))
 
     dead.sort(key=lambda d: (abs(d), d))
-    return DcVerdict(total=total, dead=dead)
+    weak.sort(key=lambda pair: (pair[1], abs(pair[0])))
+    return DcVerdict(total=total, dead=dead, weak=weak)
