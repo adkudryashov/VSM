@@ -408,22 +408,27 @@ async def _notify_admins(bot: Bot, text: str):
 
 
 async def check_single_panel_status(base_url, headers):
+    """Возвращает (жива, cpu, код ответа). Код None — ответа не было вовсе."""
     timeout = aiohttp.ClientTimeout(total=4.0)
     try:
         async with shared_session(timeout) as session:
             async with session.get(f"{base_url}/panel/api/server/status", headers=headers) as resp:
                 if resp.status == 200:
                     json_data = await resp.json()
-                    return True, json_data.get("obj", {}).get("cpu", 0)
+                    return True, json_data.get("obj", {}).get("cpu", 0), 200
+                return False, 0, resp.status
     except Exception:
         pass
-    return False, 0
+    return False, 0, None
 
 
 async def monitor_servers_loop(bot: Bot):
     await asyncio.sleep(10)
     last_connection_status = {}
     failure_counters = {}
+    # Панели, чей токен API отвергнут. Сказать об этом надо один раз, а не
+    # каждые пять минут, и сказать снова, если токен починили и он опять сломался.
+    token_rejected = set()
     last_date_check = None
 
     while True:
@@ -455,7 +460,27 @@ async def monitor_servers_loop(bot: Bot):
 
                 base_url = clean_base_url(config["base_url"])
                 headers = {"Authorization": f"Bearer {config['token']}"}
-                is_online, _cpu = await check_single_panel_status(base_url, headers)
+                is_online, _cpu, status = await check_single_panel_status(base_url, headers)
+
+                # 401 — панель ЖИВА и ответила, но не приняла токен. С 3x-ui 3.8.0
+                # так отвечают на неверный, отключённый и просроченный токен
+                # (до 3.8.0 было 404, неотличимое от неверного адреса). Сроки
+                # действия у токенов появились в 3.7.0, так что токен однажды
+                # просто кончится — и без этой ветки бот объявил бы «ПАДЕНИЕ»
+                # исправного сервера, а чинить побежали бы не то.
+                if status == 401:
+                    failure_counters[name] = 0
+                    if name not in token_rejected:
+                        token_rejected.add(name)
+                        await _notify_admins(
+                            bot,
+                            f"🔑 <b>{html.escape(name)}: панель не принимает токен API</b>\n"
+                            "Сервер отвечает, но токен просрочен, отключён или отозван. "
+                            "Выпустите новый в панели 3x-ui (Настройки → Учетная запись) и замените "
+                            "его у этой панели в боте. До тех пор данных о ней не будет.",
+                        )
+                    continue
+                token_rejected.discard(name)
 
                 if not is_online:
                     failure_counters[name] += 1
