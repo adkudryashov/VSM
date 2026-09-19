@@ -408,18 +408,34 @@ async def _notify_admins(bot: Bot, text: str):
 
 
 async def check_single_panel_status(base_url, headers):
-    """Возвращает (жива, cpu, код ответа). Код None — ответа не было вовсе."""
+    """
+    Возвращает (жива, cpu, состояние): "ok", "rejected" — панель жива, но
+    токен не принят, или "down".
+
+    ПО КОДУ ОТВЕТА API ЭТОГО НЕ ОТЛИЧИТЬ. Сама 3x-ui с 3.8.0 отвечает на плохой
+    токен 401, но перед панелью 3x-ui-pro стоит nginx с proxy_intercept_errors
+    и `error_page 400 401 ... 502 ... =404`: он переписывает в 404 и отказ в
+    токене, и 502 от лежащей панели. Замерено на стенде 19.09.2026 после
+    обновления до 3.8.5: неверный токен через домен — 404, в обход nginx — 401.
+
+    Поэтому при любом отказе спрашиваем страницу входа, без токена: у живой
+    панели 200, у лежащей — те же 404 (замерено остановкой x-ui).
+    """
     timeout = aiohttp.ClientTimeout(total=4.0)
     try:
         async with shared_session(timeout) as session:
             async with session.get(f"{base_url}/panel/api/server/status", headers=headers) as resp:
                 if resp.status == 200:
                     json_data = await resp.json()
-                    return True, json_data.get("obj", {}).get("cpu", 0), 200
-                return False, 0, resp.status
+                    return True, json_data.get("obj", {}).get("cpu", 0), "ok"
+                if resp.status == 401:
+                    return False, 0, "rejected"
+            async with session.get(f"{base_url}/") as login:
+                if login.status == 200:
+                    return False, 0, "rejected"
     except Exception:
         pass
-    return False, 0, None
+    return False, 0, "down"
 
 
 async def monitor_servers_loop(bot: Bot):
@@ -460,15 +476,13 @@ async def monitor_servers_loop(bot: Bot):
 
                 base_url = clean_base_url(config["base_url"])
                 headers = {"Authorization": f"Bearer {config['token']}"}
-                is_online, _cpu, status = await check_single_panel_status(base_url, headers)
+                is_online, _cpu, state = await check_single_panel_status(base_url, headers)
 
-                # 401 — панель ЖИВА и ответила, но не приняла токен. С 3x-ui 3.8.0
-                # так отвечают на неверный, отключённый и просроченный токен
-                # (до 3.8.0 было 404, неотличимое от неверного адреса). Сроки
-                # действия у токенов появились в 3.7.0, так что токен однажды
-                # просто кончится — и без этой ветки бот объявил бы «ПАДЕНИЕ»
-                # исправного сервера, а чинить побежали бы не то.
-                if status == 401:
+                # Панель ЖИВА, но токен не принят: неверный, отключённый или
+                # просроченный. Сроки у токенов появились в 3x-ui 3.7.0, так что
+                # токен однажды просто кончится — и без этой ветки бот объявил
+                # бы «ПАДЕНИЕ» исправного сервера, а чинить побежали бы не то.
+                if state == "rejected":
                     failure_counters[name] = 0
                     if name not in token_rejected:
                         token_rejected.add(name)
