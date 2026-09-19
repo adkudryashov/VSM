@@ -170,6 +170,7 @@ screen menus/telemt.sh '8\n1\n1\n\nX\nX\n' 'telemt: служба telemt, ста�
 screen menus/telemt.sh '9\nX\nX\n'         'telemt: MTProxyL (9)' 'SYN-ЛИМИТЕР И ТЮНИНГ'
 screen menus/telemt.sh '10\n\n\nX\n'       'telemt: экран пересборки nginx (10, без подтверждения)' 'ПЕРЕСБОРКА NGINX'
 screen menus/telemt.sh '11\nX\nX\n'         'telemt: WEB Proxy (11)' 'WEB PROXY'
+screen menus/telemt.sh '12\nX\nX\n'         'telemt: обновление (12, только проверка версии)' 'ОБНОВЛЕНИЕ TELEMT'
 screen menus/bots.sh   '6\n\nX\n'          'боты: настройки (6)'
 screen menus/bots.sh   '7\nX\nX\n'         'боты: управление службами (7)'
 screen menus/setup.sh  '1\nX\nX\n'         'настройка: BBR (1)'

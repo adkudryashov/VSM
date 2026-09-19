@@ -1423,6 +1423,39 @@ function run_mtproxyl {
     read -p "Нажмите Enter для возврата..."
 }
 
+# Обновление telemt. Вся работа — в stacks/telemt-update.sh: его можно звать
+# и без меню, а меню только показывает, что стоит и что вышло, и спрашивает.
+# Пункт стоит ПЕРЕД удалением стека, а не после: разрушающее сдвигаем только
+# прочь от привычной клавиши, никогда к ней.
+function run_telemt_update {
+    local script="$VSM_ROOT/stacks/telemt-update.sh" choice ver
+    while true; do
+        clear 2>/dev/null
+        ui_title "⬆  ОБНОВЛЕНИЕ TELEMT"
+        [ -x "$script" ] || { echo -e "${RED}❌ Не найден $script${NC}"; read -p "Enter..."; return; }
+        bash "$script" --check || true
+        echo ""
+        echo -e "${C_DESC}Новая версия сначала запускается рядом с работающей, на копии"
+        echo -e "вашего конфига. Не примет конфиг — ничего не меняется. Не поднимется"
+        echo -e "после замены — прежняя вернётся сама.${NC}"
+        echo ""
+        ui_item "1" "⬆" "Обновить до последней"  "С пробным запуском и подтверждением"
+        ui_item "2" "🔢" "Поставить версию"       "Любую, в том числе прежнюю"
+        ui_item "3" "↩" "Откатить обновление"    "Вернуть версию до последней замены"
+        ui_item "X" "🔙" "Назад"
+        echo ""
+        read -p "Ваш выбор [1-3, X]: " choice
+        case $choice in
+            1) bash "$script" || true; read -p "Enter..." ;;
+            2) read -p "Версия (например 3.5.7): " ver
+               [ -n "$ver" ] && { bash "$script" --version "$ver" || true; read -p "Enter..."; } ;;
+            3) bash "$script" --rollback || true; read -p "Enter..." ;;
+            [Xx]) return ;;
+            *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
 function run_rebuild_nginx {
     clear 2>/dev/null
     echo -e "${CYAN}======================================================${NC}"
@@ -1771,12 +1804,13 @@ function run_telemt_menu {
         ui_item "9" "🔒" "MTProxyL"            "Лимитер, обход, тонкая настройка"
         ui_item "10" "🧱" "Пересборка nginx"   "OpenSSL 3.5 и постквантовый TLS"
         ui_item "11" "🌐" "WEB Proxy"          "MTProto внутри HTTPS: включить и вернуть"
+        ui_item "12" "⬆" "Обновить telemt"    "Проба на нашем конфиге, откат при отказе"
         echo ""
-        ui_danger_item "12" "Удалить стек telemt" "telemt, панель, маска, конфиги"
+        ui_danger_item "13" "Удалить стек telemt" "telemt, панель, маска, конфиги"
         ui_item "X" "🔙" "Назад"
         echo ""
 
-        read -p "Ваш выбор [1-12, X]: " choice
+        read -p "Ваш выбор [1-13, X]: " choice
         case $choice in
             1) run_install full ;;
             2) run_install addon ;;
@@ -1789,7 +1823,8 @@ function run_telemt_menu {
             9) run_mtproxyl ;;
             10) run_rebuild_nginx ;;
             11) run_web_proxy ;;
-            12) uninstall_stack ;;
+            12) run_telemt_update ;;
+            13) uninstall_stack ;;
             [Xx]) return ;;
             *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
         esac
