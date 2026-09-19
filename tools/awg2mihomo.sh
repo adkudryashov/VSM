@@ -95,6 +95,14 @@ _conf_from_panel() {
     ka="$(jq -r --arg e "$email" '(.clients[] | select(.email == $e) | .keepAlive) // 0' <<< "$settings")"
     [[ "$ka" =~ ^[0-9]+$ ]] && [ "$ka" -gt 0 ] || ka=25
 
+    # MTU пишем всегда, даже когда в панели он не задан. Мусор S4 дописывается
+    # к КАЖДОМУ пакету и в MTU не учитывается, так что туннель 1420 при S4
+    # больше 20 начинает дробиться. Панель это исправила в 3.8.0 (3cd3836d):
+    # незаданный MTU у неё теперь 1420 минус S4, но не ниже 1280, и так же она
+    # пишет его в клиентский .conf. Повторяем ту же формулу — иначе mihomo
+    # взял бы своё умолчание, а сервер 3.8 ждал бы меньшего. Серверу 3.7 с его
+    # 1420 меньший MTU клиента не мешает.
+
     jq -r --arg e "$email" --arg port "$port" --arg host "$host" --arg ka "$ka" '
         .server as $s
         | (.clients[] | select(.email == $e)) as $c
@@ -103,7 +111,8 @@ _conf_from_panel() {
             "Address = " + (($c.allowedIPs // []) | join(", ")) ]
           + ( [ $s.primaryDns, $s.secondaryDns ] | map(select(. != null and . != ""))
               | if length > 0 then [ "DNS = " + join(", ") ] else [] end )
-          + ( if ($s.mtu // 0) > 0 then [ "MTU = " + ($s.mtu | tostring) ] else [] end )
+          + [ "MTU = " + (if ($s.mtu // 0) > 0 then $s.mtu
+                          else ([1420 - ($s.s4 // 0), 1280] | max) end | tostring) ]
           + [ "Jc = "   + ($s.jc   | tostring),
               "Jmin = " + ($s.jmin | tostring),
               "Jmax = " + ($s.jmax | tostring),
