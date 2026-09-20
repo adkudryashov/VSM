@@ -225,6 +225,8 @@ nginx намеренно `tell`: автопочинка потребовала �
 3 show_ufw_menu     ufw_enable_safely — разрешает SSH ДО включения
 4 set_timezone_menu
 5 manage_ssl_menu   certbot --standalone; trap INT TERM HUP → restore_stopped_services
+                    после выпуска и пунктом 5 → cert_renew_apply (lib/cert_renew.sh):
+                    продление переводится на webroot, иначе оно падает на занятом 80
 6 menus/warp.sh
 ```
 
