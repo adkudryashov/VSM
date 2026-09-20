@@ -67,6 +67,29 @@ def test_путь_проверки_появляется(tmp_path):
     assert "location ^~ /.well-known/acme-challenge/" in готово.stdout
 
 
+def test_врезка_идёт_после_имени_домена(tmp_path):
+    """
+    Место врезки. Запасная ветка когда-то срабатывала сразу на открытии блока,
+    и путь проверки оказывался ПЕРЕД listen. nginx такой конфиг принимает —
+    поэтому ошибку видно только глазами, и закрепляем её проверкой.
+    """
+    готово = врезать(ВХОД_С_ПЕРЕНАПРАВЛЕНИЕМ, tmp_path)
+    строки = [с.strip() for с in готово.stdout.splitlines()]
+    i_name = next(i for i, с in enumerate(строки) if с.startswith("server_name"))
+    i_acme = next(i for i, с in enumerate(строки) if с.startswith("location ^~"))
+    assert i_name < i_acme
+
+
+def test_без_имени_домена_врезка_всё_равно_внутри_блока(tmp_path):
+    """Запасной якорь: есть конфиги без server_name — там подходит default."""
+    готово = врезать("server {\n    listen 80;\n    root /var/www/html;\n}\n", tmp_path)
+    assert готово.returncode == 0, готово.stderr
+    строки = [с.strip() for с in готово.stdout.splitlines() if с.strip()]
+    i_acme = next(i for i, с in enumerate(строки) if с.startswith("location ^~"))
+    assert строки[-1] == "}"
+    assert i_acme < len(строки) - 1, "врезка обязана быть ВНУТРИ server{}"
+
+
 def test_перенаправление_переезжает_внутрь_location(tmp_path):
     """
     Главная тонкость. return на уровне server выполняется РАНЬШЕ выбора

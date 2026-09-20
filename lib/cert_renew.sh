@@ -150,14 +150,19 @@ cert_acme_insert() {
                 continue
             }
 
+            # Запасной якорь: блок кончается, а врезать было некуда (нет ни
+            # server_name, ни перенаправления). Ставим перед закрывающей
+            # скобкой — это последнее место, где мы ещё внутри нужного server.
+            if (!inserted && i == te) { emit_acme(); inserted = 1 }
+
             print line[i]
             d += opened - closed
 
+            # Основной якорь: сразу после имени домена. Порядок внутри server
+            # для nginx безразличен, но конфиг читают люди.
             if (!inserted && d == 1 && line[i] ~ /^[[:space:]]*server_name[[:space:]]/) {
                 emit_acme(); inserted = 1
             }
-            # Нет server_name вовсе — врезаем сразу после открытия блока.
-            if (!inserted && i == ts && d == 1) { emit_acme(); inserted = 1 }
         }
     }'
 }
