@@ -88,9 +88,12 @@ async def show_servers(message: types.Message, bot: Bot):
     except Exception:
         pass
 
+    from xui.app import send_rich_or_fallback
+
     ответ = await хаб.systems()
     вердикт = beszel_hub.read_verdict(ответ, _time.time())
-    await message.answer(beszel_hub.render(вердикт))
+    богатый, запасной = beszel_hub.parts(вердикт)
+    await send_rich_or_fallback(bot, message.chat.id, богатый, запасной)
 
 
 @router.message(StateFilter(None), Command("summary"))
