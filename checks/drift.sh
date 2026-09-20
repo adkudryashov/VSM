@@ -214,10 +214,19 @@ if [ "$MODE" = "json" ]; then
         fi
         [ "$first" -eq 1 ] || printf ','
         first=0
-        printf '{"id":"%s","class":"%s","status":"%s","title":"%s","why":"%s","actual":"%s","want":"%s"}' \
+        # accept — можно ли принять нынешнее состояние как новую норму.
+        #
+        # Знает об этом только сверка: у позиций без запомненного снимка
+        # принимать нечего, их чинят пунктом меню. Раньше этот список жил
+        # подсказкой в терминале, и меню, чтобы предложить принятие, должно
+        # было бы повторить его у себя. Повторённый список однажды разойдётся
+        # с настоящим, и меню предложит принять то, что не принимается.
+        _acc=false
+        [ "$status" = "расхождение" ] && _is_baseline "$id" && _acc=true
+        printf '{"id":"%s","class":"%s","status":"%s","title":"%s","why":"%s","actual":"%s","want":"%s","accept":%s}' \
             "$(_json_str "$id")" "$(_json_str "$class")" "$(_json_str "$status")" \
             "$(_json_str "$title")" "$(_json_str "$why")" \
-            "$(_json_str "$actual")" "$(_json_str "$want")"
+            "$(_json_str "$actual")" "$(_json_str "$want")" "$_acc"
     done
     printf ']}\n'
     exit 0
