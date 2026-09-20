@@ -319,6 +319,97 @@ function show_settings {
 }
 
 # ----------------------------------------------------------------------
+# ХАБ BESZEL
+#
+# beszel следит за железом всех серверов владельца, бот — за прокси на одном.
+# Подключение сводит их: бот начинает видеть остальные машины и замечает, если
+# замолчал сам хаб. Молчание хаба иначе неотличимо от «всё хорошо» — ровно эту
+# дыру проект уже закрывал у самого бота.
+#
+# ПАРОЛЬ НИКОГДА НЕ ПЕЧАТАЕТСЯ И НЕ УХОДИТ В СПИСОК ПРОЦЕССОВ: ввод без эха,
+# тело запроса подаётся curl через стандартный ввод, а не аргументом.
+# ----------------------------------------------------------------------
+
+# Пишем удалением строки и дописыванием, а не заменой через sed: в пароле
+# может оказаться & или обратный слэш, и замена молча превратила бы его во
+# что-то другое. Такой пароль потом не принимается, а причину не найти.
+function _beszel_set {
+    local key="$1" value="$2" file
+    for file in "$CONF" "$ENV_FILE"; do
+        [ -f "$file" ] || continue
+        sed -i "/^${key}=/d" "$file"
+        printf '%s="%s"\n' "$key" "$value" >> "$file"
+    done
+}
+
+function _beszel_state {
+    local url
+    url=$(_wd_get BESZEL_URL)
+    if [ -n "$url" ]; then echo "подключён: $url"; else echo "не подключён"; fi
+}
+
+function manage_beszel {
+    local url email pass body answer rc
+
+    echo ""
+    echo -e "${CYAN}--- ХАБ BESZEL -------------------------------------------${NC}"
+    echo -e "Хаб beszel знает железо всех ваших серверов: загрузку, память,"
+    echo -e "диск, упавшие службы. Бот сам по себе видит только этот сервер."
+    echo -e "Подключив хаб, вы получите экран «Серверы» и тревогу, если хаб"
+    echo -e "замолчит или какой-то сервер перестанет отчитываться."
+    echo ""
+    echo -e "${YELLOW}Нужна отдельная учётная запись В САМОМ beszel${NC} — заведите"
+    echo -e "её в интерфейсе хаба и введите здесь. Пароль не печатается."
+    echo ""
+
+    read -p "Адрес хаба [http://127.0.0.1:8090]: " url
+    url="${url:-http://127.0.0.1:8090}"
+    url="${url%/}"
+    read -p "Почта учётной записи: " email
+    if [ -z "$email" ]; then
+        echo -e "${RED}Пусто — отменено.${NC}"; read -p "Enter..."; return
+    fi
+    printf "Пароль: "
+    IFS= read -rs pass
+    echo ""
+    if [ -z "$pass" ]; then
+        echo -e "${RED}Пусто — отменено.${NC}"; read -p "Enter..."; return
+    fi
+    case "$pass" in
+        *'"'*)
+            echo -e "${RED}В пароле есть кавычка — такой не сохранить в .env.${NC}"
+            echo -e "Смените пароль в beszel на вариант без кавычек и повторите."
+            read -p "Enter..."; return ;;
+    esac
+
+    # Проверяем фактом, а не сохраняем вслепую: неверный пароль иначе всплыл бы
+    # тревогой «хаб не принимает учётную запись» через минуту после выхода.
+    body=$(jq -n --arg i "$email" --arg p "$pass" '{identity:$i,password:$p}')
+    answer=$(printf '%s' "$body" | curl -s --max-time 10 \
+        -X POST -H 'Content-Type: application/json' -d @- \
+        "$url/api/collections/users/auth-with-password")
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        echo -e "${RED}❌ Хаб не ответил по адресу $url${NC}"
+        read -p "Enter..."; return
+    fi
+    if ! printf '%s' "$answer" | jq -e '.token != null and .token != ""' >/dev/null 2>&1; then
+        echo -e "${RED}❌ Хаб ответил, но учётную запись не принял.${NC}"
+        echo -e "Проверьте почту и пароль в интерфейсе beszel."
+        read -p "Enter..."; return
+    fi
+    unset answer body
+
+    _beszel_set BESZEL_URL "$url"
+    _beszel_set BESZEL_EMAIL "$email"
+    _beszel_set BESZEL_PASSWORD "$pass"
+    unset pass
+    echo -e "${GREEN}✅ Хаб принял учётную запись, настройки сохранены.${NC}"
+    _wd_restart
+    read -p "Enter..."
+}
+
+# ----------------------------------------------------------------------
 # СТОРОЖ TELEMT
 #
 # Значение пишется в ДВА файла. bots.conf — источник правды: оттуда его берёт
@@ -399,11 +490,12 @@ function manage_watchdog {
         ui_item "2" "🇷🇺" "Доступность из РФ" "Зонды Globalping — см. предупреждение"
         ui_item "3" "⏱" "Интервал и зонды" "Как часто и сколькими зондами проверять"
         ui_item "4" "🔑" "Токен Globalping" "Поднимает часовой бюджет проверок"
+        ui_item "5" "🖥" "Хаб beszel" "$(_beszel_state)"
         echo ""
         ui_item "X" "🔙" "Назад"
         echo ""
 
-        read -p "Ваш выбор [1-4, X]: " ch
+        read -p "Ваш выбор [1-5, X]: " ch
         case "$ch" in
             1)
                 if [ "$wd" = "true" ]; then
@@ -482,6 +574,7 @@ function manage_watchdog {
                 echo -e "${GREEN}Сохранено.${NC}"
                 _wd_restart; read -p "Enter..."
                 ;;
+            5) manage_beszel ;;
             [Xx]) return ;;
             *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
         esac
