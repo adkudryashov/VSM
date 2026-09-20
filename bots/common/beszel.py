@@ -63,18 +63,18 @@ class Beszel:
         return bool(self.url and self.email and self.password)
 
     async def _login(self) -> str:
-        session = await http.shared_session()
-        async with session.post(
-            f"{self.url}/api/collections/users/auth-with-password",
-            json={"identity": self.email, "password": self.password},
-            timeout=TIMEOUT,
-        ) as resp:
-            if resp.status != 200:
-                # 400 здесь означает именно «не тот пароль»: путь существует,
-                # хаб отвечает. Проверено на стенде — несуществующая коллекция
-                # даёт 404, неверный пароль 400.
-                raise PermissionError(f"хаб не принял учётную запись (код {resp.status})")
-            data = await resp.json()
+        async with http.shared_session(TIMEOUT) as session:
+            async with session.post(
+                f"{self.url}/api/collections/users/auth-with-password",
+                json={"identity": self.email, "password": self.password},
+            ) as resp:
+                if resp.status != 200:
+                    # 400 здесь означает именно «не тот пароль»: путь
+                    # существует, хаб отвечает. Проверено на стенде —
+                    # несуществующая коллекция даёт 404, неверный пароль 400.
+                    raise PermissionError(
+                        f"хаб не принял учётную запись (код {resp.status})")
+                data = await resp.json()
         token = (data or {}).get("token") or ""
         if not token:
             raise PermissionError("хаб ответил на вход без токена")
@@ -82,17 +82,16 @@ class Beszel:
         return token
 
     async def _get_systems(self) -> list:
-        session = await http.shared_session()
-        async with session.get(
-            f"{self.url}/api/collections/systems/records",
-            params={"perPage": "200", "sort": "name"},
-            headers={"Authorization": self._token},
-            timeout=TIMEOUT,
-        ) as resp:
-            if resp.status in (401, 403):
-                raise PermissionError(f"хаб отверг токен (код {resp.status})")
-            resp.raise_for_status()
-            return ((await resp.json()) or {}).get("items") or []
+        async with http.shared_session(TIMEOUT) as session:
+            async with session.get(
+                f"{self.url}/api/collections/systems/records",
+                params={"perPage": "200", "sort": "name"},
+                headers={"Authorization": self._token},
+            ) as resp:
+                if resp.status in (401, 403):
+                    raise PermissionError(f"хаб отверг токен (код {resp.status})")
+                resp.raise_for_status()
+                return ((await resp.json()) or {}).get("items") or []
 
     async def systems(self) -> HubAnswer:
         """
