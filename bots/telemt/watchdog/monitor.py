@@ -549,31 +549,10 @@ class Watchdog:
         if not changed and not stale:
             return
 
-        lines = ["⚠️ <b>РАСХОЖДЕНИЕ С РЕЕСТРОМ VSM</b>", ""]
-        for item in pending:
-            lines.append(f"• {html.escape(item.get('title', ''))}")
-            lines.append(f"  стало: <code>{html.escape(str(item.get('actual') or 'пусто'))}</code>")
-            lines.append(f"  должно: <code>{html.escape(str(item.get('want') or ''))}</code>")
-            lines.append(f"  <i>{html.escape(item.get('why', ''))}</i>")
-        lines.append("")
-        # Говорим, ЧТО СДЕЛАТЬ, а не куда посмотреть.
-        #
-        # Прежняя редакция звала в диагностику «за подробностями», а
-        # диагностика печатала ровно тот же текст: круг замыкался, и выхода из
-        # него в меню не было вовсе — только команда в терминале, о которой
-        # владелец знать не обязан. Сказано им 20.09.2026: «мне кажется, это
-        # бессмысленно». Так и было.
-        if any(item.get("accept") for item in pending):
-            lines.append("Если изменение законное — вы сами что-то поставили "
-                         "или удалили, — примите его как норму:")
-            lines.append("<b>меню telemt → «Диагностика» → внизу выбрать "
-                         "позицию по номеру</b>.")
-            lines.append("Наблюдение останется: сверка просто запомнит новое "
-                         "состояние как исходное.")
-        else:
-            lines.append("Это чинится вашим решением, а не само. Подробности: "
-                         "меню telemt → «Диагностика».")
-        await self._notify(bot, "\n".join(lines))
+        # Текст собирает drift.notification: главное в нём — не перечень, а
+        # то, что человеку с ним делать, и это стоит проверять отдельно от
+        # цикла опроса.
+        await self._notify(bot, drift.notification(pending))
 
         self.state.drift_seen = current
         self.state.drift_notify = now
