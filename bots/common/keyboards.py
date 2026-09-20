@@ -14,6 +14,9 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder
 BTN_TELEMT_SECTION = "✈️ Telemt"
 BTN_XUI_SECTION = "🎛 3x-ui"
 BTN_SUMMARY = "ℹ️ Сводка"
+# Железо всех серверов из хаба beszel. Появляется, только когда хаб подключён:
+# кнопка, которая всегда отвечает «не настроено», — это не подсказка, а мусор.
+BTN_SERVERS = "🖥 Серверы"
 BTN_BACK = "⬅️ Назад"
 BTN_CANCEL = "❌ Отмена"
 
@@ -56,7 +59,7 @@ PANEL_PREFIX = "📱 "
 # нажатое посреди добавления панели, стало бы её именем.
 MENU_BUTTONS = set(
     TELEMT_BUTTONS + XUI_BUTTONS + XUI_MANAGE_BUTTONS
-    + [BTN_TELEMT_SECTION, BTN_XUI_SECTION, BTN_SUMMARY, BTN_BACK]
+    + [BTN_TELEMT_SECTION, BTN_XUI_SECTION, BTN_SUMMARY, BTN_SERVERS, BTN_BACK]
 )
 
 
@@ -72,7 +75,14 @@ def root_keyboard() -> ReplyKeyboardMarkup:
     b.add(KeyboardButton(text=BTN_TELEMT_SECTION))
     b.add(KeyboardButton(text=BTN_XUI_SECTION))
     b.add(KeyboardButton(text=BTN_SUMMARY))
-    b.adjust(2, 1)
+    # Четвёртая кнопка только при подключённом хабе — иначе ряд из одной
+    # «Сводки» превратился бы в ряд из «Сводки» и заведомо пустого экрана.
+    from common.beszel import shared as _beszel
+    if _beszel().configured:
+        b.add(KeyboardButton(text=BTN_SERVERS))
+        b.adjust(2, 2)
+    else:
+        b.adjust(2, 1)
     return b.as_markup(resize_keyboard=True, one_time_keyboard=False)
 
 

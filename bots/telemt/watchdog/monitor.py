@@ -34,7 +34,8 @@ from aiogram import Bot
 
 from config import settings, DATA_DIR
 from telemt.api.client import TelemtAPIClient
-from telemt.watchdog import dcs, drift, globalping, mtproxyl, upgrades, upstreams
+from common.beszel import shared as beszel_client
+from telemt.watchdog import beszel_hub, dcs, drift, globalping, mtproxyl, upgrades, upstreams
 from telemt.watchdog.incidents import CLEAR, FIRE, REPEAT, REPEAT_SECONDS, WatchState
 
 STATE_PATH = Path(DATA_DIR) / "watchdog.json"
@@ -68,6 +69,12 @@ class Watchdog:
     def __init__(self):
         self.state = _load_state()
         self.api = TelemtAPIClient()
+        # Хаб beszel. Клиент создаётся всегда, даже когда хаб не подключён:
+        # без настроек он сам отвечает «не подключён», и проверять наличие
+        # настроек в двух местах не нужно.
+        self.beszel = beszel_client()
+        # Последний разбор ответа хаба — его показывает экран «Серверы».
+        self.beszel_last = None
         # Последний вердикт по доступности из РФ — его показывает /watch.
         self.ru_last: dict | None = None
         self.ru_error: str = ""
@@ -293,7 +300,62 @@ class Watchdog:
                 clear="✅ <b>ДАТА-ЦЕНТРЫ TELEGRAM СНОВА С ПИСАТЕЛЯМИ</b>",
             )
 
+        await self._poll_beszel(bot)
         await self._poll_hard_fails(bot, started)
+
+    async def _poll_beszel(self, bot: Bot) -> None:
+        """
+        Хаб beszel: жив ли он сам и не замолчал ли какой-то сервер.
+
+        ЗАЧЕМ. За хабом не следит ничто. Ляжет он — сообщения о железе всех
+        серверов просто перестанут приходить, а молчание сторожа неотличимо от
+        «всё хорошо». Эту дыру проект уже однажды закрывал у самого бота,
+        когда его убивало по памяти, а тревоги при этом терялись молча.
+
+        ДВЕ ТРЕВОГИ, А НЕ ОДНА. Молчащий хаб и молчащий сервер требуют разных
+        действий, поэтому и события разные. Отказ в учётной записи сюда не
+        попадает вовсе: хаб при этом жив, и объявлять аварию сервера нельзя —
+        тот же урок, что с токеном панели 3x-ui.
+        """
+        if not self.beszel.configured:
+            return
+
+        answer = await self.beszel.systems()
+        verdict = beszel_hub.read_verdict(
+            answer, time.time(), int(settings.BESZEL_STALE_MINUTES) * 60)
+        self.beszel_last = verdict
+
+        плохо = verdict.state == "down"
+        отказ = verdict.state == "rejected"
+        await self._fire_or_clear(
+            bot, self.state.beszel_hub.update(is_bad=плохо or отказ),
+            self.state.beszel_hub,
+            fire=("🔑 <b>BESZEL НЕ ПРИНИМАЕТ УЧЁТНУЮ ЗАПИСЬ</b>\n"
+                  f"{html.escape(verdict.error or '')}\n"
+                  "Хаб при этом работает — это не авария сервера.\n"
+                  "Данные о железе в бот приходить перестанут."
+                  if отказ else
+                  "🚨 <b>ХАБ BESZEL НЕ ОТВЕЧАЕТ</b>\n"
+                  f"{html.escape(verdict.error or '')}\n"
+                  "Пока он молчит, о железе всех серверов не скажет никто: "
+                  "ни о кончающемся диске, ни об упавшей службе."),
+            clear="✅ <b>ХАБ BESZEL СНОВА ОТВЕЧАЕТ</b>",
+        )
+
+        # Молчание отдельного сервера считаем только при живом хабе: иначе
+        # молчат все разом, и это уже сказано выше.
+        if not verdict.hub_ok:
+            return
+        беда = verdict.trouble
+        await self._fire_or_clear(
+            bot, self.state.beszel_silent.update(is_bad=bool(беда)),
+            self.state.beszel_silent,
+            fire="🚨 <b>СЕРВЕР ПЕРЕСТАЛ ОТЧИТЫВАТЬСЯ</b>\n"
+                 f"Молчат: {html.escape(', '.join(беда))}.\n"
+                 f"Порог — {int(settings.BESZEL_STALE_MINUTES)} мин без доклада.\n"
+                 "Либо сервер лёг, либо до него не доходит связь.",
+            clear="✅ <b>СЕРВЕРЫ СНОВА ОТЧИТЫВАЮТСЯ</b>",
+        )
 
     async def _poll_hard_fails(self, bot: Bot, started: str) -> None:
         """

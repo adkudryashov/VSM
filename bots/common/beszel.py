@@ -136,3 +136,23 @@ def info(system: dict) -> dict:
         except ValueError:
             return {}
     return {}
+
+
+_общий = None
+
+
+def shared() -> Beszel:
+    """
+    Один клиент на весь бот: и сторож, и экран.
+
+    Отдельные клиенты означали бы отдельные входы и два токена вместо одного —
+    лишние запросы к хабу и лишние строки в его журнале на ровном месте.
+    Настройки ввозим внутри функции: common/ не должен зависеть от config на
+    уровне модуля, иначе ввоз становится круговым.
+    """
+    global _общий
+    if _общий is None:
+        from config import settings
+        _общий = Beszel(settings.BESZEL_URL, settings.BESZEL_EMAIL,
+                        settings.BESZEL_PASSWORD)
+    return _общий

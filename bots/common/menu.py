@@ -21,6 +21,7 @@ router = Router(name="menu")
 COMMANDS = [
     BotCommand(command="start", description="🏠 главное меню"),
     BotCommand(command="summary", description="ℹ️ сводка по всему"),
+    BotCommand(command="servers", description="🖥 железо всех серверов"),
 ]
 
 WELCOME = (
@@ -55,6 +56,41 @@ async def go_xui(message: types.Message):
     from xui.app import main_keyboard
 
     await message.answer("🎛 Раздел 3x-ui", reply_markup=await main_keyboard())
+
+
+@router.message(StateFilter(None), Command("servers"))
+@router.message(StateFilter(None), F.text == kb.BTN_SERVERS)
+async def show_servers(message: types.Message, bot: Bot):
+    """
+    Железо всех серверов владельца одним экраном — из хаба beszel.
+
+    ЗАЧЕМ. Бот следит за прокси на ОДНОМ сервере, хаб видит все. Пока они
+    порознь, вопрос «а как там остальные» требует браузера, а с телефона это
+    дороже, чем кажется.
+
+    ЧЕГО ЗДЕСЬ НЕТ НАМЕРЕННО: порогов и тревог о железе. Их хозяин — сам
+    beszel, он умеет писать в Telegram напрямую. Два хозяина у одного события
+    означают два сообщения об одном и том же и две настройки, которые разъедутся.
+    """
+    from common.beszel import shared as beszel_client
+    from telemt.watchdog import beszel_hub
+    import time as _time
+
+    хаб = beszel_client()
+    if not хаб.configured:
+        await message.answer(
+            "🖥 Хаб beszel не подключён.\n"
+            "Подключается в меню VSM: боты → «Подключить beszel».")
+        return
+
+    try:
+        await bot.send_chat_action(message.chat.id, "typing")
+    except Exception:
+        pass
+
+    ответ = await хаб.systems()
+    вердикт = beszel_hub.read_verdict(ответ, _time.time())
+    await message.answer(beszel_hub.render(вердикт))
 
 
 @router.message(StateFilter(None), Command("summary"))

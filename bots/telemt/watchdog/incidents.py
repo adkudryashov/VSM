@@ -234,6 +234,15 @@ class WatchState:
     # может, поэтому счёт опросов сверху ничего не отфильтровал бы —
     # только отложил бы тревогу ещё на три такта.
     ru_stale: Flap = field(default_factory=lambda: Flap(threshold=1))
+    # Хаб beszel не отвечает или не принимает учётную запись. Отдельная
+    # позиция, а не часть общего опроса: молчание хаба означает, что про
+    # железо ВСЕХ серверов больше никто не скажет, а само это молчание
+    # неотличимо от «всё хорошо» — ту же дыру мы однажды закрывали у бота.
+    beszel_hub: Flap = field(default_factory=Flap)
+    # Сервер перестал отчитываться хабу. Порог один опрос, а не три: условие
+    # уже сглажено временем (BESZEL_STALE_MINUTES), возраст растёт только
+    # вверх и мигать не может — счёт опросов сверху лишь отложил бы тревогу.
+    beszel_silent: Flap = field(default_factory=lambda: Flap(threshold=1))
     # Жёсткие отказы исходящих подключений — сломан выход к Telegram.
     hard_fails: Flap = field(default_factory=Flap)
     # Домен подключения не ведёт на этот сервер — переехали, забыли DNS.
@@ -271,6 +280,8 @@ class WatchState:
             "dc_dead": self.dc_dead.to_dict(),
             "ru_access": self.ru_access.to_dict(),
             "ru_stale": self.ru_stale.to_dict(),
+            "beszel_hub": self.beszel_hub.to_dict(),
+            "beszel_silent": self.beszel_silent.to_dict(),
             "hard_fails": self.hard_fails.to_dict(),
             "dns": self.dns.to_dict(),
             "ip": self.ip.to_dict(),
@@ -293,6 +304,9 @@ class WatchState:
             ru_access=Flap.from_dict(data.get("ru_access", {}), threshold),
             # Порог свой, не общий из настроек — обоснование у поля выше.
             ru_stale=Flap.from_dict(data.get("ru_stale", {}), 1),
+            beszel_hub=Flap.from_dict(data.get("beszel_hub", {}), threshold),
+            # Порог свой, не общий из настроек — обоснование у поля выше.
+            beszel_silent=Flap.from_dict(data.get("beszel_silent", {}), 1),
             hard_fails=Flap.from_dict(data.get("hard_fails", {}), threshold),
             dns=Flap.from_dict(data.get("dns", {}), threshold),
             ip=IPWatch.from_dict(data.get("ip", {})),
