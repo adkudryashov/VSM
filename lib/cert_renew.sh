@@ -216,7 +216,10 @@ cert_acme_ensure() {
 # представления о правильном.
 #
 # webroot_map намеренно не пишем: для доменов, которых в нём нет, certbot
-# берёт webroot_path. Проверено репетицией на стенде без карты.
+# берёт webroot_path. Проверено по его коду (certbot 4.0.0,
+# _internal/plugins/webroot.py, _set_webroots): при заданном path он пишет
+# «Using the webroot path ... for all unmatched domains» и подставляет его
+# каждому домену, которого нет в карте.
 # ----------------------------------------------------------------------
 cert_renewal_standalone_files() {
     local f
