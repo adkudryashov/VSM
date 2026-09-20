@@ -2,6 +2,12 @@
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/common.sh" || {
     echo "Не найдена lib/common.sh — переустановите VSM: bash install.sh"; exit 1; }
 
+# Автопродление сертификата. Не обязательна: на не до конца обновлённой
+# установке её может не быть, и закрывать из-за этого всё меню незачем —
+# пропадёт лишь пункт проверки продления.
+# shellcheck source=/dev/null
+[ -r "$VSM_LIB/cert_renew.sh" ] && . "$VSM_LIB/cert_renew.sh"
+
 # ----------------------------------------------------------------------
 # НАСТРОЙКИ СЕРВЕРА И ФУНКЦИИ ПРОВЕРКИ
 # ----------------------------------------------------------------------
@@ -530,6 +536,57 @@ function restore_stopped_services {
     STOPPED_SERVICES=""
 }
 
+# ----------------------------------------------------------------------
+# ПРОВЕРКА АВТОПРОДЛЕНИЯ
+#
+# Ждать истечения, чтобы узнать, продлевается ли сертификат, — плохой способ:
+# узнаёшь в тот день, когда всё уже легло. certbot умеет репетицию: проходит
+# весь путь продления по-настоящему, но против испытательного сервера и не
+# трогая ни файлы сертификата, ни счётчик ограничений Let'"'"'s Encrypt.
+#
+# Именно репетицией и была найдена поломка на стенде 20.09.2026.
+# ----------------------------------------------------------------------
+function ssl_renew_check {
+    if ! declare -F cert_renew_missing >/dev/null 2>&1; then
+        echo -e "${RED}Не найдена lib/cert_renew.sh — обновите VSM: bash install.sh${NC}"
+        read -p "Нажмите Enter..."
+        return
+    fi
+
+    local missing
+    missing="$(cert_renew_missing)"
+    if [ -n "$missing" ]; then
+        echo -e "${YELLOW}Продление настроено не полностью: ${missing}${NC}"
+        echo -e "Без этого сертификат не продлится сам, и в день истечения разом"
+        echo -e "отвалятся панель, маскировка и веб-панель."
+        read -p "Настроить сейчас? [y/N]: " ans
+        if [[ "$ans" =~ ^[Yy]$ ]]; then
+            if cert_renew_apply; then
+                echo -e "${GREEN}✅ Настроено.${NC}"
+            else
+                echo -e "${RED}❌ Не удалось. Подробности выше.${NC}"
+                read -p "Нажмите Enter..."
+                return
+            fi
+        else
+            read -p "Нажмите Enter..."
+            return
+        fi
+    else
+        echo -e "${GREEN}Настройка на месте: способ webroot, путь проверки и перезагрузка nginx.${NC}"
+    fi
+
+    echo -e "
+${CYAN}Репетиция продления. Живой сертификат не меняется.${NC}"
+    # --no-random-sleep-on-renew: без него certbot спит до 12 минут случайным
+    # образом — разумно для таймера, невыносимо для человека перед экраном.
+    if sudo certbot renew --dry-run --no-random-sleep-on-renew 2>&1 | tail -20; then
+        echo -e "
+${GREEN}Если выше сказано «all simulated renewals succeeded» — продление работает.${NC}"
+    fi
+    read -p "Нажмите Enter..."
+}
+
 function manage_ssl_menu {
     # Проверяем и ставим certbot, если его нет
     if ! ensure_packages certbot; then
@@ -549,6 +606,7 @@ function manage_ssl_menu {
         ui_item "2" "📋" "Список сохранённых"  "Что уже выпущено и куда сложено"
         ui_danger_item "3" "Отозвать и удалить" "Безвозвратно; сайт останется без TLS"
         ui_item "4" "🔧" "Папка сохранения"    "Куда складывать выпущенное"
+        ui_item "5" "🔁" "Проверить автопродление" "Репетиция продления, ничего не меняет"
         ui_item "X" "🔙" "Назад"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
         read -p "Выбор: " ssl_choice
@@ -636,6 +694,15 @@ function manage_ssl_menu {
                 trap - INT TERM HUP
 
                 if [ "$CERT_RC" -eq 0 ]; then
+                    # Выпуск прошёл способом standalone — он же запомнился для
+                    # продления, а при продлении порт 80 занят работающим
+                    # nginx, и попытка падает молча. Переводим на webroot сразу
+                    # здесь, иначе о поломке узнали бы через два месяца по
+                    # лежащему серверу. Разбор — в шапке lib/cert_renew.sh.
+                    if declare -F cert_renew_apply >/dev/null 2>&1; then
+                        cert_renew_apply                             && echo -e "${GREEN}Автопродление переведено на webroot.${NC}"                             || echo -e "${YELLOW}Автопродление настроить не удалось — пункт 5.${NC}"
+                    fi
+
                     # Копируем ключи в пользовательскую папку
                     mkdir -p "$SSL_SAVE_DIR/$FIRST_DOMAIN"
                     cp "/etc/letsencrypt/live/$FIRST_DOMAIN/fullchain.pem" "$SSL_SAVE_DIR/$FIRST_DOMAIN/fullchain.pem"
@@ -689,6 +756,9 @@ function manage_ssl_menu {
                     echo -e "${GREEN}✅ Путь успешно изменен.${NC}"
                 fi
                 ;;
+
+            5)  ssl_renew_check ;;
+
             [Xx]) return ;;
         esac
     done
