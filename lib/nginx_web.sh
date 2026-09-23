@@ -376,13 +376,61 @@ web_toml_enable() {
 # ME, и одиночный отрицательный ответ откатил бы исправный конфиг. Замерено
 # 29.08.2026: маска отвечает через 15 секунд.
 # ----------------------------------------------------------------------
+# Принадлежит ли сертификат на этом порту нашему домену.
+#
+# Раньше это был grep "CN=${domain}" по выводу s_client, и он МОЛЧА отказывал
+# на целом семействе систем: OpenSSL печатает subject по-разному.
+#
+#   OpenSSL 3.0.13 (Ubuntu 24.04)   subject=CN = adk.example.com
+#   OpenSSL 3.5.5  (Ubuntu 26.04)   subject=CN=adk.example.com
+#
+# Замерено 23.09.2026 на обеих машинах разом. Совпадал только второй вид,
+# поэтому на 24.04 WEB Proxy не вставал НИ РАЗУ: установщик получал отказ,
+# откатывал конфиг и говорил «движок не поднялся с новым конфигом» — хотя
+# движок поднимался прекрасно, а врала проверка. Ровно тот случай, когда
+# отрицательный результат означает «мы не умеем спросить».
+#
+# Сверяем по смыслу. -checkhost умеет и SAN, а не только CN, и его ответ не
+# зависит от того, как версия печатает subject. Код возврата у него ноль в
+# ОБОИХ случаях, поэтому смотрим текст вердикта: «does NOT match certificate»
+# подстроки «does match certificate» не содержит.
+#
+# Запасной путь — для сборок без -checkhost: вынимаем CN и сравниваем как
+# СТРОКИ. Именно как строки, а не регуляркой: точки домена в регулярке значат
+# «любой символ», и adk-example-com совпал бы с adk.example.com.
+# Разбор отделён от соединения намеренно: только так его можно прогнать на
+# машине без поднятого стека — и, главное, на РАЗНЫХ версиях OpenSSL, а вся
+# поломка была именно в разнице версий.
+web_cert_pem_matches() {
+    local domain="$1" pem="$2" verdict cn
+    [ -n "$domain" ] && [ -n "$pem" ] || return 1
+
+    verdict="$(printf '%s\n' "$pem" | openssl x509 -noout -checkhost "$domain" 2>/dev/null)"
+    if [ -n "$verdict" ]; then
+        case "$verdict" in
+            *"does NOT match"*) return 1 ;;
+            *"does match certificate"*) return 0 ;;
+        esac
+    fi
+
+    cn="$(printf '%s\n' "$pem" | openssl x509 -noout -subject 2>/dev/null \
+          | sed -E 's/.*CN[[:space:]]*=[[:space:]]*//; s/[[:space:]]*$//')"
+    [ -n "$cn" ] && [ "$cn" = "$domain" ]
+}
+
+web_cert_belongs_to() {
+    local domain="$1" port="$2" pem
+    pem="$(timeout 8 openssl s_client -connect "127.0.0.1:${port}" \
+            -servername "$domain" </dev/null 2>/dev/null)" || return 1
+    web_cert_pem_matches "$domain" "$pem"
+}
+
 web_engine_restart_verified() {
     local domain="$1" port="$2" waited=0 deadline="${3:-90}"
     systemctl restart telemt >/dev/null 2>&1
     while [ "$waited" -lt "$deadline" ]; do
         if ss -tlnH "sport = :${port}" 2>/dev/null | grep -q . \
-           && timeout 8 openssl s_client -connect "127.0.0.1:${port}" \
-                -servername "$domain" </dev/null 2>&1 | grep -q "CN=${domain}"; then
+           && web_cert_belongs_to "$domain" "$port"; then
             return 0
         fi
         sleep 5
