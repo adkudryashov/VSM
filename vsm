@@ -14,18 +14,6 @@
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/common.sh" || {
     echo "Не найдена lib/common.sh — переустановите VSM: bash install.sh"; exit 1; }
 
-# Чтение MTProxyL-Panel: её адрес и логин лежат в ЕЁ конфиге, и другого
-# источника нет. Нужны экрану «Доступы и домены» — тому единственному, куда
-# заходят именно за учётными данными панели.
-#
-# Мягко, через if: common.sh обязателен, а эта библиотека — нет. Без неё экран
-# просто не назовёт адрес MTProxyL-Panel, и это лучше, чем не открыть главное
-# меню на установке без стека telemt.
-if [ -f "$VSM_LIB/nginx_mtpl_proxy.sh" ]; then
-    # shellcheck disable=SC1091
-    source "$VSM_LIB/nginx_mtpl_proxy.sh"
-fi
-
 # Каталог репозитория. common.sh уже вычислил его как VSM_ROOT — здесь только
 # прежнее имя, под которым он используется ниже по файлу.
 #
