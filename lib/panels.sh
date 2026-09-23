@@ -32,6 +32,28 @@ MTPL_PANEL_UNIT=/etc/systemd/system/mtproxyl-panel.service
 TELEMT_PANEL_SUDOERS=/etc/sudoers.d/telemt-panel
 MTPL_PANEL_SUDOERS_FILES=(/etc/sudoers.d/mtproxyl-panel /etc/sudoers.d/mtproxyl-panel-mtproxyl)
 
+# ЧТО ОСТАЛОСЬ ОТ ПОДДЕРЖКИ MTProxyL-Panel — И ПОЧЕМУ ИМЕННО ЭТО.
+#
+# VSM её больше не ставит и не настраивает: решение владельца 23.09.2026,
+# разбор в docs/DECISIONS.md. Ушла вся библиотека lib/nginx_mtpl_proxy.sh,
+# выбор панели в меню, смена её префикса и шесть позиций реестра.
+#
+# Осталось РОВНО столько, чтобы с неё можно было уйти: признаки «она здесь» и
+# снятие. Установки, где она стоит, существуют — на них нельзя просто перестать
+# смотреть: панель продолжала бы слушать, держать права root и отвечать по
+# своему адресу, а VSM делал бы вид, что её нет. Маркеры блока nginx нужны по
+# той же причине — без них снятие оставило бы в чужом vhost проксирование на
+# мёртвый порт, то есть ошибку шлюза по секретному адресу.
+MTPL_PROXY_BEGIN="# >>> VSM MTProxyL-Panel proxy — не редактируй вручную"
+MTPL_PROXY_END="# <<< VSM MTProxyL-Panel proxy"
+
+# Снятие блока, без парной вставки: вставлять больше нечего.
+# panel_proxy_remove приходит из lib/nginx_panel_proxy.sh.
+mtpl_proxy_remove() {
+    command -v panel_proxy_remove >/dev/null 2>&1 || return 0
+    panel_proxy_remove "$1" "$MTPL_PROXY_BEGIN" "$MTPL_PROXY_END"
+}
+
 # ДВА РАЗНЫХ ВОПРОСА, КОТОРЫЕ РАНЬШЕ БЫЛИ ОДНИМ.
 #
 # Здесь стоял единственный признак «юнит ИЛИ бинарь» с пояснением, что цель
