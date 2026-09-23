@@ -561,6 +561,23 @@ EOF
 
 TOML=/etc/telemt/telemt.toml
 [[ -f "$TOML" ]] || die "telemt не создал $TOML."
+
+# Чиним то, что только что сломал чужой установщик.
+#
+# Он обновляет порт правилом /^[ \t]*port[ \t]*=/ без оглядки на секцию, то
+# есть переписывает КАЖДУЮ строку «port =». При включённом WEB их две — у
+# слушателя mtproxy и у слушателя web, — и обе получают один номер. Движок
+# умирает с «Address already in use» сразу после нашего же перезапуска.
+#
+# Повторный запуск установщика — не редкость: это и переустановка стека, и
+# обновление, и MTProxyL с её панелью, которые дёргают тот же файл по тому
+# же адресу. Разбор — в шапке web_listener_port_repair.
+if declare -F web_listener_port_repair >/dev/null 2>&1; then
+    if web_listener_port_repair "$TOML"; then :; else
+        warn "не удалось выправить порт WEB-слушателя в $TOML — проверьте вручную"
+    fi
+fi
+
 toml_set_in_section "$TOML" censorship mask true
 toml_set_in_section "$TOML" censorship mask_host '"127.0.0.1"'
 toml_set_in_section "$TOML" censorship mask_port "$TELEMT_MASK_PORT"

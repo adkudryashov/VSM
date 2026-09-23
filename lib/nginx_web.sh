@@ -278,9 +278,23 @@ web_toml_enable() {
     cp -p "$WEB_TOML" "$backup" || { echo "не сохранил копию конфига" >&2; return 1; }
 
     tmp="$(mktemp)" || return 1
+    # ЗАГОЛОВОК [server] СОХРАНЯЕМ, убираем только ключ port.
+    #
+    # Прежняя редакция удаляла строку [server] и ставила listener-ы на её
+    # место. Всё, что лежало в секции ВЫШЕ port, при этом осиротело: ключи
+    # уезжали в предыдущую секцию. На установке 23.09.2026 туда уехали
+    # metrics_listen и metrics_whitelist, и движок сказал об этом прямо:
+    #   WARN Unknown config key ignored key=general.modes.metrics_listen
+    # То есть экспортёр метрик молча выключался. На стенде не проявилось
+    # только по везению в порядке правок: там метрики дописали уже ПОСЛЕ WEB.
+    #
+    # Теперь секция остаётся целой, из неё уходит один ключ port (его
+    # отменяют явные listener-ы), а сами listener-ы встают ПОСЛЕ секции —
+    # там, где кончается [server]. Это правильный TOML и не задевает соседей.
     awk -v port="$proxy_port" -v listen="$WEB_LISTEN_PORT" '
-        /^[[:space:]]*\[server\][[:space:]]*$/ { skip=1; next }
-        skip && /^[[:space:]]*port[[:space:]]*=/ {
+        function listeners() {
+            if (done) return
+            done = 1
             print "# Явные listener-ы отменяют поле [server] port целиком, поэтому"
             print "# MTProxy объявлен здесь наравне с WEB: без этой секции FakeTLS"
             print "# не поднимется. Секции создал VSM."
@@ -301,10 +315,19 @@ web_toml_enable() {
             print "reuse_allow = false"
             print "web_client_ip_source = \"x_forwarded_for\""
             print "web_trusted_proxy_cidrs = [\"127.0.0.1/32\"]"
-            skip=0
-            next
+            print ""
         }
+        # Начало любой секции. Если кончилась [server] — сюда и ставим
+        # listener-ы: они подсекция server, и после чужой секции их уже
+        # нельзя было бы отнести к нему.
+        /^[[:space:]]*\[/ {
+            if (inserver) { listeners(); inserver = 0 }
+            if ($0 ~ /^[[:space:]]*\[server\][[:space:]]*$/) { inserver = 1 }
+        }
+        # Единственный ключ, который уходит: его отменяют явные listener-ы.
+        inserver && /^[[:space:]]*port[[:space:]]*=/ { next }
         { print }
+        END { if (inserver) listeners() }
     ' "$WEB_TOML" > "$tmp" || { rm -f "$tmp"; return 1; }
 
     {
@@ -398,6 +421,76 @@ web_toml_enable() {
 # Запасной путь — для сборок без -checkhost: вынимаем CN и сравниваем как
 # СТРОКИ. Именно как строки, а не регуляркой: точки домена в регулярке значат
 # «любой символ», и adk-example-com совпал бы с adk.example.com.
+# ----------------------------------------------------------------------
+# ВОССТАНОВЛЕНИЕ ПОРТА WEB-СЛУШАТЕЛЯ ПОСЛЕ ЧУЖОГО УСТАНОВЩИКА
+#
+# Установщик telemt при повторном запуске обновляет порт так:
+#     flag_p == "1" && /^[ \t]*port[ \t]*=/ { print "port = " port; next }
+# Без оглядки на секцию — переписывается КАЖДАЯ строка «port =» в файле.
+#
+# Пока в конфиге один порт, это безобидно. С включённым WEB их два:
+# [[server.listeners]] для mtproxy и [[server.listeners]] для web. Оба
+# получают один и тот же номер, и движок умирает сразу:
+#     Error: Os { code: 98, kind: AddrInUse, message: "Address already in use" }
+# Замерено 23.09.2026 на установке с нуля.
+#
+# Задевает это не только нас: тот же установщик по тому же адресу дёргают
+# MTProxyL (lib/detect.sh) и её панель. То есть сервер с работающим WEB
+# ломается от постороннего обновления, и причина выглядит как «telemt упал».
+#
+# Чужой код не исправить — значит чиним следствие у себя, сразу после его
+# запуска. Правим ТОЛЬКО блок с transport = "web" и только ключ port.
+# Возвращает 0, если ничего не потребовалось или починено; 1 — если не вышло.
+# ----------------------------------------------------------------------
+web_listener_port_repair() {
+    local toml="${1:-$WEB_TOML}" want="${2:-$WEB_LISTEN_PORT}" tmp
+    [ -r "$toml" ] || return 0
+    grep -q '^[[:space:]]*\[\[server\.listeners\]\]' "$toml" || return 0
+
+    # Уже верно — не трогаем файл вовсе: лишняя перезапись чужого конфига
+    # это лишний шанс его испортить.
+    if awk -v want="$want" '
+        /^[[:space:]]*\[\[server\.listeners\]\]/ { blk=1; isweb=0; p=""; next }
+        blk && /^[[:space:]]*\[/ { blk=0 }
+        blk {
+            if ($0 ~ /transport[[:space:]]*=[[:space:]]*"web"/) isweb=1
+            if ($0 ~ /^[[:space:]]*port[[:space:]]*=/) { p=$0; sub(/.*=[[:space:]]*/, "", p); gsub(/[[:space:]]/, "", p) }
+            if (isweb && p != "" && p != want) bad=1
+        }
+        END { exit !bad }
+    ' "$toml"; then
+        :
+    else
+        return 0
+    fi
+
+    tmp="$(mktemp "${toml}.vsm.XXXXXX")" || return 1
+    awk -v want="$want" '
+        function flush(   i, line) {
+            for (i = 1; i <= n; i++) {
+                line = buf[i]
+                if (isweb && line ~ /^[[:space:]]*port[[:space:]]*=/) line = "port = " want
+                print line
+            }
+            n = 0; isweb = 0
+        }
+        /^[[:space:]]*\[\[server\.listeners\]\]/ { flush(); blk=1; buf[++n]=$0; next }
+        blk && /^[[:space:]]*\[/ { flush(); blk=0; print; next }
+        blk {
+            buf[++n]=$0
+            if ($0 ~ /transport[[:space:]]*=[[:space:]]*"web"/) isweb=1
+            next
+        }
+        { print }
+        END { flush() }
+    ' "$toml" > "$tmp" || { rm -f "$tmp"; return 1; }
+
+    chown --reference="$toml" "$tmp" 2>/dev/null
+    chmod --reference="$toml" "$tmp" 2>/dev/null
+    mv -f "$tmp" "$toml" || { rm -f "$tmp"; return 1; }
+    return 0
+}
+
 # Разбор отделён от соединения намеренно: только так его можно прогнать на
 # машине без поднятого стека — и, главное, на РАЗНЫХ версиях OpenSSL, а вся
 # поломка была именно в разнице версий.
