@@ -165,7 +165,7 @@ function ask_params {
             if [ "$_sel" = "0" ]; then
                 ASK_MAP=""; break
             elif [ "$_sel" = "$_other" ]; then
-                read -p "Домен: " ASK_MAP
+                read -p "Домен: " ASK_MAP || break
                 if [ -n "$_mask_domain" ] && [ "$ASK_MAP" = "$_mask_domain" ]; then
                     echo -e "${RED}❌ Это домен маскировки — на него нельзя. Выберите другой.${NC}"
                     continue
@@ -574,7 +574,7 @@ function manage_watchdog {
             4)
                 echo -e "${BLUE}Бесплатный токен: https://dash.globalping.io/${NC}"
                 echo -e "${YELLOW}Пустой ввод стирает сохранённый.${NC}"
-                read -p "Токен: " t
+                read -p "Токен: " t || break
                 _wd_set RU_CHECK_TOKEN "$t"
                 echo -e "${GREEN}Сохранено.${NC}"
                 _wd_restart; read -p "Enter..."

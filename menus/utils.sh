@@ -63,7 +63,7 @@ function run_utils_menu {
                 echo -e "\n${CYAN}--- Доступные интерфейсы ---${NC}"
                 ip -br link show | awk '{print $1}' | grep -v "^lo$" | awk '{print NR ") " $1}'
                 echo -e "A) Все сразу"
-                read -p "Выберите интерфейс: " net_opt
+                read -p "Выберите интерфейс: " net_opt || break
                 if [[ "$net_opt" =~ ^[Aa]$ ]]; then
                     nethogs
                 elif [[ "$net_opt" =~ ^[0-9]+$ ]]; then
@@ -85,12 +85,12 @@ function run_utils_menu {
                 ;;
             6)
                 echo -e "\n${CYAN}--- Пинг и Трассировка ---${NC}"
-                read -p "Введите IP или домен (например, 8.8.8.8 или google.com): " target
+                read -p "Введите IP или домен (например, 8.8.8.8 или google.com): " target || break
                 if [ -z "$target" ]; then continue; fi
                 ui_item "1" "🏓" "Обычный ping"    "4 пакета и остановка"
                 ui_item "2" "♾" "Непрерывный ping" "До Ctrl+C"
                 ui_item "3" "🧭" "Трассировка MTR" "Путь до узла в реальном времени"
-                read -p "Выбор: " ping_opt
+                read -p "Выбор: " ping_opt || break
                 case $ping_opt in
                     1) ping -c 4 "$target" ;;
                     2) ping "$target" ;;
@@ -104,7 +104,7 @@ function run_utils_menu {
                 ui_item "1" "🔗" "Только TCP"  "Слушающие сокеты TCP"
                 ui_item "2" "📡" "Только UDP"  "Слушающие сокеты UDP"
                 ui_item "3" "🔀" "Все порты"   "TCP и UDP вместе"
-                read -p "Выбор: " port_opt
+                read -p "Выбор: " port_opt || break
                 echo ""
                 case $port_opt in
                     1) ss -tlpn ;;
@@ -120,19 +120,19 @@ function run_utils_menu {
                 ui_item        "1" "🔍" "Найти по имени"  "Показать PID, ничего не трогая"
                 ui_danger_item "2" "Убить по PID"   "kill -9, без вопросов"
                 ui_danger_item "3" "Убить по имени" "killall -9 — разом все совпавшие"
-                read -p "Выбор: " kill_opt
+                read -p "Выбор: " kill_opt || break
                 case $kill_opt in
                     1)
-                        read -p "Введите часть имени: " s_name
+                        read -p "Введите часть имени: " s_name || break
                         echo -e "${YELLOW}Найденные процессы:${NC}"
                         ps aux | grep -i "$s_name" | grep -v "grep" | awk '{print "PID: " $2 " | Владелец: " $1 " | Команда: " $11}'
                         ;;
                     2)
-                        read -p "Введите PID: " k_pid
+                        read -p "Введите PID: " k_pid || break
                         if kill -9 "$k_pid" 2>/dev/null; then echo -e "${GREEN}Процесс $k_pid жестоко убит.${NC}"; else echo -e "${RED}Ошибка: Процесс не найден или нет прав.${NC}"; fi
                         ;;
                     3)
-                        read -p "Введите точное имя (например, nginx): " k_name
+                        read -p "Введите точное имя (например, nginx): " k_name || break
                         if killall -9 "$k_name" 2>/dev/null; then echo -e "${GREEN}Процессы $k_name убиты.${NC}"; else echo -e "${RED}Процесс не найден.${NC}"; fi
                         ;;
                     *) echo -e "${RED}❌ Неверный ввод.${NC}" ;;
@@ -152,7 +152,7 @@ function run_utils_menu {
                 ui_item "2" "🔧" "Устранить причину"   "Потолок журналу и отмена дублирования в syslog — меняет настройку системы"
                 ui_item "3" "🔄" "Вернуть как было"    "Откат настройки журналирования"
                 ui_item "X" "🔙" "Назад"
-                read -p "Выбор: " clean_opt
+                read -p "Выбор: " clean_opt || break
                 case $clean_opt in
                     1) bash "$VSM_ROOT/tools/disk-cleanup.sh" --clean ;;
                     2)
@@ -163,7 +163,7 @@ function run_utils_menu {
                         echo -e "  • журналу задаётся потолок вместо умолчания «10% диска»"
                         echo -e "  • отменяется дублирование записей в /var/log/syslog"
                         echo -e "${C_DESC}  Логи не теряются: всё читается через journalctl.${NC}"
-                        read -p "Продолжить? [y/N]: " ans
+                        read -p "Продолжить? [y/N]: " ans || break
                         [[ "$ans" =~ ^[YyДд]$ ]] \
                             && bash "$VSM_ROOT/tools/disk-cleanup.sh" --logging-tune \
                             || echo -e "${BLUE}Отменено.${NC}"
@@ -176,7 +176,7 @@ function run_utils_menu {
                 ;;
             7)
                 echo -e "\n${CYAN}--- Проверка привязки домена ---${NC}"
-                read -p "Введите домен (например, sub.domain.com): " check_domain
+                read -p "Введите домен (например, sub.domain.com): " check_domain || break
                 if [ -n "$check_domain" ]; then
                     echo -e "\n${YELLOW}Проверка DNS-записей...${NC}"
                     domain_ip=$(getent hosts "$check_domain" | awk '{ print $1 }' | head -n 1)

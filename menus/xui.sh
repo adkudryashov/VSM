@@ -306,7 +306,7 @@ function manage_backup {
             2) sudo x-ui-backup list; read -p "Нажмите Enter для продолжения..." ;;
             3)
                 sudo x-ui-backup list
-                read -p "Введите полный путь к файлу бэкапа: " b_path
+                read -p "Введите полный путь к файлу бэкапа: " b_path || break
                 if [ -n "$b_path" ]; then
                     sudo x-ui-backup restore "$b_path"
                 fi
@@ -658,7 +658,7 @@ function manage_xui_service {
         ui_item "X" "🔙" "Назад"
         echo ""
 
-        read -p "Ваш выбор [1-9, X]: " choice
+        read -p "Ваш выбор [1-9, X]: " choice || break
         echo ""
 
         case $choice in

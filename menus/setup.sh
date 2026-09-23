@@ -143,7 +143,7 @@ function show_ufw_menu {
                 [ "$u_choice" == "3" ] && action="allow" || action="deny"
                 
                 echo -e "${YELLOW}(Введите 0 или просто Enter для отмены)${NC}"
-                read -p "Введите порт: " p
+                read -p "Введите порт: " p || break
                 
                 # Проверка на отмену
                 if [[ -z "$p" || "$p" == "0" ]]; then
@@ -176,7 +176,7 @@ function show_ufw_menu {
                 echo -e "${GREEN}Текущие пронумерованные правила:${NC}"
                 sudo ufw status numbered
                 echo -e "${YELLOW}(Введите 0 или просто Enter для отмены)${NC}"
-                read -p "Введите НОМЕР правила для удаления: " n
+                read -p "Введите НОМЕР правила для удаления: " n || break
                 
                 if [[ -z "$n" || "$n" == "0" ]]; then
                     echo -e "${BLUE}Удаление отменено.${NC}"
@@ -185,7 +185,7 @@ function show_ufw_menu {
                 fi
                 
                 # Подтверждение удаления
-                read -p "Вы уверены, что хотите удалить правило #$n? (y/n): " confirm
+                read -p "Вы уверены, что хотите удалить правило #$n? (y/n): " confirm || break
                 if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
                     res=$(sudo ufw --force delete "$n")
                     echo -e "${YELLOW}Результат:${NC} $res"
@@ -613,7 +613,7 @@ function manage_ssl_menu {
 
         case $ssl_choice in
             1)
-                read -p "Сколько доменов включить в сертификат? (по умолчанию 1): " d_count
+                read -p "Сколько доменов включить в сертификат? (по умолчанию 1): " d_count || break
                 [[ ! "$d_count" =~ ^[0-9]+$ ]] && d_count=1
                 
                 # Массив, а не строка с последующим расщеплением по пробелам.
@@ -730,7 +730,7 @@ function manage_ssl_menu {
                 sudo certbot certificates 2>/dev/null | grep "Certificate Name:"
                 
                 echo -e "${YELLOW}(Введите 0 или просто Enter для отмены)${NC}"
-                read -p "Введите имя сертификата (Certificate Name) для отзыва: " del_dom
+                read -p "Введите имя сертификата (Certificate Name) для отзыва: " del_dom || break
                 
                 if [[ -z "$del_dom" || "$del_dom" == "0" ]]; then
                     echo -e "${BLUE}Удаление отменено.${NC}"; sleep 1; continue
@@ -749,7 +749,7 @@ function manage_ssl_menu {
                 read -p "Нажмите Enter..." ;;
 
             4)
-                read -p "Введите новый путь [текущий: $SSL_SAVE_DIR]: " new_dir
+                read -p "Введите новый путь [текущий: $SSL_SAVE_DIR]: " new_dir || break
                 if [ -n "$new_dir" ]; then
                     SSL_SAVE_DIR="$new_dir"
                     mkdir -p "$SSL_SAVE_DIR"

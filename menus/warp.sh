@@ -29,7 +29,7 @@ function setup_warp_cron {
         ui_item "5" "📝" "Свой график"     "Строкой в формате cron"
         ui_item "X" "🔙" "Назад"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
-        read -p "Выбор: " cron_choice
+        read -p "Выбор: " cron_choice || break
         case $cron_choice in
             1) cron_rule="0 3 * * * systemctl restart warp-svc >/dev/null 2>&1" ;;
             2) cron_rule="0 3 * * 0 systemctl restart warp-svc >/dev/null 2>&1" ;;
@@ -52,7 +52,7 @@ function setup_warp_cron {
                 echo -e "  ${GREEN}0 2 * * 1-5${NC}  (По будням в 02:00)"
                 echo -e "  ${GREEN}0 12 * * 6,0${NC} (По выходным в 12:00)"
                 echo ""
-                read -p "Ваш график (5 значений через пробел): " custom_cron
+                read -p "Ваш график (5 значений через пробел): " custom_cron || break
                 
                 # Простая проверка: должно быть ровно 5 "слов" (значений)
                 if [[ $(echo "$custom_cron" | wc -w) -eq 5 ]]; then
@@ -173,7 +173,7 @@ function run_warp_menu {
         ui_item "X" "🔙" "Назад"
         echo ""
         
-        read -p "Ваш выбор: " choice
+        read -p "Ваш выбор: " choice || break
         case $choice in
             1)
                 if have_cmd warp-cli; then
@@ -225,7 +225,7 @@ function run_warp_menu {
                     echo -e "${YELLOW}   Сначала пункт 1 «Установить».${NC}"
                     read -p "Нажмите Enter..."; continue
                 fi
-                read -p "Новый порт: " new_port
+                read -p "Новый порт: " new_port || break
                 if ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -lt 1024 ] || [ "$new_port" -gt 65535 ]; then
                     echo -e "${RED}❌ Порт должен быть числом от 1024 до 65535.${NC}"
                     read -p "Нажмите Enter..."; continue
@@ -256,7 +256,7 @@ function run_warp_menu {
                 if ! have_cmd warp-cli; then
                     echo -e "${RED}WARP не установлен.${NC}"; read -p "Enter..."; continue
                 fi
-                read -p "❗  Вы уверены, что хотите ПОЛНОСТЬЮ удалить WARP? (y/N): " conf
+                read -p "❗  Вы уверены, что хотите ПОЛНОСТЬЮ удалить WARP? (y/N): " conf || break
                 if [[ "$conf" =~ ^[Yy]$ ]]; then
                     echo -e "${YELLOW}Остановка и очистка...${NC}"
                     warp-cli --accept-tos disconnect >/dev/null 2>&1

@@ -1613,7 +1613,7 @@ function run_telemt_menu {
         ui_item "X" "🔙" "Назад"
         echo ""
 
-        read -p "Ваш выбор [1-13, X]: " choice
+        read -p "Ваш выбор [1-13, X]: " choice || break
         case $choice in
             1) run_install full ;;
             2) run_install addon ;;
