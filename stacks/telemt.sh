@@ -591,6 +591,14 @@ toml_set_in_section "$TOML" censorship mask_port "$TELEMT_MASK_PORT"
 toml_set_in_section "$TOML" server metrics_listen '"127.0.0.1:9090"'
 toml_set_in_section "$TOML" server metrics_whitelist '["127.0.0.1/32"]'
 
+# Лента событий и сводка соединений (/v1/runtime/events/recent,
+# /v1/runtime/connections/summary). Без них раздел «События» telemt_panel
+# пишет «функция недоступна на этом сервере». Стоит дёшево: кольцевой буфер
+# на 256 событий и кэш сводки на секунду, всё за API на петле. Через API
+# ключ не включить — секцию [server.api] движок себе править не даёт, и
+# горячей перезагрузки у неё нет: применяется перезапуском ниже.
+toml_set_in_section "$TOML" server.api runtime_edge_enabled true
+
 # ПРАВО ЧИТАТЬ КОНФИГ ПРОВЕРЯЕМ ФАКТОМ, А НЕ ПО ВИДУ ПРАВ.
 #
 # Служба работает от непривилегированного пользователя (User=telemt) и читает

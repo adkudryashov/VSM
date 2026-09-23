@@ -120,6 +120,24 @@ def test_новый_ключ_попадает_в_свою_секцию_а_не_�
     assert "mask_port = 7444" in строки[начало:]
 
 
+def test_ключ_в_секцию_с_точкой_не_уходит_в_родительскую(tmp_path):
+    """
+    runtime_edge_enabled живёт в [server.api]. В [server] движок его не
+    ищет — ключ молча не подействует, и «События» в панели останутся
+    выключенными при ключе, видном глазом в файле.
+    """
+    файл = конфиг(tmp_path, 0o640)
+    ответ = bash(
+        f'toml_set_in_section "{файл.as_posix()}" server.api runtime_edge_enabled true'
+    )
+    assert ответ.returncode == 0, ответ.stderr
+    строки = файл.read_text(encoding="utf-8").splitlines()
+    api = строки.index("[server.api]")
+    assert строки[api + 1] == "runtime_edge_enabled = true", строки
+    assert "runtime_edge_enabled = true" not in строки[:api], строки
+    assert строки.count("[server.api]") == 1, "секция задвоилась"
+
+
 def test_отсутствующая_секция_дописывается_и_не_трогает_права(tmp_path):
     """Ветка дозаписи (>>) прав не меняет, но проверить её всё равно надо."""
     файл = конфиг(tmp_path, 0o640)
