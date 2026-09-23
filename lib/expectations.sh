@@ -226,6 +226,17 @@ _orphan_rights_files() {
     # это сломанная наглухо чужая служба. Пока файлы панели лежат, считаем, что
     # хозяин у прав есть. Настоящую брошенность видно, когда не осталось ничего.
     panel_telemt_present   || [ ! -e "$TELEMT_PANEL_SUDOERS" ] || out+=("$TELEMT_PANEL_SUDOERS")
+    # MTProxyL-Panel VSM больше не ведёт, но её брошенные права ловить ОБЯЗАН —
+    # именно теперь, когда её снимают при переходе на telemt_panel. При отказе
+    # от поддержки 23.09.2026 эту ветку убрали вместе со всем остальным, и в тот
+    # же день на стенде остался файл её прав: проверка исчезла ровно тогда,
+    # когда стала нужнее всего.
+    if declare -F panel_mtproxyl_present >/dev/null 2>&1 && ! panel_mtproxyl_present; then
+        local f
+        for f in "${MTPL_PANEL_SUDOERS_FILES[@]}"; do
+            [ -e "$f" ] && out+=("$f")
+        done
+    fi
     [ "${#out[@]}" -eq 0 ] || printf '%s
 ' "${out[@]}"
 }

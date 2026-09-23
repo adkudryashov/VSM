@@ -30,7 +30,14 @@ MTPL_PANEL_UNIT=/etc/systemd/system/mtproxyl-panel.service
 # учётная запись остаётся в системе и после удаления, а права при ней — это
 # работающая возможность без всякой панели.
 TELEMT_PANEL_SUDOERS=/etc/sudoers.d/telemt-panel
-MTPL_PANEL_SUDOERS_FILES=(/etc/sudoers.d/mtproxyl-panel /etc/sudoers.d/mtproxyl-panel-mtproxyl)
+# Все файлы прав, которые разные версии панели клали за собой. Третий,
+# mtproxyl-panel-engine, её обновлятор добавил позже (замечен 09.09.2026), а в
+# этот список он не попал — и пережил снятие панели на стенде 23.09.2026: шесть
+# правил NOPASSWD у живого пользователя mtproxyl-panel, который к тому же
+# состоит в группе telemt, то есть читает конфиг с секретами прокси.
+MTPL_PANEL_SUDOERS_FILES=(/etc/sudoers.d/mtproxyl-panel
+                          /etc/sudoers.d/mtproxyl-panel-mtproxyl
+                          /etc/sudoers.d/mtproxyl-panel-engine)
 
 # ЧТО ОСТАЛОСЬ ОТ ПОДДЕРЖКИ MTProxyL-Panel — И ПОЧЕМУ ИМЕННО ЭТО.
 #
