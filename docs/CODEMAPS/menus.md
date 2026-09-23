@@ -66,13 +66,12 @@
 УСТАНОВКА
 1 run_install full     СТЕРЕТЬ → stacks/telemt.sh --mode full
 2 run_install addon    → stacks/telemt.sh --mode addon
-3 run_panel_menu       выбрать, поставить или снять веб-панель: их две
+3 run_panel_menu       поставить telemt_panel, сменить её секретный путь, снять
 
 ЭКСПЛУАТАЦИЯ
 4 run_diagnostics      службы, порты, HTTP-коды, сквозной self-SNI тест,
                        сверка с реестром решений (checks/drift.sh --dry-run)
 5 restore_mask         nginx_mask_apply + panel_proxy_localize + panel_proxy_apply
-                       + mtpl_restore_proxy (MTProxyL-Panel, если установлена)
                        + panel_proxy_verify; здесь же миграция старых установок
 6 check_tls_parity     отпечаток / протокол / шифр / группа / ALPN + PQ
 7 show_credentials     telemt-credentials.txt, адрес панели подставляется живой
