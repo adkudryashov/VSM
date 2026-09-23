@@ -407,16 +407,30 @@ panel_proxy_remove() {
     grep -qF "$begin" "$vhost" || return 0
 
     content="$(panel_proxy_strip "$begin" "$end" < "$vhost")"
-    cp -p "$vhost" "${vhost}.vsm-bak" || return 1
+
+    # Копию — в /var/backups/vsm/nginx, а НЕ рядом с vhost.
+    #
+    # vhost лежит в sites-enabled, а nginx включает sites-enabled/* целиком:
+    # копия рядом становилась вторым конфигом, и nginx -t падал на дубле
+    # limit_req_zone. Снятие откатывалось и рапортовало «снять не удалось».
+    # В panel_proxy_apply_block это починили 04.09.2026, а здесь осталось
+    # по-старому — и до 23.09 было незаметно лишь потому, что поиск vhost
+    # по ошибке отдавал sites-available, куда nginx не смотрит. Одна ошибка
+    # прятала другую: исправили поиск — вылезла копия.
+    local backup
+    mkdir -p "$PANEL_PROXY_BACKUP_DIR" 2>/dev/null
+    chmod 700 "$PANEL_PROXY_BACKUP_DIR" 2>/dev/null
+    backup="${PANEL_PROXY_BACKUP_DIR}/$(basename "$vhost").vsm-bak"
+
+    cp -p "$vhost" "$backup" || return 1
     if ! printf '%s\n' "$content" > "$vhost"; then
-        mv -f "${vhost}.vsm-bak" "$vhost"
+        cp -p "$backup" "$vhost"
         return 1
     fi
     if nginx -t; then
-        rm -f "${vhost}.vsm-bak"
         systemctl reload nginx >/dev/null 2>&1
         return 0
     fi
-    mv -f "${vhost}.vsm-bak" "$vhost"
+    cp -p "$backup" "$vhost"
     return 1
 }
