@@ -23,8 +23,10 @@ mode висеть в КОРНЕ файла: панель теряет режим
 права. Поэтому здесь у каждой проверки есть сосед: что тронули — и что НЕ
 тронули.
 """
+import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -81,6 +83,34 @@ username = "admin"
 # нужна никогда.
 ВЫЗОВ = f'. "{БИБЛИОТЕКА.as_posix()}"\npanel_proxy_localize "$1" "$2" "$3"'
 
+# СИСТЕМНЫЕ КОМАНДЫ — ТОЛЬКО ПОДДЕЛЬНЫЕ.
+#
+# panel_proxy_localize после правки конфига перезапускает службу панели, снимает
+# ACL с /etc/letsencrypt и закрывает порт в ufw. Первая редакция этого файла
+# звала её с настоящим PATH — и каждый прогон тестов на стенде перезапускал
+# НАСТОЯЩУЮ telemt-panel, около дюжины раз за секунду. Пока панели на стенде не
+# было, systemctl молча отказывал, и никто ничего не замечал. 23.09.2026 стенд
+# перевели на telemt_panel, и два прогона подряд довели её до start-limit-hit:
+# панель лежала, по секретному пути шёл 404, и первым подозреваемым был nginx.
+#
+# Поэтому здесь PATH начинается с каталога заглушек, а заглушка systemctl
+# записывает, о чём её просили: так видно, что функция действительно пыталась
+# перезапустить службу, — и что до настоящей systemd это не дошло.
+ЗАГЛУШКИ = ("systemctl", "setfacl", "ufw", "id")
+_КАТАЛОГ_ЗАГЛУШЕК = Path(tempfile.mkdtemp(prefix="vsm-stubs-"))
+ЖУРНАЛ = _КАТАЛОГ_ЗАГЛУШЕК / "вызовы.log"
+for _имя in ЗАГЛУШКИ:
+    _f = _КАТАЛОГ_ЗАГЛУШЕК / _имя
+    _f.write_text(f'#!/bin/sh\necho "{_имя} $*" >> "{ЖУРНАЛ.as_posix()}"\nexit 0\n')
+    _f.chmod(0o755)
+
+
+def окружение():
+    """Единственный способ запустить функцию в этом файле — с заглушками."""
+    env = dict(os.environ)
+    env["PATH"] = f"{_КАТАЛОГ_ЗАГЛУШЕК.as_posix()}:{env.get('PATH', '')}"
+    return env
+
 
 def перевести(текст, tmp_path, порт="9444"):
     файл = tmp_path / "config.toml"
@@ -88,7 +118,7 @@ def перевести(текст, tmp_path, порт="9444"):
     ответ = subprocess.run(
         ["bash", "-c", ВЫЗОВ, "vsm-test",
          файл.as_posix(), str(порт), "r.example.com"],
-        capture_output=True, text=True, encoding="utf-8",
+        capture_output=True, text=True, encoding="utf-8", env=окружение(),
     )
     return файл.read_text(encoding="utf-8"), ответ
 
@@ -172,10 +202,35 @@ def test_отсутствующий_файл_называется(tmp_path):
     ответ = subprocess.run(
         ["bash", "-c", ВЫЗОВ, "vsm-test",
          (tmp_path / "нет.toml").as_posix(), "9444", "r.example.com"],
-        capture_output=True, text=True, encoding="utf-8",
+        capture_output=True, text=True, encoding="utf-8", env=окружение(),
     )
     assert ответ.returncode != 0
     assert "не найден конфиг панели" in ответ.stderr, ответ.stderr
+
+
+def test_перезапуск_ушёл_в_заглушку_а_не_в_систему(tmp_path):
+    """
+    Функция ДЕЙСТВИТЕЛЬНО просит перезапустить службу — и просьба приходит к
+    заглушке. Без этой проверки заглушки могли бы тихо перестать
+    перехватывать вызов, и тесты снова начали бы трогать настоящую систему.
+    """
+    ЖУРНАЛ.write_text("", encoding="utf-8")
+    перевести(КОНФИГ_1X, tmp_path)
+    журнал = ЖУРНАЛ.read_text(encoding="utf-8")
+    assert "systemctl restart telemt-panel" in журнал, (
+        "заглушка systemctl не получила вызова — значит он ушёл мимо неё:\n" + журнал
+    )
+
+
+def test_ни_один_вызов_функции_не_идёт_без_заглушек():
+    """Сторож файла: subprocess.run здесь обязан получать env=окружение()."""
+    текст = Path(__file__).read_text(encoding="utf-8")
+    вызовов = текст.count("subprocess.run(")
+    с_заглушками = текст.count("env=окружение()")
+    assert вызовов == с_заглушками, (
+        f"subprocess.run {вызовов}, а с заглушками {с_заглушками} — "
+        "какой-то вызов пойдёт в настоящую систему"
+    )
 
 
 def test_временный_файл_не_остаётся(tmp_path):
