@@ -308,10 +308,43 @@ panel_proxy_localize() {
         return 1
     fi
 
-    # Секция [tls] больше не нужна: TLS терминирует nginx. Удаляем от строки
-    # [tls] до следующей секции или конца файла.
+    # Секция [tls] больше не нужна: TLS терминирует nginx. Но ЧТО в ней лежит,
+    # зависит от версии панели, и вслепую её трогать нельзя.
+    #
+    # 0.x держала там cert_file и key_file — их и вырезали вместе с заголовком.
+    # 1.x держит там mode = "http"|"acme"|"certificate"|"proxy". Прежняя
+    # правка удалила бы строку [tls], оставив mode висеть в КОРНЕ файла, то
+    # есть панель потеряла бы режим транспорта и получила лишний ключ верхнего
+    # уровня. Поймано 23.09.2026 при переходе на 1.0.0-rc.2.
+    #
+    # Заменять «mode = ...» простым sed по всему файлу тоже нельзя: в 1.x есть
+    # вторая секция с тем же ключом — [privileges] mode = "sudo", и такая
+    # правка выдала бы панели права root вместо узкой политики sudo. Поэтому
+    # весь разбор идёт С УЧЁТОМ СЕКЦИИ.
+    local tls_mode=0
+    if awk '/^\[/ { t = ($0 == "[tls]") }
+            t && /^[[:space:]]*mode[[:space:]]*=/ { found = 1 }
+            END { exit !found }' "$toml"; then
+        tls_mode=1
+    fi
+
     if grep -q '^\[tls\]' "$toml"; then
-        sed -i '/^\[tls\]/,/^\[/{ /^\[tls\]/d; /^cert_file/d; /^key_file/d; }' "$toml"
+        local tmp
+        tmp="$(mktemp "${toml}.vsm.XXXXXX")" || {
+            echo "не удалось создать временный файл рядом с $toml" >&2
+            return 1
+        }
+        awk -v keep="$tls_mode" '
+            /^\[/ { intls = ($0 == "[tls]")
+                    if (intls && !keep) next }
+            intls && $0 ~ /^[[:space:]]*(cert_file|key_file)[[:space:]]*=/ { next }
+            intls && keep && $0 ~ /^[[:space:]]*mode[[:space:]]*=/ { print "mode = \"http\""; next }
+            { print }
+        ' "$toml" > "$tmp" || { rm -f "$tmp"; return 1; }
+        # Владельца и права сохраняем: конфиг принадлежит не нам.
+        chown --reference="$toml" "$tmp" 2>/dev/null
+        chmod --reference="$toml" "$tmp" 2>/dev/null
+        mv -f "$tmp" "$toml" || { rm -f "$tmp"; return 1; }
     fi
 
     systemctl restart telemt-panel 2>/dev/null || true
