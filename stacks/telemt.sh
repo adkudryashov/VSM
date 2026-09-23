@@ -574,9 +574,58 @@ toml_set_in_section "$TOML" censorship mask_port "$TELEMT_MASK_PORT"
 toml_set_in_section "$TOML" server metrics_listen '"127.0.0.1:9090"'
 toml_set_in_section "$TOML" server metrics_whitelist '["127.0.0.1/32"]'
 
+# ПРАВО ЧИТАТЬ КОНФИГ ПРОВЕРЯЕМ ФАКТОМ, А НЕ ПО ВИДУ ПРАВ.
+#
+# Служба работает от непривилегированного пользователя (User=telemt) и читает
+# свой конфиг по группе: чужой установщик кладёт его как root:telemt 640.
+#
+# Но так он делает ТОЛЬКО при создании. Ветка «Config already exists. Updating
+# parameters...» переписывает содержимое и прав не трогает вовсе — проверено
+# чтением его stage 7 23.09.2026. Значит однажды испорченный конфиг останется
+# испорченным через любое число переустановок, а движок будет падать с
+# «Config error: Permission denied» при полностью исправном всём остальном.
+#
+# Испортить его могли мы сами: до ee85f14 наша правка теряла владельца и права.
+# Установки, прошедшие через ту версию, чинить некому — поэтому чиним здесь.
+#
+# Не гадаем, какими права ДОЛЖНЫ быть: спрашиваем у systemd, от кого служба, и
+# проверяем чтением от этого пользователя. Восстанавливаем минимально — чтение
+# по группе, как делает сам установщик.
+telemt_conf_readable() {
+    local file="$1" as="$2"
+    runuser -u "$as" -- test -r "$file" 2>/dev/null
+}
+
+TELEMT_USER="$(systemctl show -p User --value telemt 2>/dev/null || true)"
+if [[ -n "$TELEMT_USER" && "$TELEMT_USER" != "root" ]] && command -v runuser >/dev/null 2>&1; then
+    if ! telemt_conf_readable "$TOML" "$TELEMT_USER"; then
+        warn "служба telemt не может прочитать свой конфиг — восстанавливаю доступ"
+        TELEMT_GROUP="$(systemctl show -p Group --value telemt 2>/dev/null || true)"
+        TELEMT_GROUP="${TELEMT_GROUP:-$(id -gn "$TELEMT_USER" 2>/dev/null || echo "$TELEMT_USER")}"
+        chown "root:${TELEMT_GROUP}" "$TOML" 2>/dev/null || true
+        chmod 640 "$TOML" 2>/dev/null || true
+        telemt_conf_readable "$TOML" "$TELEMT_USER" \
+            || die "telemt всё ещё не читает ${TOML} от пользователя ${TELEMT_USER}. Проверь: ls -l ${TOML}"
+        log "  доступ восстановлен: root:${TELEMT_GROUP} 640"
+    fi
+fi
+
 systemctl daemon-reload
 systemctl restart telemt
-verify_or_die systemctl is-active --quiet telemt
+
+# НАЗЫВАЕМ ПРИЧИНУ, А НЕ ТОЛЬКО ФАКТ ОТКАЗА.
+#
+# Прежде здесь стоял verify_or_die, и он честно сообщал «проверка не прошла:
+# systemctl is-active --quiet telemt». По этой строке нельзя отличить
+# сломанный конфиг от занятого порта, недостающей библиотеки и отозванного
+# секрета — а движок в журнале говорит причину прямым текстом. Дорога от
+# «telemt не встал» до «Permission denied» заняла полчаса ровно потому, что
+# установщик её не показал.
+if ! systemctl is-active --quiet telemt; then
+    warn "движок telemt не запустился. Вот что он сказал:"
+    journalctl -u telemt -n 20 --no-pager 2>&1 | sed 's/^/      /' >&2
+    die "telemt не поднялся (причина выше). Полный журнал: journalctl -u telemt -n 50"
+fi
 
 command -v ufw >/dev/null 2>&1 && ufw allow "${TELEMT_PORT}/tcp" >/dev/null 2>&1 || true
 
@@ -586,7 +635,12 @@ command -v ufw >/dev/null 2>&1 && ufw allow "${TELEMT_PORT}/tcp" >/dev/null 2>&1
 # исправном сервисе, так и не добравшись до telemt_panel.
 log "жду готовности telemt..."
 if ! wait_until 30 curl -sf "http://127.0.0.1:9091/v1/users" -o /dev/null; then
-    die "API telemt (127.0.0.1:9091) не отвечает 30 секунд. Смотри: journalctl -u telemt -n 50"
+    # Та же причина, что и у проверки выше: «API не отвечает» — это следствие.
+    # Движок к этому моменту уже успел сказать, почему, и молчать об этом
+    # значит отправлять человека искать то, что у нас под рукой.
+    warn "API не поднялось. Вот что сказал движок:"
+    journalctl -u telemt -n 20 --no-pager 2>&1 | sed 's/^/      /' >&2
+    die "API telemt (127.0.0.1:9091) не отвечает 30 секунд (причина выше)."
 fi
 
 # Присваивание с "|| echo 000" внутри подстановки склеивало вывод curl с эхом и
