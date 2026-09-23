@@ -693,7 +693,10 @@ fi
 # чтобы панель можно было поставить отдельно от стека. Держать здесь вторую
 # копию нельзя — ровно так разошлись две копии wait_for_apt.
 if [[ "${SKIP_PANEL:-0}" -eq 0 ]]; then
-    panel_install_telemt "$PANEL_ADMIN_USER" "$PANEL_ADMIN_PASS" "$PANEL_PORT"                          "$DOMAIN_PANEL" "$DOMAIN_REALITY" "$PANEL_PREFIX"         || die "установка telemt_panel не удалась (причина выше)."
+    panel_install_telemt \
+        "$PANEL_ADMIN_USER" "$PANEL_ADMIN_PASS" "$PANEL_PORT" \
+        "$DOMAIN_PANEL" "$DOMAIN_REALITY" "$PANEL_PREFIX" \
+        || die "установка telemt_panel не удалась (причина выше)."
 fi
 
 # ---------------------------------------------------------------------------
