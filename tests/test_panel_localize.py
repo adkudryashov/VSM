@@ -23,6 +23,7 @@ mode висеть в КОРНЕ файла: панель теряет режим
 права. Поэтому здесь у каждой проверки есть сосед: что тронули — и что НЕ
 тронули.
 """
+import ast
 import os
 import shutil
 import subprocess
@@ -223,13 +224,28 @@ def test_перезапуск_ушёл_в_заглушку_а_не_в_систе
 
 
 def test_ни_один_вызов_функции_не_идёт_без_заглушек():
-    """Сторож файла: subprocess.run здесь обязан получать env=окружение()."""
-    текст = Path(__file__).read_text(encoding="utf-8")
-    вызовов = текст.count("subprocess.run(")
-    с_заглушками = текст.count("env=окружение()")
-    assert вызовов == с_заглушками, (
-        f"subprocess.run {вызовов}, а с заглушками {с_заглушками} — "
-        "какой-то вызов пойдёт в настоящую систему"
+    """
+    Сторож файла: каждый вызов subprocess.run получает окружение с заглушками.
+
+    Разбором кода, а не подсчётом строк: первая редакция считала текст и
+    засчитала собственную строку документации — проверка упала на себе.
+    """
+    дерево = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    без_заглушек = []
+    for узел in ast.walk(дерево):
+        if not isinstance(узел, ast.Call):
+            continue
+        функция = узел.func
+        if not (isinstance(функция, ast.Attribute) and функция.attr == "run"
+                and isinstance(функция.value, ast.Name)
+                and функция.value.id == "subprocess"):
+            continue
+        env = next((k.value for k in узел.keywords if k.arg == "env"), None)
+        if not (isinstance(env, ast.Call) and isinstance(env.func, ast.Name)
+                and env.func.id == "окружение"):
+            без_заглушек.append(узел.lineno)
+    assert not без_заглушек, (
+        f"строки {без_заглушек}: вызов без заглушек пойдёт в настоящую систему"
     )
 
 
