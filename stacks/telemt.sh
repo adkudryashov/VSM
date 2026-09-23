@@ -244,6 +244,35 @@ fi
 # Наивная вставка "после строки tls_domain" кладёт ключ в ту секцию, где
 # tls_domain фактически лежит — а это не обязательно [censorship].
 # ---------------------------------------------------------------------------
+
+# Подмена файла С СОХРАНЕНИЕМ владельца и прав.
+#
+# Связка `awk > "$file.tmp" && mv "$file.tmp" "$file"` их теряет: временный
+# файл создаёт оболочка от root по своему umask, и после mv чужой конфиг
+# становится root:root 600.
+#
+# Чем это кончается, замерено 23.09.2026 на установке с нуля: установщик
+# telemt кладёт /etc/telemt/telemt.toml как root:telemt 640, а служба работает
+# от пользователя telemt. После нашей правки она свой конфиг уже не читает —
+# «Config error: Permission denied (os error 13)» и петля перезапусков. Этап 3
+# падает на verify_or_die при полностью исправном движке.
+#
+# Дефект был здесь всегда. Не кусался он лишь потому, что прежний установщик
+# telemt оставлял конфиг доступным на чтение всем, — то есть нас прикрывала
+# чужая небрежность, и увидели мы это ровно тогда, когда её исправили.
+#
+# Те же две строки стоят в lib/nginx_mtpl_proxy.sh и в _atomic_replace из
+# lib/expectations.sh. Третья копия появляется здесь не по недосмотру: этот
+# скрипт самодостаточен и библиотек меню не подключает — как и wait_for_apt.
+# Меняете здесь — проверьте там.
+_toml_replace() {
+    local tmp="$1" file="$2"
+    # Ссылаемся на ОРИГИНАЛ, пока он ещё на месте: после mv ссылаться не на что.
+    chown --reference="$file" "$tmp" 2>/dev/null
+    chmod --reference="$file" "$tmp" 2>/dev/null
+    mv -f "$tmp" "$file"
+}
+
 toml_set_in_section() {
     local file="$1" section="$2" key="$3" value="$4"
 
@@ -263,12 +292,12 @@ toml_set_in_section() {
             /^\[/ {ins=0}
             ins && $0 ~ "^[[:space:]]*"k"[[:space:]]*=" {print k" = "v; next}
             {print}
-        ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+        ' "$file" > "${file}.tmp" && _toml_replace "${file}.tmp" "$file"
     else
         awk -v s="[$section]" -v k="$key" -v v="$value" '
             $0==s {print; print k" = "v; next}
             {print}
-        ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+        ' "$file" > "${file}.tmp" && _toml_replace "${file}.tmp" "$file"
     fi
 }
 
