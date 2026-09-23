@@ -258,7 +258,7 @@ function manage_adguard {
         ui_danger_item "2" "Удалить"                "Снимает AdGuard и его блок в nginx"
         ui_item "X" "🔙" "Назад"
         echo -e "${BLUE}------------------------------------------------------${NC}"
-        read -p "Выбор: " ag_choice
+        read -p "Выбор: " ag_choice || break
         case $ag_choice in
             1)
                 run_remote_script "$XUI_PRO_REPO/x-ui-adguard.sh"
@@ -300,7 +300,7 @@ function manage_backup {
         ui_danger_item "3" "Восстановить"    "Переписывает текущую базу панели"
         ui_item "X" "🔙" "Назад"
         echo -e "${BLUE}------------------------------------------------------${NC}"
-        read -p "Выбор: " b_choice
+        read -p "Выбор: " b_choice || break
         case $b_choice in
             1) sudo x-ui-backup backup; read -p "Нажмите Enter для продолжения..." ;;
             2) sudo x-ui-backup list; read -p "Нажмите Enter для продолжения..." ;;
@@ -348,7 +348,7 @@ function manage_xui_credentials {
         ui_item "3" "🧹" "Стереть запись"        "Только у нас; пароль в панели не меняется"
         ui_item "X" "🔙" "Назад"
         echo -e "${BLUE}------------------------------------------------------${NC}"
-        read -p "Выбор: " c_choice
+        read -p "Выбор: " c_choice || break
         case $c_choice in
             1)
                 local new_user new_pass

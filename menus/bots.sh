@@ -160,7 +160,7 @@ function ask_params {
             # Умолчание — единственный подходящий домен, если он один: тогда
             # выбирать не из чего, и лишний вопрос только сбивает.
             [ "${#_cands[@]}" -eq 1 ] && _def="1"
-            read -p "Выбор${_def:+ [$_def]}: " _sel
+            read -p "Выбор${_def:+ [$_def]}: " _sel || break
             _sel="${_sel:-$_def}"
             if [ "$_sel" = "0" ]; then
                 ASK_MAP=""; break
@@ -500,7 +500,7 @@ function manage_watchdog {
         ui_item "X" "🔙" "Назад"
         echo ""
 
-        read -p "Ваш выбор [1-5, X]: " ch
+        read -p "Ваш выбор [1-5, X]: " ch || break
         case "$ch" in
             1)
                 if [ "$wd" = "true" ]; then

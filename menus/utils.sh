@@ -39,7 +39,7 @@ function run_utils_menu {
         ui_item "X" "🔙" "Назад"
         echo ""
         
-        read -p "Ваш выбор: " choice
+        read -p "Ваш выбор: " choice || break
         case $choice in
             1)
                 htop
@@ -50,7 +50,7 @@ function run_utils_menu {
                 ui_item "2" "📜" "Системные логи" "/var/log"
                 ui_item "3" "📂" "Текущая папка"  "$(pwd)"
                 ui_item "4" "✏" "Свой путь"      "Ввести вручную"
-                read -p "Выбор: " ncdu_opt
+                read -p "Выбор: " ncdu_opt || break
                 case $ncdu_opt in
                     1) ncdu / ;;
                     2) ncdu /var/log ;;

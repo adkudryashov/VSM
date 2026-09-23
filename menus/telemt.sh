@@ -947,7 +947,7 @@ function manage_services {
         ui_item "2" "💻" "Служба ${_panel_name}" "Статус, старт, стоп, логи"
         ui_item "X" "🔙" "Назад"
         echo -e "${BLUE}------------------------------------------------------${NC}"
-        read -p "Выбор: " s_choice
+        read -p "Выбор: " s_choice || break
         case $s_choice in
             1) manage_service_status_restart telemt ;;
             2) manage_service_status_restart "$_panel_unit" ;;
@@ -1257,7 +1257,7 @@ function run_telemt_update {
         ui_item "3" "↩" "Откатить обновление"    "Вернуть версию до последней замены"
         ui_item "X" "🔙" "Назад"
         echo ""
-        read -p "Ваш выбор [1-3, X]: " choice
+        read -p "Ваш выбор [1-3, X]: " choice || break
         case $choice in
             1) bash "$script" || true; read -p "Enter..." ;;
             2) read -p "Версия (например 3.5.7): " ver

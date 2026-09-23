@@ -134,7 +134,7 @@ function show_ufw_menu {
         ui_item "7" "🔄" "Перезагрузить"   "ufw reload, правила применяются заново"
         ui_item "X" "🔙" "Назад"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
-        read -p "Выбор: " u_choice
+        read -p "Выбор: " u_choice || break
 
         case $u_choice in
             1) ufw_enable_safely ;;
@@ -160,7 +160,7 @@ function show_ufw_menu {
                 # держать здесь особую клавишу значит заставлять человека
                 # помнить исключение. Любой другой ввод и так отменяет.
                 ui_item "X" "🔙" "Отмена"
-                read -p "Выбор [1-3, X]: " proto_choice
+                read -p "Выбор [1-3, X]: " proto_choice || break
                 
                 case $proto_choice in
                     1) res=$(sudo ufw $action "$p/tcp") ;;
@@ -228,7 +228,7 @@ function set_timezone_menu {
         ui_item "9" "🌍" "UTC"          "Всемирное время, без смещения"
         ui_item "X" "🔙" "Назад"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
-        read -p "Выбор [1-9, X]: " t_choice
+        read -p "Выбор [1-9, X]: " t_choice || break
         case $t_choice in
             1) sudo timedatectl set-timezone Europe/Kaliningrad ;;
             2) sudo timedatectl set-timezone Europe/Moscow ;;
@@ -291,7 +291,7 @@ function show_bbr_menu {
         ui_item "3" "📋" "Показать алгоритм"  "Что стоит сейчас, по sysctl"
         ui_item "X" "🔙" "Назад"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
-        read -p "Ваш выбор [1-3, X]: " choice
+        read -p "Ваш выбор [1-3, X]: " choice || break
         case $choice in
             1) enable_bbr ;;
             2) disable_bbr ;;
@@ -484,7 +484,7 @@ function show_ipv6_menu {
         ui_item "X" "🔙" "Назад"
         echo ""
 
-        read -p "Ваш выбор [1-3, X]: " choice
+        read -p "Ваш выбор [1-3, X]: " choice || break
         case $choice in
             1) ipv6_off ;;
             2) ipv6_on ;;
@@ -609,7 +609,7 @@ function manage_ssl_menu {
         ui_item "5" "🔁" "Проверить автопродление" "Репетиция продления, ничего не меняет"
         ui_item "X" "🔙" "Назад"
         echo -e "${BLUE}----------------------------------------------------------${NC}"
-        read -p "Выбор: " ssl_choice
+        read -p "Выбор: " ssl_choice || break
 
         case $ssl_choice in
             1)
@@ -809,7 +809,7 @@ function run_setup_menu {
         ui_item "X" "🔙" "Назад"
         echo ""
 
-        read -p "Ваш выбор [1-7, X]: " choice
+        read -p "Ваш выбор [1-7, X]: " choice || break
         case $choice in
             1) show_bbr_menu ;;
             2) show_ping_menu ;;
