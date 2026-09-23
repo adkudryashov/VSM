@@ -607,18 +607,25 @@ systemctl daemon-reload
 echo ""
 log "Запускаю службы"
 FAILED=0
-systemctl enable -q --now vsm-heartbeat.timer 2>/dev/null \
-    && log "Сторож для сторожа: проверка раз в 5 минут" \
-    || warn "Таймер vsm-heartbeat не поднялся — падение бота останется незамеченным"
-systemctl enable -q --now vsm-backup.timer 2>/dev/null \
-    && log "Резервная копия секретов: раз в сутки" \
-    || warn "Таймер vsm-backup не поднялся — секреты остаются в одном экземпляре"
 if want_combined; then
     start_and_check 3xui-telemt-bot || FAILED=1
 else
     if want_telemt; then start_and_check telemt-bot   || FAILED=1; fi
     if want_xui;    then start_and_check 3xui-monitor || FAILED=1; fi
 fi
+# Таймер сторожа — только ПОСЛЕ бота. OnBootSec=2min отсчитывается от загрузки
+# сервера, а на сервере, который работает давно, эти две минуты давно прошли:
+# `enable --now` запускает проверку в ту же секунду. При первой установке бота
+# ещё нет — и владелец получал «🆘 БОТ НЕ РАБОТАЕТ» за секунду до его старта.
+# Замерено 23.09.2026 на 179.254.109.140: проверка 19:11:48, бот 19:11:49.
+# На повторной установке это не видно — бот уже был поднят прежней.
+# Если бот не поднялся, таймер включается всё равно: тогда тревога верная.
+systemctl enable -q --now vsm-heartbeat.timer 2>/dev/null \
+    && log "Сторож для сторожа: проверка раз в 5 минут" \
+    || warn "Таймер vsm-heartbeat не поднялся — падение бота останется незамеченным"
+systemctl enable -q --now vsm-backup.timer 2>/dev/null \
+    && log "Резервная копия секретов: раз в сутки" \
+    || warn "Таймер vsm-backup не поднялся — секреты остаются в одном экземпляре"
 
 umask 077
 {
