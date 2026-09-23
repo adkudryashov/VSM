@@ -54,17 +54,10 @@ WEB_LISTEN_PORT="${WEB_LISTEN_PORT:-15080}"
 # обычной раскладки, где это ссылка: править надо файл, а не ссылку.
 # ----------------------------------------------------------------------
 web_vhost_path() {
-    local domain="$1" candidate
-    for candidate in "/etc/nginx/sites-enabled/$domain" \
-                     "/etc/nginx/conf.d/${domain}.conf" \
-                     "/etc/nginx/sites-available/$domain"; do
-        if [ -e "$candidate" ]; then
-            readlink -f "$candidate"
-            return 0
-        fi
-    done
-    echo "не найден vhost домена $domain" >&2
-    return 1
+    # Реализация одна — nginx_mask_panel_vhost в lib/nginx_mask.sh. Здесь была
+    # её копия с исправлением 04.09.2026, и исправление не дошло до оригинала:
+    # блок панели и её снятие три недели правили не тот файл. Разбор — там.
+    nginx_mask_panel_vhost "$1"
 }
 
 # ----------------------------------------------------------------------

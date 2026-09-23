@@ -498,16 +498,15 @@ applies_web_nginx_block() {
     [ "$(_toml_get "$TELEMT_TOML" web enabled)" = "true" ]
 }
 want_web_nginx_block() { echo "на месте"; }
-# Файл ищем ТАК ЖЕ, как его правит lib/nginx_web.sh: сначала sites-enabled,
-# который nginx и читает. Иначе позиция и правка смотрят в разные файлы и
-# согласованно ошибаются — поймано 30.08.2026, блок лёг в sites-available,
-# WEB не работал, а позиция рапортовала «на месте».
+# Файл ищем ТОЙ ЖЕ функцией, что и правка: иначе позиция и правка смотрят в
+# разные файлы и согласованно ошибаются — поймано 30.08.2026, блок лёг в
+# sites-available, WEB не работал, а позиция рапортовала «на месте».
+#
+# Здесь стояла третья копия поиска vhost. Их было три, и исправление 30.08 и
+# 04.09 дошло до двух — а старший оригинал продолжал править не тот файл до
+# 23.09.2026. Теперь реализация одна, nginx_mask_panel_vhost.
 _web_vhost_for_check() {
-    local domain="$1" candidate
-    for candidate in "/etc/nginx/sites-enabled/$domain"                      "/etc/nginx/conf.d/${domain}.conf"                      "/etc/nginx/sites-available/$domain"; do
-        [ -e "$candidate" ] && { readlink -f "$candidate"; return 0; }
-    done
-    return 1
+    nginx_mask_panel_vhost "$1" 2>/dev/null
 }
 read_web_nginx_block() {
     local vhost missing=()

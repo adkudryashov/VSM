@@ -25,12 +25,37 @@ MASK_VHOST="/etc/nginx/conf.d/telemt-mask.conf"
 # ----------------------------------------------------------------------
 # Путь к vhost панели. Печатает найденный путь в stdout.
 # ----------------------------------------------------------------------
+# ФАЙЛ, КОТОРЫЙ ЧИТАЕТ nginx, А НЕ ТОТ, ЧТО ЛЕЖИТ ПЕРВЫМ.
+#
+# Прежде здесь сначала смотрели sites-available. Это верно, только пока
+# sites-enabled — ссылка на него, как на свежей установке 3x-ui-pro. После
+# обновления 3x-ui через её же меню на стенде оказались ДВА ОБЫЧНЫХ ФАЙЛА с
+# разными inode: nginx читает sites-enabled, а мы правили sites-available.
+#
+# Что из этого вышло, замерено 23.09.2026 при переводе стенда на telemt_panel:
+# блок новой панели лёг в файл, который nginx не читает, — секретный путь
+# отдавал 404; снятие MTProxyL-Panel вычистило её блок оттуда же — и живой
+# nginx продолжал проксировать её путь на мёртвый порт 8080. А позиция реестра
+# nginx_blocks смотрела в тот же файл и говорила «на месте».
+#
+# Хуже всего то, что это уже чинили — 04.09.2026, для WEB Proxy, отдельной
+# функцией web_vhost_path. Починили копию, а старший двойник остался прежним:
+# ровно так в проекте однажды разошлись две копии wait_for_apt. Теперь
+# реализация одна — здесь, — а web_vhost_path только зовёт её.
+#
+# Порядок: sites-enabled, затем conf.d, и только потом sites-available — на
+# случай, если включённого файла нет вовсе. readlink -f обязателен: ссылку
+# надо развернуть, иначе правка через sed -i заменила бы ссылку файлом, и
+# sites-available с этой минуты тихо разошёлся бы с тем, что работает.
 nginx_mask_panel_vhost() {
-    local domain="$1" candidate
-    for candidate in "/etc/nginx/sites-available/$domain" \
-                     "/etc/nginx/sites-enabled/$domain"; do
-        if [ -f "$candidate" ]; then
-            printf '%s\n' "$candidate"
+    # VSM_NGINX_DIR — только ради проверок: иначе функцию не прогнать на
+    # тестовых файлах, а ошибка была именно в выборе между файлами.
+    local domain="$1" candidate root="${VSM_NGINX_DIR:-/etc/nginx}"
+    for candidate in "$root/sites-enabled/$domain" \
+                     "$root/conf.d/${domain}.conf" \
+                     "$root/sites-available/$domain"; do
+        if [ -e "$candidate" ]; then
+            readlink -f "$candidate"
             return 0
         fi
     done
