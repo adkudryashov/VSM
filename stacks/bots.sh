@@ -117,7 +117,6 @@ if [[ -z "$WATCHDOG_ENABLED" ]]; then
 fi
 WATCHDOG_ENABLED="${WATCHDOG_ENABLED:-false}"
 RU_CHECK_ENABLED="${RU_CHECK_ENABLED:-$(conf_get RU_CHECK_ENABLED)}"
-RU_CHECK_ENABLED="${RU_CHECK_ENABLED:-false}"
 RU_CHECK_INTERVAL_MINUTES="${RU_CHECK_INTERVAL_MINUTES:-$(conf_get RU_CHECK_INTERVAL_MINUTES)}"
 RU_CHECK_INTERVAL_MINUTES="${RU_CHECK_INTERVAL_MINUTES:-60}"
 RU_CHECK_PROBES="${RU_CHECK_PROBES:-$(conf_get RU_CHECK_PROBES)}"
@@ -136,6 +135,21 @@ RU_CHECK_SNI="${RU_CHECK_SNI:-$(conf_get RU_CHECK_SNI)}"
 # маскирующемуся серверу лишний внешний трафик. Настройка такого веса не
 # должна быть невидимой.
 RU_CHECK_SOURCE="${RU_CHECK_SOURCE:-$(conf_get RU_CHECK_SOURCE)}"
+
+# Умолчание «проверка выключена» — ради своих зондов: они тратят квоту
+# Globalping и шлют к маскирующемуся серверу лишний внешний трафик. Но с
+# MTProxyL бот только читает его готовый вердикт, и это не стоит ничего.
+# Прогон с нуля 24.09.2026: всё стояло, а проверка молчала, пока владелец не
+# включил её руками. Поэтому: MTProxyL есть и владелец ничего не выбирал —
+# включаем, причём с источником строго mtproxyl, а не auto. Сразу после
+# установки MTProxyL его вердикта ещё нет, и auto в этот момент пошёл бы
+# мерить сам — ровно то, чего умолчание и избегало.
+if [[ -z "$RU_CHECK_ENABLED" && -z "$RU_CHECK_SOURCE" \
+      && -e "${MTPROXYL_SCRIPT:-/opt/mtproxyl/mtproxyl.sh}" ]]; then
+    RU_CHECK_ENABLED=true
+    RU_CHECK_SOURCE=mtproxyl
+fi
+RU_CHECK_ENABLED="${RU_CHECK_ENABLED:-false}"
 RU_CHECK_SOURCE="${RU_CHECK_SOURCE:-auto}"
 
 # Домен панели из конфига стека — нужен, чтобы отказаться вешать карту на цель
