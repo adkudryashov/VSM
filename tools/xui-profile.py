@@ -101,7 +101,11 @@ SETTINGS_EXTRA = {"remarkModel", "remarkTemplate", "timeLocation", "datepicker",
 # Ключи подписки, привязанные к установке: пути, порт, адреса, сертификаты.
 SETTINGS_INSTANCE = {"subPort", "subPath", "subJsonPath", "subClashPath", "subURI",
                      "subJsonURI", "subClashURI", "subCertFile", "subKeyFile",
-                     "subDomain", "subListen"}
+                     "subDomain", "subListen",
+                     # Подписку mihomo включает lib/xui_mihomo.sh вместе с
+                     # nginx: включатель без пути в nginx — 404 у роутеров,
+                     # выключатель из старого шаблона гасил бы её молча.
+                     "subClashEnable"}
 
 HOST_SKIP = {"id", "inbound_id", "group_id", "created_at", "updated_at", "node_guids"}
 
@@ -580,7 +584,10 @@ def plan_apply(c, profile, values):
     if dropped:
         warn("столбцов нет в этой версии 3x-ui, отброшены: " + ", ".join(sorted(dropped)))
 
-    settings_rows = dict(profile.get("settings") or {})
+    # Привязанное к установке отсеивается и здесь, а не только при снятии:
+    # шаблоны, снятые до того, как ключ стал «своим», его ещё несут.
+    settings_rows = {k: v for k, v in (profile.get("settings") or {}).items()
+                     if k not in SETTINGS_INSTANCE}
     expected = len(fresh) + sum(1 for a in actions if a[0] == "insert")
     return actions, settings_rows, expected
 

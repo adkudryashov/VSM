@@ -126,7 +126,8 @@ def сервер_владельца(путь):
               "values ('g', ?, 'hy2', ?, 443, 'same')", (hy2, ДОМЕН_А))
     for k, v in (("subTitle", "🇸🇪 adkrw My1Cent"), ("subSupportUrl", "https://t.me/adkrw"),
                  ("subAnnounce", "Контакты: https://t.me/adkrw"), ("subUpdates", "1"),
-                 ("tgBotToken", "ТОКЕН-НЕ-ПЕРЕНОСИТЬ"), ("remarkModel", "-ieo")):
+                 ("tgBotToken", "ТОКЕН-НЕ-ПЕРЕНОСИТЬ"), ("remarkModel", "-ieo"),
+                 ("subClashEnable", "false")):
         if c.execute("select 1 from settings where key = ?", (k,)).fetchone():
             c.execute("update settings set value = ? where key = ?", (v, k))
         else:
@@ -223,7 +224,8 @@ def test_имя_и_флаг_угаданы_и_стали_метками(шабл
 
 def test_привязанные_к_установке_настройки_не_снимаются(шаблон):
     p = json.loads(шаблон.read_text(encoding="utf-8"))
-    for key in ("subPath", "subURI", "subPort", "webBasePath", "subCertFile", "tgBotToken"):
+    for key in ("subPath", "subURI", "subPort", "webBasePath", "subCertFile", "tgBotToken",
+                "subClashEnable"):
         assert key not in p["settings"], key
 
 
@@ -335,6 +337,26 @@ def test_сервис_переживает_перенос_по_новому_пр
     assert ответ.returncode == 0, ответ.stdout + ответ.stderr
     assert "🇫🇮 xhttp" in входящие(db)
     assert настройка(db, "subTitle") == "🇫🇮 Aeza {{EMAIL}}"
+
+
+def test_старый_шаблон_не_выключает_подписку_mihomo(tmp_path, заглушки, шаблон):
+    """Шаблон, снятый до 24.09.2026, несёт subClashEnable=false. Наложение на
+    панель с включённой подпиской mihomo не должно её гасить: роутеры получили
+    бы 404, а кнопка XKeen пропала бы молча."""
+    p = json.loads(шаблон.read_text(encoding="utf-8"))
+    p["settings"]["subClashEnable"] = "false"
+    старый = tmp_path / "старый.json"
+    старый.write_text(json.dumps(p, ensure_ascii=False), encoding="utf-8")
+    db = tmp_path / "e.db"
+    свежая_установка(db, ДОМЕН_Б, РЕАЛИТИ_Б, 40001, 40002, флаг="🇩🇪")
+    c = sqlite3.connect(db)
+    c.execute("insert into settings (key, value) values ('subClashEnable', 'true')")
+    c.commit()
+    c.close()
+    ответ = запустить(tmp_path, заглушки, "apply", "--profile", str(старый), "--domain", ДОМЕН_Б,
+                      "--reality-domain", РЕАЛИТИ_Б, "--name", "N", "--ip", IP_Б, db=db)
+    assert ответ.returncode == 0, ответ.stderr
+    assert настройка(db, "subClashEnable") == "true"
 
 
 def test_домены_берутся_из_базы_панели(tmp_path, заглушки, шаблон):
