@@ -247,6 +247,17 @@ class WatchState:
     hard_fails: Flap = field(default_factory=Flap)
     # Домен подключения не ведёт на этот сервер — переехали, забыли DNS.
     dns: Flap = field(default_factory=Flap)
+    # Часы сервера разошлись с Telegram и ошибки согласования ключей. Порог
+    # один опрос: движок сам сглаживает оба признака временем (15 минут и
+    # скользящее среднее в 10 минут), счёт опросов сверху только отложил бы
+    # тревогу. Обоснование в selftest.py.
+    clock_skew: Flap = field(default_factory=lambda: Flap(threshold=1))
+    kdf: Flap = field(default_factory=lambda: Flap(threshold=1))
+    # WEB Proxy не принимает соединения или упёрся в свои пределы. Порог
+    # общий: после перезапуска WEB несколько секунд поднимается, а
+    # заполненность — мгновенный снимок. См. web.py.
+    web_down: Flap = field(default_factory=Flap)
+    web_full: Flap = field(default_factory=Flap)
     ip: IPWatch = field(default_factory=IPWatch)
     started_at: Marker = field(default_factory=Marker)
     config_hash: Marker = field(default_factory=Marker)
@@ -284,6 +295,10 @@ class WatchState:
             "beszel_silent": self.beszel_silent.to_dict(),
             "hard_fails": self.hard_fails.to_dict(),
             "dns": self.dns.to_dict(),
+            "clock_skew": self.clock_skew.to_dict(),
+            "kdf": self.kdf.to_dict(),
+            "web_down": self.web_down.to_dict(),
+            "web_full": self.web_full.to_dict(),
             "ip": self.ip.to_dict(),
             "started_at": self.started_at.to_dict(),
             "config_hash": self.config_hash.to_dict(),
@@ -309,6 +324,11 @@ class WatchState:
             beszel_silent=Flap.from_dict(data.get("beszel_silent", {}), 1),
             hard_fails=Flap.from_dict(data.get("hard_fails", {}), threshold),
             dns=Flap.from_dict(data.get("dns", {}), threshold),
+            # Порог свой, не общий из настроек — обоснование у поля выше.
+            clock_skew=Flap.from_dict(data.get("clock_skew", {}), 1),
+            kdf=Flap.from_dict(data.get("kdf", {}), 1),
+            web_down=Flap.from_dict(data.get("web_down", {}), threshold),
+            web_full=Flap.from_dict(data.get("web_full", {}), threshold),
             ip=IPWatch.from_dict(data.get("ip", {})),
             started_at=Marker.from_dict(data.get("started_at", {})),
             config_hash=Marker.from_dict(data.get("config_hash", {})),

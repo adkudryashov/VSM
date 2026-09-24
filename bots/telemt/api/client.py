@@ -63,3 +63,5 @@ class TelemtAPIClient:
     async def runtime_initialization(self) -> dict: return await self._request("GET", "/v1/runtime/initialization")
     async def runtime_me_pool_state(self) -> dict: return await self._request("GET", "/v1/runtime/me_pool_state")
     async def runtime_me_quality(self) -> dict: return await self._request("GET", "/v1/runtime/me_quality")
+    async def me_selftest(self) -> dict: return await self._request("GET", "/v1/runtime/me-selftest")
+    async def web_status(self) -> dict: return await self._request("GET", "/v1/runtime/web/status")

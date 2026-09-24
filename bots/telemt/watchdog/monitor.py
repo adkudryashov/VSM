@@ -10,6 +10,9 @@ globalping.py. Разделение не ради красоты: логику �
   движок недоступен      API не отвечает — прокси либо лёг, либо потерял API
   движок перезапустился  process_started_at сменился без нашего ведома
   писатели просели       некому писать в Telegram: клиенты подключатся и зависнут
+  пустой дата-центр      среднее покрытие прячет целиком пустую группу
+  часы и ключи           рассинхрон часов или скачущий адрес — снаружи как блокировка
+  WEB Proxy              не принимает соединения или упёрся в свои пределы
   жёсткие отказы выхода  движок не может дозвониться до Telegram — сломан выход
   домен не на этот сервер клиенты идут по старому адресу: переехали, забыли DNS
   конфиг движка изменён  telemt.toml переписали мимо VSM
@@ -35,7 +38,8 @@ from aiogram import Bot
 from config import settings, DATA_DIR
 from telemt.api.client import TelemtAPIClient
 from common.beszel import shared as beszel_client
-from telemt.watchdog import beszel_hub, dcs, drift, globalping, mtproxyl, upgrades, upstreams
+from telemt.watchdog import (beszel_hub, dcs, drift, globalping, mtproxyl, selftest,
+                             upgrades, upstreams, web)
 from telemt.watchdog.incidents import CLEAR, FIRE, REPEAT, REPEAT_SECONDS, WatchState
 
 STATE_PATH = Path(DATA_DIR) / "watchdog.json"
@@ -300,8 +304,97 @@ class Watchdog:
                 clear="✅ <b>ДАТА-ЦЕНТРЫ TELEGRAM СНОВА С ПИСАТЕЛЯМИ</b>",
             )
 
+        await self._poll_selftest(bot)
+        await self._poll_web(bot)
         await self._poll_beszel(bot)
         await self._poll_hard_fails(bot, started)
+
+    async def _poll_selftest(self, bot: Bot) -> None:
+        """
+        Часы сервера и согласование ключей с Telegram. Обе поломки снаружи
+        похожи на блокировку, а причина у них на самом сервере — разбор в
+        selftest.py. Каждый признак решается отдельно: «не знаем» по одному
+        не трогает тревогу по другому.
+        """
+        payload = None
+        try:
+            payload = await self.api.me_selftest()
+        except Exception as exc:
+            logging.info("Сторож: самопроверка движка не пришла: %s", exc)
+        verdict = selftest.read_verdict(payload)
+
+        if verdict.skew_bad is not None:
+            skew = (f"до {verdict.skew_secs} с за последние 15 минут"
+                    if verdict.skew_secs is not None else "больше минуты")
+            await self._fire_or_clear(
+                bot, self.state.clock_skew.update(is_bad=verdict.skew_bad),
+                self.state.clock_skew,
+                fire="🚨 <b>ЧАСЫ СЕРВЕРА РАЗОШЛИСЬ С TELEGRAM</b>\n"
+                     f"Расхождение {skew}, допустимо 60 с.\n"
+                     "Рукопожатия с Telegram начнут отваливаться у всех "
+                     "клиентов разом. Снаружи это похоже на блокировку, "
+                     "а причина на самом сервере.\n"
+                     "Проверить: <code>timedatectl</code> — строка "
+                     "«System clock synchronized» должна быть «yes».",
+                clear="✅ <b>ЧАСЫ СЕРВЕРА СНОВА СОВПАДАЮТ С TELEGRAM</b>",
+            )
+
+        if verdict.kdf_bad is not None:
+            rate = (f"{verdict.kdf_rate:.1f} в минуту при пороге "
+                    f"{verdict.kdf_threshold:.1f}"
+                    if verdict.kdf_rate is not None and verdict.kdf_threshold is not None
+                    else "выше порога движка")
+            await self._fire_or_clear(
+                bot, self.state.kdf.update(is_bad=verdict.kdf_bad),
+                self.state.kdf,
+                fire="🚨 <b>ОШИБКИ КЛЮЧЕЙ ПРИ ПОДКЛЮЧЕНИИ К TELEGRAM</b>\n"
+                     f"Ошибок согласования ключей (KDF): {rate}.\n"
+                     "Адрес, под которым сервер виден серверам Telegram, "
+                     "меняется между подключениями — так бывает за NAT, при "
+                     "нескольких внешних адресах или неустойчивом ответе STUN. "
+                     "Подключения к Telegram при этом срываются.",
+                clear="✅ <b>КЛЮЧИ С TELEGRAM СОГЛАСУЮТСЯ БЕЗ ОШИБОК</b>",
+            )
+
+    async def _poll_web(self, bot: Bot) -> None:
+        """
+        WEB Proxy: принимает ли соединения и не упёрся ли в пределы. На
+        сервере без WEB молчит. Разбор и границы — в web.py.
+        """
+        payload = None
+        try:
+            payload = await self.api.web_status()
+        except Exception as exc:
+            logging.info("Сторож: состояние WEB не пришло: %s", exc)
+        verdict = web.read_verdict(payload)
+        if not verdict.in_use:
+            return
+
+        if verdict.accepting is not None:
+            await self._fire_or_clear(
+                bot, self.state.web_down.update(is_bad=not verdict.accepting),
+                self.state.web_down,
+                fire="🚨 <b>WEB PROXY НЕ ПРИНИМАЕТ СОЕДИНЕНИЯ</b>\n"
+                     f"Причина: {html.escape(verdict.reason_label())}.\n"
+                     "Клиенты, подключённые через WEB, не смогут "
+                     "подключиться заново. Обычный порт прокси при этом "
+                     "работает — его проверки выше этой.",
+                clear="✅ <b>WEB PROXY СНОВА ПРИНИМАЕТ СОЕДИНЕНИЯ</b>",
+            )
+
+        # Заполненность считаем, только когда приём открыт: у закрытого
+        # приёма уже есть своя тревога, и пределы там ни при чём.
+        if verdict.accepting:
+            await self._fire_or_clear(
+                bot, self.state.web_full.update(is_bad=bool(verdict.full)),
+                self.state.web_full,
+                fire="🚨 <b>WEB PROXY УПЁРСЯ В ПРЕДЕЛ</b>\n"
+                     f"Занято целиком: {html.escape(verdict.full_label())}.\n"
+                     "Новым клиентам WEB отказывает по одному, а приём при "
+                     "этом числится открытым. Пределы задаются в секции "
+                     "[web.limits] конфига telemt.",
+                clear="✅ <b>WEB PROXY: ПРЕДЕЛЫ СНОВА С ЗАПАСОМ</b>",
+            )
 
     async def _poll_beszel(self, bot: Bot) -> None:
         """
@@ -827,6 +920,18 @@ class Watchdog:
                      else "✅ Движок отвечает")
         lines.append("🚨 Тревога: писатели просели" if self.state.writers.firing
                      else "✅ Писатели в норме")
+        # Эти строки — только пока тревога висит. В исправном состоянии
+        # карточка про них молчит: пять лишних «✅» отодвинули бы вниз то, ради
+        # чего на неё смотрят, а само «всё хорошо» уже сказано строками выше.
+        for flap, text in (
+            (self.state.dc_dead, "🚨 Тревога: дата-центр Telegram без писателей"),
+            (self.state.clock_skew, "🚨 Тревога: часы сервера разошлись с Telegram"),
+            (self.state.kdf, "🚨 Тревога: ошибки ключей с Telegram"),
+            (self.state.web_down, "🚨 Тревога: WEB Proxy не принимает соединения"),
+            (self.state.web_full, "🚨 Тревога: WEB Proxy упёрся в предел"),
+        ):
+            if flap.firing:
+                lines.append(text)
 
         # Выход к Telegram. Показываем живую долю жёстких отказов — по ней
         # видно, насколько порог далёк от действительности на этом сервере.
