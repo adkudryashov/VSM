@@ -237,7 +237,7 @@ nginx намеренно `tell`: автопочинка потребовала �
 ## Прочее
 
 - `menus/tests.sh` (261) — IP region, доступность из РФ, iPerf3, YABS, IPQuality, sysbench, RealiTLScanner, DPI Detector, SNI Scan
-- `menus/utils.sh` (190) — htop, ncdu, nethogs, внешний IP, ping/mtr, порты, kill, очистка, проверка домена
+- `menus/utils.sh` (250) — htop, ncdu, nethogs, внешний IP, ping/mtr, порты, очистка, проверка домена, агент beszel (9, lib/beszel_agent.sh), kill (10)
 - `menus/warp.sh` (256) — Cloudflare WARP в режиме SOCKS5
 
 IPv6 отдельным файлом больше не живёт: `show_ipv6_menu` внутри

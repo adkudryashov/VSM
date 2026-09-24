@@ -14,6 +14,58 @@ function check_utils_deps {
         echo -e "${YELLOW}   Пункты, которым нужны недостающие утилиты, работать не будут.${NC}"
 }
 
+# shellcheck disable=SC1091
+source "$VSM_LIB/beszel_agent.sh"
+
+# ----------------------------------------------------------------------
+# АГЕНТ BESZEL. Подробности — в шапке lib/beszel_agent.sh.
+# ----------------------------------------------------------------------
+function manage_beszel_agent {
+    local ch hub key token def yn
+    while true; do
+        clear 2>/dev/null
+        ui_title "🖥  АГЕНТ BESZEL"
+        ui_section "СОСТОЯНИЕ"
+        echo -e "   $(beszel_agent_state)"
+        if beszel_agent_installed; then
+            echo -e "   ${C_DESC}версия $(beszel_agent_version), хаб $(beszel_agent_hub_url)${NC}"
+        fi
+        echo ""
+        echo -e "   ${C_DESC}Агент сам ходит к хабу по WebSocket — порт на этом сервере${NC}"
+        echo -e "   ${C_DESC}открывать не нужно. Ключ и токен показывает хаб: «Добавить${NC}"
+        echo -e "   ${C_DESC}систему». Для новых серверов удобнее общий токен: «Настройки →${NC}"
+        echo -e "   ${C_DESC}Токены и отпечатки» — один на все, сервер появится в хабе сам.${NC}"
+        echo ""
+        ui_section "ДЕЙСТВИЯ"
+        ui_item "1" "📥" "Поставить"  "Или переподключить к другому хабу"
+        ui_danger_item "2" "Удалить"  "Служба, бинарь, таймер обновления"
+        ui_item "X" "🔙" "Назад"
+        echo ""
+        read -p "Ваш выбор [1-2, X]: " ch || break
+        case "$ch" in
+            1)
+                def="$(beszel_agent_hub_url 2>/dev/null)"
+                read -r -p "Адрес хаба${def:+ [$def]}: " hub || break
+                hub="${hub:-$def}"
+                read -r -p "Ключ хаба (ssh-ed25519 …): " key || break
+                # Токен не печатается: он даёт право зарегистрировать сервер в хабе.
+                IFS= read -rs -p "Токен: " token || break
+                echo ""
+                beszel_agent_install "$hub" "$key" "$token" || true
+                unset token
+                read -p "Нажмите Enter..."
+                ;;
+            2)
+                read -r -p "$(echo -e "${RED}Удалить агент? Сервер пропадёт из хаба. [y/N]: ${NC}")" yn || break
+                [[ "$yn" =~ ^[YyДд]$ ]] && { beszel_agent_remove || true; }
+                read -p "Нажмите Enter..."
+                ;;
+            [Xx]) return ;;
+            *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
 function run_utils_menu {
     check_utils_deps
     
@@ -34,8 +86,12 @@ function run_utils_menu {
         echo ""
         ui_section "ОБСЛУЖИВАНИЕ"
         ui_item "8" "🧹" "Очистка"        "Кэш пакетов, журналы, временные файлы"
+        ui_item "9" "🖥" "Агент beszel"   "$(beszel_agent_state)"
         echo ""
-        ui_danger_item "9" "Завершить процесс" "kill: снимает выбранный процесс"
+        # Завершение процесса уехало с 9 на 10 из-за агента beszel — в эту
+        # сторону сдвиг безопасен: по старой привычке попадёшь на безобидный
+        # экран агента, а не на kill.
+        ui_danger_item "10" "Завершить процесс" "kill: снимает выбранный процесс"
         ui_item "X" "🔙" "Назад"
         echo ""
         
@@ -115,7 +171,8 @@ function run_utils_menu {
                 echo ""
                 read -p "Нажмите Enter..."
                 ;;
-            9)
+            9) manage_beszel_agent ;;
+            10)
                 echo -e "\n${CYAN}--- Завершение процессов ---${NC}"
                 ui_item        "1" "🔍" "Найти по имени"  "Показать PID, ничего не трогая"
                 ui_danger_item "2" "Убить по PID"   "kill -9, без вопросов"
