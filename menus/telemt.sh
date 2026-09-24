@@ -51,6 +51,13 @@ if [ -f "$VSM_LIB/panel_install.sh" ]; then
     source "$VSM_LIB/panel_install.sh"
 fi
 
+# Шаблон настроек 3x-ui: вопрос в диалоге установки стека тот же, что в
+# меню X-UI.
+if [ -f "$VSM_LIB/xui_profile.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$VSM_LIB/xui_profile.sh"
+fi
+
 # Сторонний проект MTProxyL (лимитер | тюнинг) под Telemt. Пришёл на смену
 # MTproxy-reanimation: тот заброшен на 1.2.9, разработка переехала в новый
 # репозиторий. Лицензия MIT.
@@ -262,6 +269,13 @@ function run_install {
         *)     INSTALL_PANEL=1 ;;
     esac
 
+    # Шаблон 3x-ui — только при установке панели с нуля: в режиме addon
+    # панель уже доведена владельцем, накладывать на неё нечего.
+    XUI_PROFILE_APPLY=0; XUI_PROFILE_NAME=""
+    if [ "$mode" = "full" ] && declare -F xui_profile_ask >/dev/null 2>&1; then
+        xui_profile_ask
+    fi
+
     echo -e "\n${YELLOW}Запускаю установку. Это займёт несколько минут.${NC}\n"
     sleep 1
 
@@ -270,6 +284,8 @@ function run_install {
     TELEMT_PORT="${p_telemt:-${TELEMT_PORT:-8444}}" \
     INSTALL_PANEL="$INSTALL_PANEL" \
     PANEL_PORT="${p_panel:-${PANEL_PORT:-9444}}" \
+    XUI_PROFILE_APPLY="$XUI_PROFILE_APPLY" \
+    XUI_PROFILE_NAME="$XUI_PROFILE_NAME" \
         bash "$STACK_SCRIPT" --mode "$mode"
 
     echo ""

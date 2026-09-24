@@ -9,6 +9,12 @@ source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/common.sh" || {
 
 XUI_PRO_REPO="https://raw.githubusercontent.com/mozaroc/3x-ui-pro/main"
 
+# Шаблон настроек 3x-ui: снять с этого сервера, наложить на свежую панель.
+if [ -f "$VSM_LIB/xui_profile.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$VSM_LIB/xui_profile.sh"
+fi
+
 # Установщик и патч 3x-ui-pro очищают /etc/nginx/sites-enabled целиком.
 # Если на сервере поднят стек telemt, его self-SNI vhost живёт в conf.d и
 # это переживает — но vhost ссылается на пути из конфига панели, которые
@@ -211,6 +217,12 @@ function install_xui_pro {
     read -p "Версия 3x-ui (Enter = последняя): " version
     [ -n "$version" ] && xui_args+=(-version "$version")
 
+    # Вопрос про шаблон — до установки, вместе с остальными: сама установка
+    # идёт минуты, и спрашивать после неё значит заставить человека ждать у
+    # экрана ради одного ответа.
+    XUI_PROFILE_APPLY=0; XUI_PROFILE_NAME=""
+    declare -F xui_profile_ask >/dev/null 2>&1 && xui_profile_ask
+
     echo -e "${CYAN}>>> Запуск установки 3x-ui-pro...${NC}"
 
     # Загрузка, сверка отпечатка и снятие проверки CPU — в общей
@@ -227,6 +239,14 @@ function install_xui_pro {
     fi
     bash "$installer" "${xui_args[@]}"
     rm -f "$installer"
+    if [ "${XUI_PROFILE_APPLY:-0}" = "1" ]; then
+        if systemctl is-active --quiet x-ui; then
+            echo -e "\n${CYAN}>>> Накладываю шаблон настроек 3x-ui...${NC}"
+            xui_profile_apply "$subdomain" "$reality_domain" "$XUI_PROFILE_NAME" || true
+        else
+            echo -e "${YELLOW}⚠️  Панель не запущена — шаблон не накладываю.${NC}"
+        fi
+    fi
     warn_telemt_after_panel_change
     read -p "Нажмите Enter для продолжения..."
 }
@@ -593,6 +613,81 @@ function xui_awg_mihomo {
     read -p "Нажмите Enter для возврата..."
 }
 
+# ======================================================================
+# ШАБЛОН НАСТРОЕК 3X-UI
+#
+# Владелец доводит свежую панель руками: подписка, названия, хосты, hy2 и
+# awg — и на следующем сервере повторял бы то же самое. Шаблон переносит эти
+# правки. Что именно переносится и что нет — в шапке tools/xui-profile.py.
+# ======================================================================
+function manage_xui_profile {
+    if ! declare -F xui_profile_pickup >/dev/null 2>&1; then
+        echo -e "${RED}❌ Не найден lib/xui_profile.sh — обновите VSM.${NC}"
+        read -p "Нажмите Enter..."; return
+    fi
+    while true; do
+        clear 2>/dev/null
+        ui_title "🧩  ШАБЛОН НАСТРОЕК 3X-UI"
+        xui_profile_pickup
+        echo ""
+        ui_section "СОСТОЯНИЕ"
+        if [ -f "$XUI_PROFILE_FILE" ]; then
+            python3 "$XUI_PROFILE_TOOL" show --profile "$XUI_PROFILE_FILE" 2>&1 | sed 's/^/   /'
+        else
+            echo -e "   ${C_DESC}Шаблона на этом сервере нет.${NC}"
+        fi
+        echo ""
+        ui_section "ДЕЙСТВИЯ"
+        ui_item "1" "📸" "Снять с этого сервера"      "Подписки, названия, хосты, входящие — без секретов"
+        ui_item "2" "🧩" "Наложить на этот сервер"    "На свежую панель; копия базы и откат при сбое"
+        ui_item "3" "🚚" "Перенести на другой сервер" "Готовая команда копирования"
+        ui_item "X" "🔙" "Назад"
+        echo ""
+        local ch
+        read -p "Ваш выбор [1-3, X]: " ch || break
+        case "$ch" in
+            1)
+                if [ -f "$XUI_PROFILE_FILE" ]; then
+                    local yn
+                    read -r -p "$(echo -e "${YELLOW}Шаблон уже есть. Заменить снятым сейчас? [y/N]: ${NC}")" yn
+                    [[ "$yn" =~ ^[Yy]$ ]] || continue
+                fi
+                python3 "$XUI_PROFILE_TOOL" export --out "$XUI_PROFILE_FILE" || true
+                read -p "Нажмите Enter..."
+                ;;
+            2)
+                # Предупреждение о цене — до вопроса, а не после: на доведённой
+                # панели шаблон перепишет названия и подписку.
+                echo -e "${YELLOW}❗  Шаблон рассчитан на СВЕЖУЮ панель. На уже настроенной он"
+                echo -e "    перепишет названия входящих, хосты и настройки подписки."
+                echo -e "    Порты, пути, ключи и клиенты останутся. Копия базы снимется.${NC}"
+                XUI_PROFILE_APPLY=0
+                xui_profile_ask "Наложить шаблон на эту панель сейчас?"
+                if [ "${XUI_PROFILE_APPLY:-0}" = "1" ]; then
+                    python3 "$XUI_PROFILE_TOOL" apply --profile "$XUI_PROFILE_FILE" \
+                        --name "$XUI_PROFILE_NAME" || true
+                fi
+                read -p "Нажмите Enter..."
+                ;;
+            3)
+                local here
+                here="$(curl -4 -s --max-time 5 https://api.ipify.org 2>/dev/null)"
+                echo -e "${CYAN}Выполните на своём компьютере — две команды по очереди:${NC}"
+                echo ""
+                echo "   scp root@${here:-ЭТОТ_СЕРВЕР}:$XUI_PROFILE_FILE ."
+                echo "   scp xui-profile.json root@НОВЫЙ_СЕРВЕР:/root/"
+                echo ""
+                echo -e "${C_DESC}   Файл на новом сервере VSM заберёт из /root сам. Дальше —"
+                echo -e "   установка стека или «Установить» здесь: шаблон предложат наложить."
+                echo -e "   Секретов в шаблоне нет: ключи, пароли и клиенты не переносятся.${NC}"
+                read -p "Нажмите Enter..."
+                ;;
+            [Xx]) return ;;
+            *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
 function manage_xui_service {
     local SERVICE_NAME=$XUI_SERVICE
     while true; do
@@ -649,16 +744,17 @@ function manage_xui_service {
         ui_section "ДОПОЛНИТЕЛЬНО"
         ui_item "7" "🔒" "AdGuard Home"       "DNS-over-HTTPS и блокировка рекламы"
         ui_item "8" "🌐" "AmneziaWG для роутера" "Конфиг mihomo (XKeen) и проверка порта"
+        ui_item "9" "🧩" "Шаблон настроек"    "Перенести подписки и входящие на другой сервер"
         echo ""
-        # Удаление уехало с 7 на 8, а затем на 9 — каждый раз из-за нового
-        # пункта над ним. Сдвиг безопасен только в эту сторону: кто по привычке
-        # нажмёт прежний номер, попадёт на безобидный экран, а не на снос
-        # панели. Обратный порядок был бы недопустим.
-        ui_danger_item "9" "Удалить X-UI Pro" "Панель, база и nginx целиком"
+        # Удаление уехало с 7 на 8, на 9, а затем на 10 — каждый раз из-за
+        # нового пункта над ним. Сдвиг безопасен только в эту сторону: кто по
+        # привычке нажмёт прежний номер, попадёт на безобидный экран, а не на
+        # снос панели. Обратный порядок был бы недопустим.
+        ui_danger_item "10" "Удалить X-UI Pro" "Панель, база и nginx целиком"
         ui_item "X" "🔙" "Назад"
         echo ""
 
-        read -p "Ваш выбор [1-9, X]: " choice || break
+        read -p "Ваш выбор [1-10, X]: " choice || break
         echo ""
 
         case $choice in
@@ -684,7 +780,8 @@ function manage_xui_service {
                 ;;
             7) manage_adguard ;;
             8) xui_awg_mihomo ;;
-            9) uninstall_xui_pro ;;
+            9) manage_xui_profile ;;
+            10) uninstall_xui_pro ;;
             [Xx]) return ;;
             *) echo -e "${RED}❌ Неверный ввод.${NC}" ;;
         esac

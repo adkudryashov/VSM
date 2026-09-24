@@ -29,6 +29,8 @@ set -euo pipefail
 #   PANEL_ADMIN_USER=admin
 #   PANEL_ADMIN_PASS=<...>  (по умолчанию генерируется)
 #   XUI_VERSION=<3.7.0>     поставить ИМЕННО эту версию 3x-ui вместо последней
+#   XUI_PROFILE_APPLY=1     наложить шаблон /etc/vsm/xui-profile.json на свежую
+#   XUI_PROFILE_NAME=<имя>  панель (только режим full); имя сервера для подписок
 # ============================================================================
 #
 # ПРО XUI_VERSION. Пусто по умолчанию, и это не забывчивость: проект решил
@@ -195,6 +197,12 @@ fi
 if [[ -f "$VSM_LIB/panels.sh" ]]; then
     # shellcheck disable=SC1091
     . "$VSM_LIB/panels.sh"
+fi
+
+# Шаблон настроек 3x-ui. Не обязателен по той же причине.
+if [[ -f "$VSM_LIB/xui_profile.sh" ]]; then
+    # shellcheck disable=SC1091
+    . "$VSM_LIB/xui_profile.sh"
 fi
 
 : "${DOMAIN_PANEL:?Не задан DOMAIN_PANEL}"
@@ -462,6 +470,17 @@ fi
 verify_or_die nginx -t
 verify_or_die systemctl is-active --quiet nginx
 verify_or_die systemctl is-active --quiet x-ui
+
+# Шаблон настроек 3x-ui — только на свежую панель (режим full): в режиме
+# addon панель уже доведена владельцем, и накладывать на неё что-либо без
+# спроса нельзя. Отказ не роняет стек: инструмент сам возвращает базу из копии.
+if [[ "$MODE" == "full" && "${XUI_PROFILE_APPLY:-0}" == "1" ]] \
+   && declare -F xui_profile_apply >/dev/null 2>&1; then
+    log "Этап 1: накладываю шаблон настроек 3x-ui"
+    xui_profile_apply "$DOMAIN_PANEL" "$DOMAIN_REALITY" "${XUI_PROFILE_NAME:-}" \
+        || warn "шаблон 3x-ui не наложен — панель осталась свежей установкой"
+    verify_or_die systemctl is-active --quiet x-ui
+fi
 
 PANEL_WEBPATH="$(/usr/local/x-ui/x-ui setting -show true 2>&1 | grep -oP 'webBasePath:\s*\K\S+' || true)"
 
