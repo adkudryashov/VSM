@@ -147,12 +147,25 @@ _xm_verify() {
             --resolve "$domain:443:127.0.0.1" "$@" 2>/dev/null
     }
 
+    # Первым — скрипт кнопки, С ПОВТОРАМИ. systemctl reload nginx
+    # возвращается раньше, чем новые воркеры начинают отвечать, и первые
+    # запросы получают старый конфиг — 404. Поймано 24.09.2026 на свежей
+    # установке: клиентов нет, проверка шла одним запросом и откатывала
+    # исправную правку. На стенде это пряталось: там сначала ждали подписку.
+    for ((i = 0; i < XUI_MIHOMO_WAIT; i++)); do
+        code="$(_get "https://$domain/$sub/__vsm/xkeen.js")"
+        [ "$code" = "200" ] && break
+        sleep 1
+    done
+    if [ "$code" != "200" ] || ! grep -q '__SUB_PAGE_DATA__' "$tmp"; then
+        echo "скрипт кнопки отдаётся с кодом $code" >&2
+        rm -f "$tmp"; return 1
+    fi
+
     # Свежая панель бывает без клиентов: подписку проверить не на ком, но
     # это не повод откатывать — проверяем то, что можно, и говорим об этом.
     if [ -z "$sid" ]; then
-        code="$(_get "https://$domain/$sub/__vsm/xkeen.js")"
         rm -f "$tmp"
-        [ "$code" = "200" ] || { echo "скрипт кнопки отдаётся с кодом $code" >&2; return 1; }
         echo -e "${YELLOW:-}❗  Клиентов нет — выдачу подписки проверить не на ком.${NC:-}" >&2
         return 0
     fi
@@ -178,12 +191,6 @@ _xm_verify() {
     code="$(_get -H 'Accept: text/html' "https://$domain/$sub/$sid")"
     if [ "$code" != "200" ] || ! grep -qF '__vsm/xkeen.js' "$tmp"; then
         echo "страница подписки ($code) пришла без скрипта кнопки" >&2
-        rm -f "$tmp"; return 1
-    fi
-
-    code="$(_get "https://$domain/$sub/__vsm/xkeen.js")"
-    if [ "$code" != "200" ] || ! grep -q '__SUB_PAGE_DATA__' "$tmp"; then
-        echo "скрипт кнопки отдаётся с кодом $code" >&2
         rm -f "$tmp"; return 1
     fi
     rm -f "$tmp"
