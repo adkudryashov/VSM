@@ -481,7 +481,7 @@ function run_panel_menu {
 
         echo ""
         ui_section "ДЕЙСТВИЯ"
-        ui_item "1" "🏠" "Поставить telemt_panel" "Ставит и настраивает VSM"
+        ui_item "1" "🏠" "Поставить панель" "telemt_panel: ставит и настраивает VSM"
         ui_item "2" "🔀" "Сменить путь"           "Если секретный адрес засветился"
         echo ""
         ui_danger_item "3" "Снять панель совсем" "telemt при этом не трогается"
