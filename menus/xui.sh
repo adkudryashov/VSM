@@ -15,6 +15,25 @@ if [ -f "$VSM_LIB/xui_profile.sh" ]; then
     source "$VSM_LIB/xui_profile.sh"
 fi
 
+# Подписка mihomo для роутера с XKeen и кнопка на странице подписки.
+if [ -f "$VSM_LIB/xui_mihomo.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$VSM_LIB/xui_mihomo.sh"
+fi
+
+# Включить подписку mihomo после установки или патча. Отказ не страшен:
+# панель работает, пропадает только кнопка — о чём и говорим.
+function xui_mihomo_after_install {
+    declare -F xui_mihomo_enable >/dev/null 2>&1 || return 0
+    systemctl is-active --quiet x-ui || return 0
+    echo -e "\n${CYAN}>>> Включаю подписку mihomo и кнопку XKeen...${NC}"
+    if xui_mihomo_enable; then
+        echo -e "${GREEN}✔ Подписка mihomo работает, кнопка XKeen на странице подписки.${NC}"
+    else
+        echo -e "${YELLOW}❗  Повторить: меню X-UI → «Роутер (XKeen)».${NC}"
+    fi
+}
+
 # Установщик и патч 3x-ui-pro очищают /etc/nginx/sites-enabled целиком.
 # Если на сервере поднят стек telemt, его self-SNI vhost живёт в conf.d и
 # это переживает — но vhost ссылается на пути из конфига панели, которые
@@ -258,6 +277,7 @@ function install_xui_pro {
             echo -e "${YELLOW}❗  Панель не запущена — шаблон не накладываю.${NC}"
         fi
     fi
+    xui_mihomo_after_install
     warn_telemt_after_panel_change
     read -p "Нажмите Enter для продолжения..."
 }
@@ -274,7 +294,13 @@ function patch_xui_pro {
             read -p "$(echo -e "${YELLOW}Enter — продолжить изменившимся скриптом...${NC}")"
     fi
     rm -f "$probe"
+    # Патч переписывает nginx целиком — наши куски пропадут. Была подписка
+    # mihomo включена до патча — возвращаем сразу, а не ждём сверки.
+    local mihomo_was=off
+    declare -F xui_mihomo_state >/dev/null 2>&1 \
+        && [ "$(_xm_get subClashEnable 2>/dev/null)" = "true" ] && mihomo_was=on
     run_remote_script "$XUI_PRO_REPO/x-ui-patch.sh"
+    [ "$mihomo_was" = "on" ] && xui_mihomo_after_install
     warn_telemt_after_panel_change
     read -p "Нажмите Enter для продолжения..."
 }
@@ -668,6 +694,66 @@ function xui_awg_mihomo {
 }
 
 # ======================================================================
+# РОУТЕР С XKEEN (mihomo)
+#
+# Главное здесь — подписка mihomo: все подключения клиента и AmneziaWG одной
+# ссылкой, роутер обновляет её сам. Отдельный файл AWG остался запасным
+# путём — для конфига, который собирают руками. Подробности — в шапке
+# lib/xui_mihomo.sh.
+# ======================================================================
+function manage_xui_router {
+    if ! declare -F xui_mihomo_state >/dev/null 2>&1; then
+        echo -e "${RED}❌ Не найден lib/xui_mihomo.sh — обновите VSM.${NC}"
+        read -p "Нажмите Enter..."; return
+    fi
+    while true; do
+        clear 2>/dev/null
+        ui_title "📡  РОУТЕР С XKEEN (mihomo)"
+        ui_section "СОСТОЯНИЕ"
+        local state
+        state="$(xui_mihomo_state)"
+        case "$state" in
+            on)  echo -e "   ${GREEN}✔${NC} Подписка mihomo включена, кнопка XKeen на странице подписки" ;;
+            off) echo -e "   ${C_DESC}Подписка mihomo выключена.${NC}" ;;
+            *)   echo -e "   ${RED}✘${NC} Включена не полностью: ${state#partial: }" ;;
+        esac
+        echo ""
+        echo -e "   ${C_DESC}Где взять блок для роутера: страница подписки клиента →${NC}"
+        echo -e "   ${C_DESC}«Приложения» → «XKeen» → «Копировать».${NC}"
+        echo ""
+        ui_section "ДЕЙСТВИЯ"
+        ui_item "1" "🔗" "Подписка mihomo"  "Включить или починить: nginx и кнопка"
+        ui_item "2" "🔑" "Файл AWG"         "Блок proxies с ключами — запасной путь"
+        ui_danger_item "3" "Выключить"      "Снять подписку mihomo и кнопку"
+        ui_item "X" "🔙" "Назад"
+        echo ""
+        local ch yn
+        read -p "Ваш выбор [1-3, X]: " ch || break
+        case "$ch" in
+            1)
+                echo -e "${YELLOW}❗  Панель x-ui перезапустится: клиенты переподключатся за${NC}"
+                echo -e "${YELLOW}    несколько секунд.${NC}"
+                read -r -p "Продолжить? [y/N]: " yn || break
+                if [[ "$yn" =~ ^[YyДд]$ ]]; then
+                    xui_mihomo_enable && echo -e "${GREEN}✔ Работает: подписка отдаёт YAML, кнопка на странице.${NC}"
+                fi
+                read -p "Нажмите Enter..."
+                ;;
+            2) xui_awg_mihomo ;;
+            3)
+                read -r -p "$(echo -e "${RED}Роутеры с этой подпиской перестанут обновляться. Выключить? [y/N]: ${NC}")" yn || break
+                if [[ "$yn" =~ ^[YyДд]$ ]]; then
+                    xui_mihomo_disable && echo -e "${GREEN}✔ Выключено.${NC}"
+                fi
+                read -p "Нажмите Enter..."
+                ;;
+            [Xx]) return ;;
+            *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+# ======================================================================
 # ШАБЛОН НАСТРОЕК 3X-UI
 #
 # Владелец доводит свежую панель руками: подписка, названия, хосты, hy2 и
@@ -797,7 +883,7 @@ function manage_xui_service {
         echo ""
         ui_section "ДОПОЛНИТЕЛЬНО"
         ui_item "7" "🔒" "AdGuard Home"       "DNS-over-HTTPS и блокировка рекламы"
-        ui_item "8" "🌐" "AmneziaWG для роутера" "Конфиг mihomo (XKeen) и проверка порта"
+        ui_item "8" "📡" "Роутер (XKeen)"     "Подписка mihomo и кнопка на странице подписки"
         ui_item "9" "🧩" "Шаблон настроек"    "Перенести подписки и входящие на другой сервер"
         echo ""
         # Удаление уехало с 7 на 8, на 9, а затем на 10 — каждый раз из-за
@@ -833,7 +919,7 @@ function manage_xui_service {
                 read -p "Нажмите Enter для возврата в меню..."
                 ;;
             7) manage_adguard ;;
-            8) xui_awg_mihomo ;;
+            8) manage_xui_router ;;
             9) manage_xui_profile ;;
             10) uninstall_xui_pro ;;
             [Xx]) return ;;

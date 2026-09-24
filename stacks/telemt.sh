@@ -207,6 +207,12 @@ if [[ -f "$VSM_LIB/xui_profile.sh" ]]; then
     . "$VSM_LIB/xui_profile.sh"
 fi
 
+# Подписка mihomo для роутера с XKeen. Не обязательна по той же причине.
+if [[ -f "$VSM_LIB/xui_mihomo.sh" ]]; then
+    # shellcheck disable=SC1091
+    . "$VSM_LIB/xui_mihomo.sh"
+fi
+
 : "${DOMAIN_PANEL:?Не задан DOMAIN_PANEL}"
 : "${DOMAIN_REALITY:?Не задан DOMAIN_REALITY}"
 
@@ -498,6 +504,16 @@ if [[ "$MODE" == "full" && "$XUI_RESTORED" == "0" && "${XUI_PROFILE_APPLY:-0}" =
     log "Этап 1: накладываю шаблон настроек 3x-ui"
     xui_profile_apply "$DOMAIN_PANEL" "$DOMAIN_REALITY" "${XUI_PROFILE_NAME:-}" \
         || warn "шаблон 3x-ui не наложен — панель осталась свежей установкой"
+    verify_or_die systemctl is-active --quiet x-ui
+fi
+
+# Подписка mihomo и кнопка XKeen — тоже только на свежую панель: на
+# доведённой владельцем это его решение, включается пунктом меню X-UI.
+if [[ "$MODE" == "full" && "${XUI_MIHOMO:-1}" == "1" ]] \
+   && declare -F xui_mihomo_enable >/dev/null 2>&1; then
+    log "Этап 1: включаю подписку mihomo для роутеров с XKeen"
+    xui_mihomo_enable \
+        || warn "подписка mihomo не включена — меню X-UI → «Роутер (XKeen)»"
     verify_or_die systemctl is-active --quiet x-ui
 fi
 

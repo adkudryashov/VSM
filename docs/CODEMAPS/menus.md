@@ -48,8 +48,10 @@
 5 manage_service_status_restart x-ui
 6 x-ui                   штатное меню апстрима
 7 manage_adguard         x-ui-adguard.sh, install | uninstall
-8 xui_awg_mihomo         AmneziaWG из панели → блок mihomo для XKeen;
-                       проверяет порт в ufw и предлагает открыть
+8 manage_xui_router      роутер с XKeen: lib/xui_mihomo.sh — подписка mihomo
+                       в панели, путь и кнопка в nginx (tools/xui-mihomo.py,
+                       tools/xui-sub-xkeen.js); 8→2 xui_awg_mihomo — файл AWG
+                       и проверка порта в ufw
 9 uninstall_xui_pro      УДАЛИТЬ; снимает apt-mark hold от пересборки, иначе
                        purge nginx не проходит; вычищает /etc/nginx целиком
 

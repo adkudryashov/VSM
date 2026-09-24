@@ -187,9 +187,10 @@ screen menus/xui.sh    '4\nX\nX\nX\n'      'X-UI: бэкапы (4)'
 screen menus/xui.sh    '4\n4\n\n\nX\nX\n'  'X-UI: вернуть из копии VSM (4→4)' 'Копии для|Копий со снимком|Панель не установлена'
 screen menus/xui.sh    '5\n1\n\nX\nX\n'    'X-UI: служба, статус (5→1)'
 screen menus/xui.sh    '7\nX\nX\nX\n'      'X-UI: AdGuard (7)'
+screen menus/xui.sh    '8\nX\nX\n'         'X-UI: роутер XKeen (8)' 'РОУТЕР С XKEEN'
 # Признаком берём заголовок экрана, а не успех: на сервере без соединения
 # AmneziaWG пункт обязан вежливо отказать, и это тоже правильный экран.
-screen menus/xui.sh    '8\n\nX\nX\n'       'X-UI: AmneziaWG для роутера (8)' 'AmneziaWG'
+screen menus/xui.sh    '8\n2\n\nX\nX\n'    'X-UI: файл AWG для роутера (8→2)' 'AmneziaWG'
 screen menus/xui.sh    '9\nX\nX\n'         'X-UI: шаблон настроек (9)' 'ШАБЛОН НАСТРОЕК 3X-UI'
 screen menus/telemt.sh '3\nX\nX\n'         'telemt: веб-панель (3)' 'ВЕБ-ПАНЕЛЬ'
 screen menus/telemt.sh '4\n\nX\n'          'telemt: диагностика (4)' 'СТАТУС И ДИАГНОСТИКА СТЕКА'
