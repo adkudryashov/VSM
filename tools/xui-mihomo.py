@@ -113,6 +113,13 @@ def render(text, sub, clash, port, js_file=JS_FILE):
         inner + "proxy_set_header Host $host;\n",
         inner + "proxy_set_header X-Real-IP $remote_addr;\n",
         inner + "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n",
+        # Без этой строки AmneziaWG в подписке получал адрес ЗАПРОСИВШЕГО.
+        # Панель доверяет заголовкам с петли и берёт адрес сервера из
+        # X-Forwarded-Host, а за его отсутствием — из X-Real-IP, то есть из
+        # адреса клиента (3x-ui 3.8.5, ResolveRequest). VLESS и прочие это не
+        # задевает: их адрес задан в хостах панели. У AWG хоста нет — роутер
+        # получил свой собственный внешний IP. Поймано 24.09.2026.
+        inner + "proxy_set_header X-Forwarded-Host $host;\n",
         inner + "proxy_pass https://127.0.0.1:%s;\n" % port,
         indent + "}\n",
         indent + "location = %s {\n" % js_url,

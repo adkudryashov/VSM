@@ -167,6 +167,13 @@ _xm_verify() {
         echo "подписка mihomo отвечает $code без списка proxies" >&2
         rm -f "$tmp"; return 1
     fi
+    # Адрес сервера у подключений. Запрос идёт с петли, и если панель взяла
+    # адрес из X-Real-IP, здесь будет localhost — ровно тот дефект, из-за
+    # которого роутер получал в AWG свой собственный IP.
+    if grep -qE '^[[:space:]]*(-[[:space:]]+)?server:[[:space:]]*"?(localhost|127\.0\.0\.1)"?[[:space:]]*$' "$tmp"; then
+        echo "в подписке адрес сервера — петля: панель подставила адрес запросившего" >&2
+        rm -f "$tmp"; return 1
+    fi
 
     code="$(_get -H 'Accept: text/html' "https://$domain/$sub/$sid")"
     if [ "$code" != "200" ] || ! grep -qF '__vsm/xkeen.js' "$tmp"; then

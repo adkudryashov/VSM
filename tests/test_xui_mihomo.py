@@ -85,6 +85,8 @@ def test_путь_mihomo_проксируется_на_сервер_подпис
     блок = блок_location(new, "location ^~ /CLASHPATH/ {")
     assert any("proxy_pass https://127.0.0.1:46232;" in l for l in блок)
     assert any("$hack" in l for l in блок), "защита от мусорных URI как у соседей"
+    # Без него адрес AWG в подписке — IP того, кто её запросил (X-Real-IP).
+    assert any("proxy_set_header X-Forwarded-Host $host;" in l for l in блок)
 
 
 def test_скрипт_вставляется_в_location_страницы_а_не_в_префикс():
