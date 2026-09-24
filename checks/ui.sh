@@ -105,6 +105,30 @@ for f in "${FILES[@]}"; do
             found=1
         fi
     done < <(grep -n "ui_pad '" "$f" 2>/dev/null)
+
+    # Имена пунктов меню. ui_item и ui_danger_item дополняют имя тем же
+    # ui_pad до колонки (22 по умолчанию), но проверка выше видела только
+    # явные ui_pad '…' и мимо пунктов проходила вовсе. Так 24.09.2026 на экран
+    # шаблона 3x-ui попали «Наложить на этот серверНа свежую панель…» — и
+    # проверка сказала «все подписи с запасом».
+    while IFS= read -r hit; do
+        line="${hit%%:*}"
+        rest="${hit#*:}"
+        if [[ "$rest" =~ ui_item\ +\"[^\"]*\"\ +\"[^\"]*\"\ +\"([^\"]*)\"\ +\"([^\"]+)\"(\ +\"?([0-9]+))? ]]; then
+            lit="${BASH_REMATCH[1]}"; wid="${BASH_REMATCH[4]:-22}"
+        elif [[ "$rest" =~ ui_danger_item\ +\"[^\"]*\"\ +\"([^\"]*)\"\ +\"([^\"]+)\"(\ +\"?([0-9]+))? ]]; then
+            lit="${BASH_REMATCH[1]}"; wid="${BASH_REMATCH[4]:-22}"
+        else
+            continue
+        fi
+        # Имя с подстановкой ($var) заранее не измерить — пропускаем.
+        [[ "$lit" == *'$'* ]] && continue
+        n=$(LC_ALL=C.UTF-8 bash -c 'echo ${#1}' -- "$lit")
+        if [ "$n" -ge "$wid" ]; then
+            bad "$f:$line пункт «$lit» — $n симв. при колонке $wid"
+            found=1
+        fi
+    done < <(grep -nE 'ui_(danger_)?item ' "$f" 2>/dev/null)
 done
 [ "$found" -eq 0 ] && ok "все подписи с запасом"
 
