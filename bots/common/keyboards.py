@@ -74,14 +74,16 @@ def root_keyboard() -> ReplyKeyboardMarkup:
     b = ReplyKeyboardBuilder()
     b.add(KeyboardButton(text=BTN_TELEMT_SECTION))
     b.add(KeyboardButton(text=BTN_XUI_SECTION))
-    b.add(KeyboardButton(text=BTN_SUMMARY))
     # Четвёртая кнопка только при подключённом хабе — иначе ряд из одной
     # «Сводки» превратился бы в ряд из «Сводки» и заведомо пустого экрана.
+    # «Серверы» слева от «Сводки» — так попросил владелец 24.09.2026.
     from common.beszel import shared as _beszel
     if _beszel().configured:
         b.add(KeyboardButton(text=BTN_SERVERS))
+        b.add(KeyboardButton(text=BTN_SUMMARY))
         b.adjust(2, 2)
     else:
+        b.add(KeyboardButton(text=BTN_SUMMARY))
         b.adjust(2, 1)
     return b.as_markup(resize_keyboard=True, one_time_keyboard=False)
 
