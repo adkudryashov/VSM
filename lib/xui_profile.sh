@@ -54,9 +54,10 @@ xui_profile_ask() {
     case "$answer" in [Nn]*) return 0 ;; esac
     local def name
     def="$(xui_profile_source_name)"
-    echo -e "${C_DESC}   Имя сервера попадёт в названия входящих и подписки:"
-    echo -e "   «флаг ИМЯ reality». Флаг страны определит установщик.${NC}"
-    read -r -p "Имя сервера для подписок [${def:-без имени}] (- — без имени): " name || return 0
+    echo -e "${C_DESC}   Названия: входящие — «флаг тип» (🇸🇪 xhttp), подписка —"
+    echo -e "   «флаг сервис клиент» (🇸🇪 My1Cent adkrw). Флаг — страны сервера,"
+    echo -e "   его ставит установщик; клиента подставит сама панель.${NC}"
+    read -r -p "Название сервиса [${def:-без названия}] (- — без названия): " name || return 0
     name="${name:-$def}"
     [ "$name" = "-" ] && name=""
     XUI_PROFILE_APPLY=1

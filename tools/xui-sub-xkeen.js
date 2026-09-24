@@ -24,18 +24,32 @@
   var url = data.subClashUrl || '';
   if (!url) return; // подписка mihomo выключена — показывать нечего
 
-  // Имя провайдера: латиница и цифры из названия подписки. mihomo принимает и
-  // юникод, но имя попадает в путь файла на роутере — проще без эмодзи.
+  // Сервис из названия подписки. Панель отдаёт название уже с подставленным
+  // клиентом: «🇸🇪 My1Cent adkrw» (правило VSM «флаг сервис клиент»). Убираем
+  // флаг и слова, совпадающие с именами клиентов подписки, — остаётся сервис.
+  // Работает и на старых названиях, где клиент стоял в середине.
+  function serviceName() {
+    var t = String(data.subTitle || '')
+      .replace(/^\s*(?:(?:\uD83C[\uDDE6-\uDDFF]){2}|\uD83C\uDF10)\s*/, '');
+    var clients = (data.emails || []).concat([data.sId]).filter(Boolean);
+    return t.split(/\s+/).filter(function (w) {
+      return w && clients.indexOf(w) < 0 && !/^\{\{.*\}\}$/.test(w);
+    }).join(' ');
+  }
+
+  // Имя провайдера: латиница и цифры сервиса. mihomo принимает и юникод, но
+  // имя попадает в путь файла на роутере — проще без эмодзи.
   function providerName() {
-    var words = String(data.subTitle || '').match(/[A-Za-z0-9][A-Za-z0-9._-]*/g) || [];
+    var words = serviceName().match(/[A-Za-z0-9][A-Za-z0-9._-]*/g) || [];
     var name = words.join('-').replace(/[.]/g, '-');
     return name || 'VSM';
   }
 
   function providerYaml() {
     var name = providerName();
+    var service = serviceName();
     var file = name.toLowerCase().replace(/[^a-z0-9_-]/g, '');
-    return [
+    var lines = [
       'proxy-providers:',
       '  ' + name + ':',
       '    type: http',
@@ -45,7 +59,16 @@
       '    health-check:',
       '      enable: true',
       '      url: http://www.msftncsi.com/ncsi.txt',
-      '      interval: 60',
+      '      interval: 60'
+    ];
+    // Входящие называются «флаг тип»: у двух серверов одной страны на роутере
+    // было бы два «🇸🇪 awg». Приставка сервиса их различает (mihomo 1.19,
+    // adapter/provider/override.go).
+    if (service) {
+      lines.push('    override:');
+      lines.push('      additional-prefix: "' + service.replace(/["\\]/g, '') + ' "');
+    }
+    return lines.concat([
       '',
       '# Подключить провайдер в группе прокси:',
       '#   proxy-groups:',
@@ -53,7 +76,7 @@
       '#       type: select',
       '#       use: [' + name + ']',
       ''
-    ].join('\n');
+    ]).join('\n');
   }
 
   var CSS = [

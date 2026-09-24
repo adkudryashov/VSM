@@ -194,6 +194,46 @@ def walk_marks(obj, values, forward):
     return obj
 
 
+# --------------------------------------------------------------- названия
+#
+# Названия — правило VSM, а не вкус шаблона (решение владельца 24.09.2026):
+#
+#   входящий  «флаг тип»             🇸🇪 xhttp
+#   подписка  «флаг сервис клиент»   🇸🇪 My1Cent adkrw
+#
+# Флаг — страны сервера (его ставит установщик 3x-ui-pro), сервис спрашивается
+# при установке, клиента подставляет сама панель: название подписки в 3x-ui
+# 3.8.5 понимает {{EMAIL}} (internal/sub/placeholders.go). Прежде название
+# подписки жило в шаблоне как есть — «{FLAG} adkrw {NAME}» с именем клиента,
+# вбитым буквально, — и у любого другого клиента подписка называлась бы adkrw.
+SUB_TITLE = "{FLAG} {NAME} {{EMAIL}}"
+
+
+def kind_of(remark):
+    """Тип входящего из названия с метками: «{FLAG} {NAME} xhttp» → «xhttp»."""
+    return " ".join(remark.replace("{FLAG}", " ").replace("{NAME}", " ").split())
+
+
+def apply_naming(profile):
+    """Названия по правилу VSM. Работает с шаблоном в метках, до подстановки."""
+    profile = json.loads(json.dumps(profile))
+    for ib in profile["inbounds"]:
+        kind = kind_of(ib.get("remark") or "")
+        ib["remark"] = f"{{FLAG}} {kind}" if kind else "{FLAG}"
+    profile["settings"]["subTitle"] = SUB_TITLE
+    return profile
+
+
+def name_from_title(title):
+    """Сервис из названия подписки «🇸🇪 My1Cent {{EMAIL}}» → «My1Cent»: по
+    новому правилу во входящих имени сервиса больше нет."""
+    t = re.sub(r"\{\{[A-Z_]+\}\}", " ", title or "").strip()
+    m = FLAG_RE.match(t)
+    if m:
+        t = t[len(m.group(0)):]
+    return " ".join(t.split())
+
+
 # --------------------------------------------------------------- снятие
 
 FLAG_RE = re.compile(r"^((?:[\U0001F1E6-\U0001F1FF]{2})|🌐)\s*")
@@ -222,6 +262,8 @@ def export(args):
     settings = {k: v for k, v in c.execute("select key, value from settings")}
 
     flag, name = guess_identity(inbounds)
+    if not name:
+        name = name_from_title(settings.get("subTitle", ""))
     if args.name is not None:
         name = args.name
     domain = urlhost(settings.get("subURI", "")) or args.domain or ""
@@ -472,7 +514,7 @@ def plan_apply(c, profile, values):
     число входящих, которое должно получиться. Отдельно от записи — ради
     --dry-run и ради проверок: логику можно прогнать на копии базы.
     """
-    profile = walk_marks(profile, values, forward=False)
+    profile = walk_marks(apply_naming(profile), values, forward=False)
     fresh = [dict(r) for r in c.execute("select * from inbounds order by id")]
     by_role = {}
     for ib in fresh:
@@ -746,12 +788,13 @@ def show(args):
         die(f"нет шаблона: {path}")
     p = json.loads(path.read_text(encoding="utf-8"))
     say(f"Шаблон {path}: снят {p.get('made_at')} с 3x-ui {p.get('xui_version') or '?'}")
-    say(f"   исходный сервер: флаг {p['source'].get('FLAG') or '—'}, имя {p['source'].get('NAME') or '—'}")
-    for ib in p["inbounds"]:
+    say(f"   исходный сервер: флаг {p['source'].get('FLAG') or '—'}, сервис {p['source'].get('NAME') or '—'}")
+    # Показываем названия такими, какими они лягут, а не как записаны в шаблоне.
+    named = apply_naming(p)
+    for ib in named["inbounds"]:
         how = "поверх установщика" if ib["role"] in INSTALLER_ROLES else "создаётся по образцу"
         say(f"   • {ib.get('remark')} — {ib['role']}, {how}, хостов {len(ib.get('hosts') or [])}")
-    title = p["settings"].get("subTitle")
-    say(f"   настроек панели: {len(p['settings'])}" + (f"; название подписки: {title}" if title else ""))
+    say(f"   настроек панели: {len(p['settings'])}; название подписки: {named['settings']['subTitle']}")
 
 
 def main():

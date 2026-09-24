@@ -231,40 +231,41 @@ def test_привязанные_к_установке_настройки_не_с
 
 def test_названия_стали_своими_на_новом_сервере(наложенный):
     names = set(входящие(наложенный))
-    assert {"🇩🇪 Hetzner reality", "🇩🇪 Hetzner ws", "🇩🇪 Hetzner xhttp",
-            "🇩🇪 Hetzner trojan-grpc", "🇩🇪 Hetzner hy2", "🇩🇪 Hetzner awg"} == names
-    assert настройка(наложенный, "subTitle") == "🇩🇪 adkrw Hetzner"
+    # Правило VSM: входящий — «флаг тип», сервис — только в названии подписки.
+    assert {"🇩🇪 reality", "🇩🇪 ws", "🇩🇪 xhttp",
+            "🇩🇪 trojan-grpc", "🇩🇪 hy2", "🇩🇪 awg"} == names
+    assert настройка(наложенный, "subTitle") == "🇩🇪 Hetzner {{EMAIL}}"
     assert настройка(наложенный, "subSupportUrl") == "https://t.me/adkrw"
 
 
 def test_порты_и_пути_остались_от_установщика(наложенный):
     """Обратная сторона: чужой путь ws разорвал бы связь с nginx."""
     ib = входящие(наложенный)
-    ws = json.loads(ib["🇩🇪 Hetzner ws"]["stream_settings"])
-    assert ib["🇩🇪 Hetzner ws"]["port"] == 40001
+    ws = json.loads(ib["🇩🇪 ws"]["stream_settings"])
+    assert ib["🇩🇪 ws"]["port"] == 40001
     assert ws["wsSettings"] == {"path": "/40001/свойпуть", "host": ДОМЕН_Б}
-    grpc = json.loads(ib["🇩🇪 Hetzner trojan-grpc"]["stream_settings"])["grpcSettings"]
+    grpc = json.loads(ib["🇩🇪 trojan-grpc"]["stream_settings"])["grpcSettings"]
     assert grpc["serviceName"] == "/40002/свойgrpc" and grpc["authority"] == ДОМЕН_Б
     assert настройка(наложенный, "subPath") == "/свойsub/"
     assert настройка(наложенный, "webBasePath") == "/свояпанель/"
 
 
 def test_ключи_reality_свои_а_вкус_перенесён(наложенный):
-    rs = json.loads(входящие(наложенный)["🇩🇪 Hetzner reality"]["stream_settings"])["realitySettings"]
+    rs = json.loads(входящие(наложенный)["🇩🇪 reality"]["stream_settings"])["realitySettings"]
     assert rs["privateKey"] == "СВОЙКЛЮЧ" and rs["settings"]["publicKey"] == "СВОЙКЛЮЧpub"
     assert rs["serverNames"] == [РЕАЛИТИ_Б]
     assert rs["minClientVer"] == "1.8.1", "правка владельца потерялась"
 
 
 def test_xhttp_включён_как_у_владельца(наложенный):
-    x = входящие(наложенный)["🇩🇪 Hetzner xhttp"]
+    x = входящие(наложенный)["🇩🇪 xhttp"]
     assert x["enable"] == 1
     assert json.loads(x["sniffing"])["enabled"] is True
     assert x["listen"] == "/dev/shm/uds2023.sock,0666"
 
 
 def test_hy2_создан_с_новым_доменом_адресом_и_паролем(наложенный):
-    hy = входящие(наложенный)["🇩🇪 Hetzner hy2"]
+    hy = входящие(наложенный)["🇩🇪 hy2"]
     st = json.loads(hy["stream_settings"])
     assert hy["listen"] == IP_Б and hy["port"] == 443
     assert st["tlsSettings"]["certificates"][0]["certificateFile"] == f"/root/cert/{ДОМЕН_Б}/fullchain.pem"
@@ -274,7 +275,7 @@ def test_hy2_создан_с_новым_доменом_адресом_и_пар�
 
 
 def test_awg_создан_с_новыми_ключами_и_параметрами_владельца(наложенный):
-    awg = входящие(наложенный)["🇩🇪 Hetzner awg"]
+    awg = входящие(наложенный)["🇩🇪 awg"]
     server = json.loads(awg["settings"])["server"]
     assert server["jc"] == 3 and server["h1"] == "52956019"
     assert server["privateKey"] != "СТАРЫЙПРИВ" and len(base64.b64decode(server["privateKey"])) == 32
@@ -286,21 +287,21 @@ def test_хосты_перенесены_к_своим_входящим(нало
     c = sqlite3.connect(наложенный)
     rows = c.execute("select i.remark, h.address from hosts h join inbounds i on i.id = h.inbound_id").fetchall()
     c.close()
-    assert ("🇩🇪 Hetzner hy2", ДОМЕН_Б) in rows
+    assert ("🇩🇪 hy2", ДОМЕН_Б) in rows
     assert all(addr == ДОМЕН_Б for _, addr in rows), rows
     assert len(rows) == 5
 
 
 def test_повторное_наложение_не_стирает_ключи_awg(tmp_path, заглушки, шаблон, наложенный):
     """Секретов в шаблоне нет — второй прогон обязан взять их из базы."""
-    до = json.loads(входящие(наложенный)["🇩🇪 Hetzner awg"]["settings"])["server"]["privateKey"]
+    до = json.loads(входящие(наложенный)["🇩🇪 awg"]["settings"])["server"]["privateKey"]
     ответ = запустить(tmp_path, заглушки, "apply", "--profile", str(шаблон), "--domain", ДОМЕН_Б,
                       "--reality-domain", РЕАЛИТИ_Б, "--name", "Hetzner", "--ip", IP_Б,
                       db=наложенный)
     assert ответ.returncode == 0, ответ.stderr
     ib = входящие(наложенный)
     assert len(ib) == 6, "второй прогон размножил входящие"
-    assert json.loads(ib["🇩🇪 Hetzner awg"]["settings"])["server"]["privateKey"] == до
+    assert json.loads(ib["🇩🇪 awg"]["settings"])["server"]["privateKey"] == до
 
 
 def test_пустое_имя_без_двойных_пробелов(tmp_path, заглушки, шаблон):
@@ -310,7 +311,30 @@ def test_пустое_имя_без_двойных_пробелов(tmp_path, з
                       "--reality-domain", РЕАЛИТИ_Б, "--name", "", "--ip", IP_Б, db=db)
     assert ответ.returncode == 0, ответ.stderr
     assert "🇩🇪 reality" in входящие(db)
-    assert настройка(db, "subTitle") == "🇩🇪 adkrw"
+    assert настройка(db, "subTitle") == "🇩🇪 {{EMAIL}}"
+
+
+def test_сервис_переживает_перенос_по_новому_правилу(tmp_path, заглушки, наложенный):
+    """
+    По новому правилу имени сервиса во входящих нет («🇩🇪 reality»), оно живёт
+    только в названии подписки. Снятие обязано найти его там — иначе шаблон
+    с такого сервера понесёт «Hetzner» как текст и на следующем сервере
+    подписка назовётся чужим сервисом.
+    """
+    out = tmp_path / "профиль-б.json"
+    ответ = запустить(tmp_path, заглушки, "export", "--out", str(out), db=наложенный)
+    assert ответ.returncode == 0, ответ.stderr
+    p = json.loads(out.read_text(encoding="utf-8"))
+    assert p["source"] == {"FLAG": "🇩🇪", "NAME": "Hetzner"}
+    assert "Hetzner" not in out.read_text(encoding="utf-8").replace('"NAME": "Hetzner"', "")
+
+    db = tmp_path / "d.db"
+    свежая_установка(db, ДОМЕН_А, РЕАЛИТИ_А, 40011, 40012, флаг="🇫🇮")
+    ответ = запустить(tmp_path, заглушки, "apply", "--profile", str(out), "--domain", ДОМЕН_А,
+                      "--reality-domain", РЕАЛИТИ_А, "--name", "Aeza", "--ip", IP_А, db=db)
+    assert ответ.returncode == 0, ответ.stdout + ответ.stderr
+    assert "🇫🇮 xhttp" in входящие(db)
+    assert настройка(db, "subTitle") == "🇫🇮 Aeza {{EMAIL}}"
 
 
 def test_домены_берутся_из_базы_панели(tmp_path, заглушки, шаблон):
@@ -320,7 +344,7 @@ def test_домены_берутся_из_базы_панели(tmp_path, заг
     ответ = запустить(tmp_path, заглушки, "apply", "--profile", str(шаблон), "--name", "N",
                       "--ip", IP_Б, db=db)
     assert ответ.returncode == 0, ответ.stderr
-    hy = json.loads(входящие(db)["🇩🇪 N hy2"]["stream_settings"])
+    hy = json.loads(входящие(db)["🇩🇪 hy2"]["stream_settings"])
     assert hy["tlsSettings"]["serverName"] == ДОМЕН_Б
     assert РЕАЛИТИ_Б in ответ.stdout
 
