@@ -26,7 +26,10 @@ xui_profile_pickup() {
     local dropped="/root/xui-profile.json"
     [ -f "$XUI_PROFILE_FILE" ] && return 0
     [ -f "$dropped" ] || return 0
-    mkdir -p -m 700 "$(dirname "$XUI_PROFILE_FILE")" \
+    local dir; dir="$(dirname "$XUI_PROFILE_FILE")"
+    # Права отдельной командой: у mkdir -p -m режим получает только последний
+    # каталог, а создаётся он здесь обычно впервые.
+    mkdir -p "$dir" && chmod 700 "$dir" \
         && install -m 600 "$dropped" "$XUI_PROFILE_FILE" \
         && rm -f "$dropped" \
         && echo -e "${C_DESC:-}   Шаблон забран из $dropped в $XUI_PROFILE_FILE${NC:-}"
@@ -72,7 +75,7 @@ xui_profile_apply() {
             --domain "$domain" --reality-domain "$reality" --name "$name"; then
         return 0
     fi
-    echo -e "${YELLOW:-}⚠️  Шаблон не наложен. Панель работает как свежая установка;"
+    echo -e "${YELLOW:-}❗  Шаблон не наложен. Панель работает как свежая установка;"
     echo -e "   наложить можно позже: меню X-UI → «Шаблон настроек».${NC:-}"
     return 1
 }

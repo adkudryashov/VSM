@@ -244,7 +244,7 @@ function install_xui_pro {
             echo -e "\n${CYAN}>>> Накладываю шаблон настроек 3x-ui...${NC}"
             xui_profile_apply "$subdomain" "$reality_domain" "$XUI_PROFILE_NAME" || true
         else
-            echo -e "${YELLOW}⚠️  Панель не запущена — шаблон не накладываю.${NC}"
+            echo -e "${YELLOW}❗  Панель не запущена — шаблон не накладываю.${NC}"
         fi
     fi
     warn_telemt_after_panel_change
