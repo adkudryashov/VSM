@@ -19,6 +19,9 @@
 #                       VSM их не добывает, а ЗАПОМИНАЕТ (см. lib/config.sh).
 #                       Забыли — восстановить неоткуда.
 #   bot_monitor.db      токены доступа к чужим панелям 3x-ui.
+#   xui/                снимок 3x-ui: база с клиентами и ключами плюс всё,
+#                       куда установщик вписал её порты и пути. Сотни
+#                       килобайт. Возвращается tools/xui-restore.sh.
 #
 # ЧЕГО ЗДЕСЬ НЕТ И ПОЧЕМУ. ip_history.db — данные, которые набегают сами за
 # сутки работы. GeoIP — 83 МБ, скачиваются заново. venv — ставится из
@@ -64,6 +67,60 @@ list_backups() {
 }
 
 # ----------------------------------------------------------------------
+# Снимок 3x-ui: то, без чего переустановленная панель не станет прежней.
+#
+# Клиенты, их ключи и ссылки живут в базе панели. Но база одна ничего не
+# вернёт: установщик 3x-ui-pro генерирует случайные порты и пути (ws, grpc,
+# xhttp, подписка, панель, диагностика, mtr-backend) и вписывает их не только
+# в базу, но и в nginx, в шаблон Clash-подписки, в страницу диагностики и в
+# юнит mtr-backend. Вернуть базу без них — значит развести пути: ссылки
+# клиентов указывают на старые, nginx слушает новые.
+#
+# Поэтому снимок согласованный: база плюс всё, куда вписаны её пути.
+#
+# ПОЧЕМУ НЕ СКРИПТ АВТОРА (x-ui-backup). Он делает то же, но целиком: замер на
+# новом сервере 24.09.2026 — 1,4 ГБ, из них 1,1 ГБ файлы проверки скорости и
+# 260 МБ бинарники. Такое в суточную копию не кладут и с сервера не уносят. И
+# на время снятия он останавливает панель, то есть рвёт VPN у всех клиентов.
+# Здесь база снимается механизмом резервного копирования SQLite на ходу, а
+# бинарники и данные поставит установщик — снимок весит сотни килобайт.
+#
+# Возвращает снимок tools/xui-restore.sh, а не --restore ниже: он переписывает
+# nginx и базу работающей панели, и делать это заодно с секретами нельзя.
+xui_snapshot() {
+    # Пути переопределяются только проверками: tests/test_xui_restore.py
+    # снимает снимок с поддельных каталогов, а не с живой панели.
+    local stage="$1/xui" db="${XUI_DB:-/etc/x-ui/x-ui.db}"
+    local nginx="${NGINX_DIR:-/etc/nginx}" www="${WWW_DIR:-/var/www}"
+    local units="${UNIT_DIR:-/etc/systemd/system}"
+    [ -f "$db" ] || return 1
+    command -v python3 >/dev/null 2>&1 || { warn "  снимок 3x-ui пропущен: нет python3"; return 1; }
+    mkdir -p "$stage/www" || return 1
+    # База в режиме WAL: свежие записи лежат в x-ui.db-wal, и копия одного
+    # файла их потеряла бы. Механизм резервного копирования SQLite забирает всё.
+    python3 - "$db" "$stage/x-ui.db" <<'PY' || { warn "  снимок базы 3x-ui не удался"; return 1; }
+import sqlite3, sys
+src = sqlite3.connect(sys.argv[1])
+dst = sqlite3.connect(sys.argv[2])
+src.backup(dst)
+dst.close()
+src.close()
+PY
+    [ -d "$nginx" ] && cp -a "$nginx" "$stage/nginx"
+    [ -d "$www/subpage" ] && cp -a "$www/subpage" "$stage/www/subpage"
+    # Из диагностики — только страница: в ней вписан её путь. Остальное там —
+    # гигабайт файлов проверки скорости, его поставит установщик.
+    local d
+    for d in diagnostics html; do
+        [ -f "$www/$d/index.html" ] || continue
+        mkdir -p "$stage/www/$d"
+        cp -a "$www/$d/index.html" "$stage/www/$d/"
+    done
+    [ -f "$units/mtr-backend.service" ] \
+        && cp -a "$units/mtr-backend.service" "$stage/mtr-backend.service"
+    return 0
+}
+
 create_backup() {
     mkdir -p "$BACKUP_DIR" || die "Не создать $BACKUP_DIR"
     chmod 700 "$(dirname "$BACKUP_DIR")" 2>/dev/null
@@ -110,12 +167,21 @@ create_backup() {
     [ -f "$BOTS_DIR/.env" ]              && items+=("-C" "$VSM_ROOT" "bots/.env")
     [ -f "$BOTS_DIR/data/bot_monitor.db" ] && items+=("-C" "$VSM_ROOT" "bots/data/bot_monitor.db")
 
-    [ "${#items[@]}" -gt 0 ] || die "Нечего сохранять: не найдено ни $ETC_DIR, ни bots/.env."
+    # Снимок 3x-ui — во временный каталог рядом с копиями (700, только root):
+    # внутри база панели с ключами всех клиентов.
+    local stage=""
+    stage="$(mktemp -d "$BACKUP_DIR/.xui-stage.XXXXXX")" || stage=""
+    if [ -n "$stage" ] && xui_snapshot "$stage"; then
+        items+=("-C" "$stage" "xui")
+    fi
+
+    [ "${#items[@]}" -gt 0 ] || { [ -n "$stage" ] && rm -rf "$stage"; die "Нечего сохранять: не найдено ни $ETC_DIR, ни bots/.env."; }
 
     # umask до создания: архив содержит секреты и не должен ни на мгновение
     # оказаться доступным всем. chmod после создания оставил бы такое окно.
     ( umask 077; tar -czf "$archive" "${items[@]}" 2>/dev/null ) \
-        || { rm -f "$archive"; die "Архив не создан."; }
+        || { rm -f "$archive"; [ -n "$stage" ] && rm -rf "$stage"; die "Архив не создан."; }
+    [ -n "$stage" ] && rm -rf "$stage"
 
     # Проверяем ФАКТОМ, а не кодом возврата tar: архив, который не читается
     # обратно, — это не резервная копия, а её видимость. Узнать об этом в день
@@ -265,6 +331,18 @@ restore_backup() {
     say "${GREEN}✓ Восстановлено, наличие каждого файла проверено.${NC}"
     say "Дальше перезапустите то, что читает эти файлы:"
     say "  systemctl restart telemt 3xui-telemt-bot"
+    # Снимок 3x-ui здесь намеренно не трогаем — см. xui_snapshot.
+    # Не конвейером в grep -q: при pipefail tar получает SIGPIPE, и условие
+    # ложно при снимке на месте (см. tools/xui-restore.sh).
+    local listing
+    listing="$(tar -tzf "$1" 2>/dev/null)"
+    if grep -qx 'xui/x-ui.db' <<< "$listing"; then
+        say ""
+        say "В архиве есть снимок 3x-ui (клиенты, ключи, пути). Он возвращается"
+        say "отдельно, на установленную панель с теми же доменами:"
+        say "  bash $VSM_ROOT/tools/xui-restore.sh $1"
+        say "или при установке стека — установщик предложит сам."
+    fi
 }
 
 # ----------------------------------------------------------------------

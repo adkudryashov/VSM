@@ -176,8 +176,13 @@ nginx_mask_http2_wanted() {
     # Закомментированные строки не в счёт. Директивы вроде
     # http2_body_preread_size под шаблон не попадают — за "http2" обязан идти
     # пробел или точка с запятой.
-    grep -vE '^[[:space:]]*#' "$panel_vhost" 2>/dev/null | grep -qE \
-        '^[[:space:]]*listen[[:space:]]+[^;]*[[:space:]]http2([[:space:]]|;)|^[[:space:]]*http2[[:space:]]+on[[:space:]]*;'
+    # Текст — в переменную, а не конвейером в grep -q: установщик стека
+    # работает с pipefail, и на vhost длиннее буфера grep -v получал бы SIGPIPE
+    # после совпадения — «http2 нет» при http2 на месте.
+    local body
+    body="$(grep -vE '^[[:space:]]*#' "$panel_vhost" 2>/dev/null)" || true
+    grep -qE '^[[:space:]]*listen[[:space:]]+[^;]*[[:space:]]http2([[:space:]]|;)|^[[:space:]]*http2[[:space:]]+on[[:space:]]*;' \
+        <<< "$body"
 }
 
 # ----------------------------------------------------------------------

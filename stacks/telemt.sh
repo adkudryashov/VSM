@@ -29,6 +29,8 @@ set -euo pipefail
 #   PANEL_ADMIN_USER=admin
 #   PANEL_ADMIN_PASS=<...>  (по умолчанию генерируется)
 #   XUI_VERSION=<3.7.0>     поставить ИМЕННО эту версию 3x-ui вместо последней
+#   XUI_RESTORE_ARCHIVE=<архив>  вернуть 3x-ui из суточной копии VSM (только
+#                           режим full, те же домены); исключает шаблон
 #   XUI_PROFILE_APPLY=1     наложить шаблон /etc/vsm/xui-profile.json на свежую
 #   XUI_PROFILE_NAME=<имя>  панель (только режим full); имя сервера для подписок
 # ============================================================================
@@ -471,10 +473,27 @@ verify_or_die nginx -t
 verify_or_die systemctl is-active --quiet nginx
 verify_or_die systemctl is-active --quiet x-ui
 
+# Возврат 3x-ui из суточной копии — переустановка на тех же доменах: прежние
+# клиенты, ключи и пути, ссылки пользователей продолжают работать. Сразу после
+# установки панели и ДО этапов telemt: nginx возвращается из копии целиком, а
+# этапы ниже заново впишут в него маскировку и доступ по текущему конфигу.
+# Отказ не роняет стек: скрипт откатывается к свежей установке.
+XUI_RESTORED=0
+if [[ "$MODE" == "full" && -n "${XUI_RESTORE_ARCHIVE:-}" ]]; then
+    log "Этап 1: возвращаю 3x-ui из копии $(basename "$XUI_RESTORE_ARCHIVE")"
+    if bash "$VSM_ROOT/tools/xui-restore.sh" "$XUI_RESTORE_ARCHIVE" --yes; then
+        XUI_RESTORED=1
+    else
+        warn "3x-ui из копии не возвращена — панель осталась свежей установкой."
+        warn "  Повторить после установки: меню X-UI → «Бэкап» → «Вернуть из копии VSM»."
+    fi
+    verify_or_die systemctl is-active --quiet x-ui
+fi
+
 # Шаблон настроек 3x-ui — только на свежую панель (режим full): в режиме
 # addon панель уже доведена владельцем, и накладывать на неё что-либо без
 # спроса нельзя. Отказ не роняет стек: инструмент сам возвращает базу из копии.
-if [[ "$MODE" == "full" && "${XUI_PROFILE_APPLY:-0}" == "1" ]] \
+if [[ "$MODE" == "full" && "$XUI_RESTORED" == "0" && "${XUI_PROFILE_APPLY:-0}" == "1" ]] \
    && declare -F xui_profile_apply >/dev/null 2>&1; then
     log "Этап 1: накладываю шаблон настроек 3x-ui"
     xui_profile_apply "$DOMAIN_PANEL" "$DOMAIN_REALITY" "${XUI_PROFILE_NAME:-}" \

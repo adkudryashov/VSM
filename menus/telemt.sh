@@ -271,8 +271,14 @@ function run_install {
 
     # Шаблон 3x-ui — только при установке панели с нуля: в режиме addon
     # панель уже доведена владельцем, накладывать на неё нечего.
-    XUI_PROFILE_APPLY=0; XUI_PROFILE_NAME=""
-    if [ "$mode" = "full" ] && declare -F xui_profile_ask >/dev/null 2>&1; then
+    # Копия раньше шаблона и вместо него: она возвращает прежних клиентов, а
+    # шаблон поверх неё испортил бы то, ради чего её возвращали.
+    XUI_RESTORE_ARCHIVE=""; XUI_PROFILE_APPLY=0; XUI_PROFILE_NAME=""
+    if [ "$mode" = "full" ] && declare -F xui_restore_ask >/dev/null 2>&1; then
+        xui_restore_ask "$ASK_PANEL"
+    fi
+    if [ "$mode" = "full" ] && [ -z "$XUI_RESTORE_ARCHIVE" ] \
+       && declare -F xui_profile_ask >/dev/null 2>&1; then
         xui_profile_ask
     fi
 
@@ -284,6 +290,7 @@ function run_install {
     TELEMT_PORT="${p_telemt:-${TELEMT_PORT:-8444}}" \
     INSTALL_PANEL="$INSTALL_PANEL" \
     PANEL_PORT="${p_panel:-${PANEL_PORT:-9444}}" \
+    XUI_RESTORE_ARCHIVE="$XUI_RESTORE_ARCHIVE" \
     XUI_PROFILE_APPLY="$XUI_PROFILE_APPLY" \
     XUI_PROFILE_NAME="$XUI_PROFILE_NAME" \
         bash "$STACK_SCRIPT" --mode "$mode"

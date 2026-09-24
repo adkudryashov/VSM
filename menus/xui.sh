@@ -220,8 +220,12 @@ function install_xui_pro {
     # Вопрос про шаблон — до установки, вместе с остальными: сама установка
     # идёт минуты, и спрашивать после неё значит заставить человека ждать у
     # экрана ради одного ответа.
-    XUI_PROFILE_APPLY=0; XUI_PROFILE_NAME=""
-    declare -F xui_profile_ask >/dev/null 2>&1 && xui_profile_ask
+    # Копия раньше шаблона и вместо него — как в диалоге стека.
+    XUI_RESTORE_ARCHIVE=""; XUI_PROFILE_APPLY=0; XUI_PROFILE_NAME=""
+    declare -F xui_restore_ask >/dev/null 2>&1 && xui_restore_ask "$subdomain"
+    if [ -z "$XUI_RESTORE_ARCHIVE" ]; then
+        declare -F xui_profile_ask >/dev/null 2>&1 && xui_profile_ask
+    fi
 
     echo -e "${CYAN}>>> Запуск установки 3x-ui-pro...${NC}"
 
@@ -239,7 +243,14 @@ function install_xui_pro {
     fi
     bash "$installer" "${xui_args[@]}"
     rm -f "$installer"
-    if [ "${XUI_PROFILE_APPLY:-0}" = "1" ]; then
+    if [ -n "${XUI_RESTORE_ARCHIVE:-}" ]; then
+        if systemctl is-active --quiet x-ui; then
+            echo -e "\n${CYAN}>>> Возвращаю 3x-ui из копии...${NC}"
+            bash "$XUI_RESTORE_TOOL" "$XUI_RESTORE_ARCHIVE" --yes || true
+        else
+            echo -e "${YELLOW}❗  Панель не запущена — копию не возвращаю.${NC}"
+        fi
+    elif [ "${XUI_PROFILE_APPLY:-0}" = "1" ]; then
         if systemctl is-active --quiet x-ui; then
             echo -e "\n${CYAN}>>> Накладываю шаблон настроек 3x-ui...${NC}"
             xui_profile_apply "$subdomain" "$reality_domain" "$XUI_PROFILE_NAME" || true
@@ -310,18 +321,61 @@ function ensure_backup_script {
     fi
 }
 
+# Вернуть 3x-ui из суточной копии VSM. Выбор копии — здесь, остальное делает
+# tools/xui-restore.sh: сверка доменов, сохранение текущего, проверка фактом
+# и откат. Подтверждение словом он спросит сам.
+function xui_restore_from_vsm_copy {
+    if ! declare -F xui_restore_candidates >/dev/null 2>&1; then
+        echo -e "${RED}❌ Не найден lib/xui_profile.sh — обновите VSM.${NC}"; return
+    fi
+    local domain
+    domain="$(python3 -c 'import re,sqlite3,sys
+c=sqlite3.connect(sys.argv[1]); r=c.execute("select value from settings where key=?",("subURI",)).fetchone()
+m=re.match(r"https?://([^/:?]+)", r[0] if r else ""); print(m.group(1) if m else "")' /etc/x-ui/x-ui.db 2>/dev/null)"
+    if [ -z "$domain" ]; then
+        echo -e "${RED}❌ Панель не установлена или домен не читается — возвращать некуда.${NC}"
+        echo -e "${C_DESC}   Сначала поставьте 3x-ui на тех же доменах.${NC}"
+        return
+    fi
+    local -a rows=()
+    mapfile -t rows < <(xui_restore_candidates "$domain")
+    if [ "${#rows[@]}" -eq 0 ]; then
+        echo -e "${YELLOW}Копий со снимком 3x-ui для ${domain} нет.${NC}"
+        echo -e "${C_DESC}   Ищу в /var/backups/vsm/config и в /root. Снимок есть в копиях"
+        echo -e "   с 24.09.2026; принесённый архив положите в /root.${NC}"
+        return
+    fi
+    echo -e "${CYAN}Копии для ${domain}, новые первыми:${NC}"
+    local i=1 path when n k
+    for row in "${rows[@]}"; do
+        IFS='|' read -r path when n k <<< "$row"
+        printf "   %2d  %s  %s  входящих %s, клиентов %s\n" "$i" "$when" "$(basename "$path")" "$n" "$k"
+        i=$((i + 1))
+    done
+    local pick
+    read -r -p "Номер копии (Enter — отмена): " pick || return
+    [[ "$pick" =~ ^[0-9]+$ ]] && [ "$pick" -ge 1 ] && [ "$pick" -le "${#rows[@]}" ] \
+        || { echo -e "${BLUE}Отменено.${NC}"; return; }
+    IFS='|' read -r path _ <<< "${rows[$((pick - 1))]}"
+    bash "$XUI_RESTORE_TOOL" "$path"
+}
+
 function manage_backup {
     ensure_backup_script
     while true; do
         clear 2>/dev/null
         echo -e "${CYAN}--- 💾  БЭКАП / ВОССТАНОВЛЕНИЕ X-UI PRO ---------------${NC}"
-        ui_item        "1" "📦" "Создать бэкап"   "База панели и её настройки"
+        ui_item        "1" "📦" "Создать бэкап"   "Полный архив автора: ~1,4 ГБ данных, панель на время стоит"
         ui_item        "2" "📋" "Список бэкапов"   "Что уже снято и когда"
         ui_danger_item "3" "Восстановить"    "Переписывает текущую базу панели"
+        # Суточная копия VSM уже содержит снимок 3x-ui — лёгкий, без остановки
+        # панели. Пункт возвращает его на переустановленный сервер.
+        ui_danger_item "4" "Вернуть из копии VSM" "Клиенты и пути из суточной копии"
         ui_item "X" "🔙" "Назад"
         echo -e "${BLUE}------------------------------------------------------${NC}"
         read -p "Выбор: " b_choice || break
         case $b_choice in
+            4) xui_restore_from_vsm_copy; read -p "Нажмите Enter для продолжения..." ;;
             1) sudo x-ui-backup backup; read -p "Нажмите Enter для продолжения..." ;;
             2) sudo x-ui-backup list; read -p "Нажмите Enter для продолжения..." ;;
             3)

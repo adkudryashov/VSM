@@ -491,8 +491,12 @@ start_and_check() {
         journalctl -u "$unit" --since "$since" -n 15 --no-pager -o cat | sed 's/^/       /'
         return 1
     fi
-    if journalctl -u "$unit" --since "$since" --no-pager -o cat 2>/dev/null \
-        | grep -qE 'Traceback|ModuleNotFoundError|ValidationError|SystemExit'; then
+    # Журнал — в переменную, а не конвейером в grep -q: при pipefail grep -q
+    # выходит на первой трассировке, journalctl получает SIGPIPE на следующей
+    # строке, и условие становится ложным ровно тогда, когда ошибка есть.
+    local started_log
+    started_log="$(journalctl -u "$unit" --since "$since" --no-pager -o cat 2>/dev/null)" || true
+    if grep -qE 'Traceback|ModuleNotFoundError|ValidationError|SystemExit' <<< "$started_log"; then
         warn "$unit запущен, но в журнале ошибки:"
         journalctl -u "$unit" --since "$since" -n 15 --no-pager -o cat | sed 's/^/       /'
         return 1
