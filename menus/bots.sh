@@ -487,6 +487,8 @@ function manage_watchdog {
         ui_section "ЧТО СТОРОЖ ПРИСЫЛАЕТ САМ"
         echo -e "   ${C_DESC}движок недоступен · перезапустился · просели писатели${NC}"
         echo -e "   ${C_DESC}изменился конфиг движка · сменился внешний адрес${NC}"
+        echo -e "   ${C_DESC}пустой дата-центр · разошлись часы · ошибки ключей${NC}"
+        echo -e "   ${C_DESC}WEB Proxy не принимает или упёрся в предел${NC}"
         echo -e "   ${C_DESC}Команды в боте: /watch /check /mute /unmute${NC}"
 
         echo ""
