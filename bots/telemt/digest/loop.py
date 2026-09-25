@@ -19,7 +19,7 @@ import re
 import time
 
 from aiogram import Bot
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, InputRichMessage
 
 from common import http
 from common.beszel import shared as beszel_client
@@ -90,7 +90,7 @@ async def _hub_total():
         return -1
 
 
-async def build(now: float) -> tuple[str, dict, report.Facts]:
+async def build(now: float) -> tuple[report.Facts, dict]:
     """Собрать сводку от последнего закрытия суток до now. Ничего не сохраняет."""
     led = ledger()
     d = led.data
@@ -128,7 +128,7 @@ async def build(now: float) -> tuple[str, dict, report.Facts]:
         backup=await asyncio.to_thread(sources.backup, a, now),
         maint=await asyncio.to_thread(sources.maintenance, a, now, extra["xui"], extra["users"]),
     )
-    return report.render(f), snap, f
+    return f, snap
 
 
 def _server_name() -> str:
@@ -136,21 +136,39 @@ def _server_name() -> str:
     return get_server_name()
 
 
-async def send(bot: Bot, text: str) -> None:
+async def send_to(bot: Bot, chat_id: int, f: report.Facts) -> None:
+    """
+    Rich Message с таблицами — как «Сводка» и «Серверы» в этом боте; первая
+    редакция шла простым текстом, и владелец по снимку 25.09.2026 назвал её
+    «страшноватой». Rich не приняли — тот же разбор обычным текстом. Кнопка
+    выключения есть в обоих случаях: без неё рассылку было бы нечем остановить.
+    """
     kb = keyboard(ledger().enabled)
+    try:
+        await bot.send_rich_message(chat_id=chat_id,
+                                    rich_message=InputRichMessage(html=report.render_rich(f)),
+                                    reply_markup=kb)
+        return
+    except Exception as exc:
+        logging.warning("Сводка: Rich Message не отправился (%s), шлю обычным текстом", exc)
+    await bot.send_message(chat_id=chat_id, text=report.render(f), parse_mode="HTML",
+                           reply_markup=kb)
+
+
+async def send(bot: Bot, f: report.Facts) -> None:
     for admin_id in settings.ADMIN_IDS:
         try:
-            await bot.send_message(chat_id=admin_id, text=text, parse_mode="HTML", reply_markup=kb)
+            await send_to(bot, admin_id, f)
         except Exception as exc:
             logging.warning("Сводка: не доставил админу %s: %s", admin_id, exc)
 
 
 async def close_day(bot: Bot, now: float) -> None:
     led = ledger()
-    text, snap, f = await build(now)
+    f, snap = await build(now)
     led.roll(now, snap, f.traffic if not f.traffic_since_boot else None, f.ssh, f.probes)
     if led.enabled:
-        await send(bot, text)
+        await send(bot, f)
 
 
 async def tick(bot: Bot, now: float | None = None) -> None:

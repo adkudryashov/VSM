@@ -124,15 +124,16 @@ def _facts(**kw):
 
 def test_спокойный_день():
     t = R.render(_facts())
-    assert "HostUp</b> · 26.09 22:00, за сутки" in t
+    assert "HostUp</b> · 26.09 22:00 · за сутки" in t
     assert "7,5 ГБ  ↑ 12% ко вчера" in t
-    assert "telemt: adkrw 300 МБ · family 1,2 ГБ · smlab 0" in t
-    assert "2 339 попыток подбора · ↓ 8% ко вчера" in t
-    assert "до суток и дольше: 5" in t
-    assert "Сторож: тревог нет" in t and "все DC на связи" in t
-    assert "Серверы: все 5 на связи" in t and "Копия: сделана · 52 КБ" in t
-    assert "✅ Обслуживание не требуется" in t
-    assert "⚠️" not in t
+    assert "adkrw: 3x-ui 2,1 ГБ · telemt 300 МБ" in t
+    assert "chekhov: 3x-ui 600 МБ" in t and "smlab: telemt 0" in t
+    assert "Попытки подбора SSH: 2 339 · ↓ 8% ко вчера" in t
+    assert "Баны: 41 · 14 адресов" in t and "Баны на сутки и дольше: 5" in t
+    assert "🟢 Сторож: тревог нет" in t and "🟢 Telegram: все DC на связи" in t
+    assert "🟢 Серверы: все 5 на связи" in t and "🟢 Копия: сделана · 52 КБ" in t
+    assert "🟢 Обслуживание не требуется" in t
+    assert "⚠️" not in t and "🟡" not in t and "🔴" not in t
 
 
 def test_день_с_событиями():
@@ -140,13 +141,25 @@ def test_день_с_событиями():
     evs = [{"kind": "dc_dead", "start": a + 3600, "end": a + 3600 + 130 * 60, "detail": "5"},
            {"kind": "beszel_silent", "start": a + 7200, "end": a + 7200 + 720, "detail": "VEESP"}]
     t = R.render(_facts(events=evs, ru=(48, 1), backup=("missing", True),
-                        maint=["⚠️ Нужна перезагрузка (ядро)"]))
-    assert "Сторож: ⚠️ 2 тревоги · 2 ч 22 мин" in t
-    assert "Telegram: ⚠️ DC 5 пропадал 2 ч 10 мин" in t
-    assert "Серверы: ⚠️ VEESP недоступен 12 мин" in t
-    assert "Россия: ⚠️ недоступен 1 из 48" in t
-    assert "Копия: ⚠️ не сделана — ошибка" in t
-    assert "🔧 <b>Обслуживание</b>" in t and "Нужна перезагрузка (ядро)" in t
+                        maint=["⚠️ Нужна перезагрузка (ядро)", "Автообновления: 94 пакета"]))
+    assert "🟡 Сторож: 2 тревоги · 2 ч 22 мин" in t
+    assert "🟡 Telegram: DC 5 пропадал 2 ч 10 мин" in t
+    assert "🟡 Серверы: VEESP недоступен 12 мин" in t
+    assert "🟡 Россия: недоступен 1 из 48" in t
+    assert "🔴 Копия: не сделана — ошибка" in t
+    assert "🔧 <b>Обслуживание</b>" in t
+    assert "🟡 Нужна перезагрузка (ядро)" in t and "ℹ️ Автообновления: 94 пакета" in t
+
+
+def test_незакрытая_авария_красная():
+    a = мск(2026, 9, 25, 22, 0)
+    t = R.render(_facts(events=[{"kind": "engine", "start": a + 80000, "end": None}]))
+    assert "🔴 Сторож: 1 тревога · 1 ч 46 мин · идёт сейчас" in t
+
+
+def test_копия_первая_впереди_не_тревога():
+    t = R.render(_facts(backup=("pending",)))
+    assert "🟢 Копия: первая ещё впереди" in t
 
 
 def test_перезагрузка_посреди_суток_без_сравнения():
@@ -156,14 +169,36 @@ def test_перезагрузка_посреди_суток_без_сравне�
 
 
 def test_имена_экранируются():
-    t = R.render(_facts(telemt={"<b>x</b>": 1}))
-    assert "&lt;b&gt;x&lt;/b&gt;" in t
+    for render in (R.render, R.render_rich):
+        t = render(_facts(telemt={"<b>x</b>": 1}, server="<i>s</i>"))
+        assert "&lt;b&gt;x&lt;/b&gt;" in t and "&lt;i&gt;s&lt;/i&gt;" in t
 
 
 def test_без_хаба_и_fail2ban():
     t = R.render(_facts(hub_total=None, bans=None))
     assert "Серверы" not in t
     assert "fail2ban не установлен" in t
+
+
+def test_rich_таблицами_как_сводка_бота():
+    t = R.render_rich(_facts())
+    assert t.startswith("<h2>📊 HostUp</h2>")
+    assert "<h3>📶 Трафик · 7,5 ГБ · ↑ 12% ко вчера</h3>" in t
+    assert "<tr><th>Клиент</th><th>3x-ui</th><th>telemt</th></tr>" in t
+    assert "<tr><td>adkrw</td><td>2,1 ГБ</td><td>300 МБ</td></tr>" in t
+    assert "<tr><td>chekhov</td><td>600 МБ</td><td>—</td></tr>" in t
+    assert "<tr><td>🟢 Сторож</td><td>тревог нет</td></tr>" in t
+    assert "Обслуживание не требуется" in t
+    # Таблиц три, и каждая закрыта: незакрытый тег Rich Message отвергает целиком.
+    assert t.count("<table>") == t.count("</table>") == 3
+
+
+def test_rich_и_текст_говорят_одно():
+    """Оба вида из одних строк: вердикты расходиться не могут."""
+    f = _facts(ru=(48, 1), backup=("missing", False))
+    rich, plain = R.render_rich(f), R.render(f)
+    for фраза in ("недоступен 1 из 48", "не сделана", "Попытки подбора SSH"):
+        assert фраза in rich and фраза in plain
 
 
 # -------------------------------------------------------------- состояние
@@ -243,6 +278,26 @@ def test_пакеты_автообновления_за_окно(tmp_path):
                  "End-Date: 2026-09-26  07:00:03\n", encoding="utf-8")
     a = datetime(2026, 9, 25, 22, 0).timestamp()
     assert upgrades.packages_between(a, a + 86400, p) == ["openssl", "libssl3t64"]
+
+
+def test_копия_по_возрасту_а_не_по_окну(tmp_path, monkeypatch):
+    """25.09.2026: сводка за 17 минут сказала «не сделана» — копия суточная."""
+    import os
+    d = tmp_path / "config"
+    d.mkdir()
+    timer = tmp_path / "vsm-backup.timer"
+    timer.write_text("")
+    monkeypatch.setattr(S, "BACKUP_DIR", str(d))
+    monkeypatch.setattr(S, "BACKUP_TIMER", str(timer))
+    now = time.time()
+    assert S.backup(now - 1020, now) == ("pending",)          # таймер свежий, копий не было
+    arch = d / "config-20260925.tar.gz"
+    arch.write_bytes(b"x" * 2048)
+    os.utime(arch, (now - 20 * 3600, now - 20 * 3600))       # вчерашняя ночная — в порядке
+    assert S.backup(now - 1020, now) == ("ok", 2048)
+    os.utime(arch, (now - 3 * 86400,) * 2)                   # три дня копий нет — тревога
+    monkeypatch.setattr(S, "_run", lambda *_a, **_k: "success\n")
+    assert S.backup(now - 86400, now) == ("missing", False)
 
 
 def test_лимиты_молчат_без_лимитов():

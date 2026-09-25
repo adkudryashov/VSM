@@ -32,12 +32,12 @@ async def show_digest(message: types.Message, bot: Bot):
                              "через минуту после запуска бота. Попробуйте чуть позже.")
         return
     try:
-        text, _, _ = await loop.build(time.time())
+        facts, _ = await loop.build(time.time())
     except Exception as exc:
         logging.warning("Сводка по запросу не собралась: %s", exc)
         await message.answer("⚠️ Сводка не собралась. Подробности в журнале бота.")
         return
-    await message.answer(text, parse_mode="HTML", reply_markup=loop.keyboard(ledger().enabled))
+    await loop.send_to(bot, message.chat.id, facts)
 
 
 @router.callback_query(F.data.in_({"dg:on", "dg:off"}))

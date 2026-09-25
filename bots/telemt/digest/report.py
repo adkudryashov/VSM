@@ -180,7 +180,9 @@ class Facts:
     events: list = field(default_factory=list)
     ru: Optional[tuple] = None           # (проверок, провальных); None — нет источника
     hub_total: Optional[int] = None      # None — хаб не подключён; -1 — не ответил
-    backup: Optional[tuple] = None       # ("ok", байты) | ("missing", ошибка: bool); None — нет таймера
+    # ("ok", байты) | ("pending",) — копий ещё не было, таймер новый |
+    # ("missing", ошибка: bool); None — копии VSM не настроены
+    backup: Optional[tuple] = None
     # Обслуживание: готовые строки, только про то, что требует действия
     maint: list = field(default_factory=list)
 
@@ -189,89 +191,96 @@ _DC_KINDS = {"dc_dead"}
 _HUB_KINDS = {"beszel_silent", "beszel_hub"}
 
 
-def _named(items: dict) -> str:
-    return " · ".join(f"{html.escape(str(k))} {size(v)}" for k, v in items.items())
+def _icons():
+    """Значки состояния — из общего словаря бота (telemt/handlers/aboutall.py):
+    три азбуки статусов в одном боте уже разводили однажды. Ввозим внутри
+    функции, как экран «Серверы»: расчётам обработчики ни к чему."""
+    from telemt.handlers.aboutall import BAD, OK, WARN
+    return OK, WARN, BAD
 
 
-def render(f: Facts) -> str:
+def _kb(b: int) -> str:
+    return size(b) if b >= 10**6 else f"{round(b / 1024)} КБ"
+
+
+# ---------------------------------------------------------------- строки
+# Одни и те же строки идут и в таблицы Rich Message, и в запасной текст:
+# собрать их дважды значило бы однажды получить два разных вердикта об одном.
+
+def _traffic(f: Facts) -> dict:
     zone = ZoneInfo(f.tz)
-    end = datetime.fromtimestamp(f.b, zone)
-    lines = [f"📊 <b>{html.escape(f.server)}</b> · {end:%d.%m %H:%M}, {window_label(f.a, f.b)}", ""]
-
-    # --- Трафик
-    head = f"📶 <b>Трафик</b>  {'≈ ' if f.traffic_since_boot else ''}{size(f.traffic)}"
-    ch = change(f.traffic, f.traffic_prev) if not f.traffic_since_boot else ""
-    lines.append(head + (f"  {ch}" if ch else ""))
-    if f.traffic_since_boot:
-        lines.append("   <i>сервер перезагружался — счёт с загрузки</i>")
-    if f.xui is not None:
-        lines.append(f"   3x-ui: {_named(f.xui) or 'клиентов нет'}")
-    if f.telemt is not None:
-        lines.append(f"   telemt: {_named(f.telemt) or 'пользователей нет'}")
-    else:
-        lines.append("   telemt: ⚠️ не ответил")
+    ch = "" if f.traffic_since_boot else change(f.traffic, f.traffic_prev)
+    names = list(dict.fromkeys(list((f.xui or {}).keys()) + list((f.telemt or {}).keys())))
+    rows = [(n, (f.xui or {}).get(n), (f.telemt or {}).get(n)) for n in names]
+    peak = ""
     if f.peak and f.peak[0]:
         at = datetime.fromtimestamp(f.peak[1], zone)
-        lines.append(f"   Пик: {num(f.peak[0])} {plural(f.peak[0], 'подключение', 'подключения', 'подключений')} в {at:%H:%M}")
-    lines.append("")
+        peak = (f"Пик: {num(f.peak[0])} "
+                f"{plural(f.peak[0], 'подключение', 'подключения', 'подключений')} в {at:%H:%M}")
+    return {"total": ("≈ " if f.traffic_since_boot else "") + size(f.traffic), "change": ch,
+            "rows": rows, "has_xui": f.xui is not None, "has_telemt": f.telemt is not None,
+            "peak": peak, "since_boot": f.traffic_since_boot}
 
-    # --- Защита
-    lines.append("🛡 <b>Защита</b>")
+
+def _security(f: Facts) -> list:
+    """(показатель, число, заметка) — заметка: сравнение со вчера или всплеск."""
+    rows = []
     if f.ssh is not None:
-        ch = change(f.ssh, f.ssh_prev)
-        lines.append(f"   SSH: {num(f.ssh)} {plural(f.ssh, 'попытка', 'попытки', 'попыток')} подбора"
-                     + (f" · {ch}" if ch else ""))
+        rows.append(("Попытки подбора SSH", num(f.ssh), change(f.ssh, f.ssh_prev)))
     if f.bans is None:
-        lines.append("   Баны: ⚠️ fail2ban не установлен")
+        rows.append(("Баны", "—", "⚠️ fail2ban не установлен"))
     else:
         n, ips, long = f.bans
-        s = f"   Баны: {num(n)}"
-        if n:
-            s += f" · {num(ips)} {plural(ips, 'адрес', 'адреса', 'адресов')}"
-            if long:
-                s += f" · до суток и дольше: {num(long)}"
-        lines.append(s)
+        rows.append(("Баны", num(n), f"{num(ips)} {plural(ips, 'адрес', 'адреса', 'адресов')}" if n else ""))
+        if long:
+            rows.append(("Баны на сутки и дольше", num(long), ""))
     if f.probes is not None:
-        lines.append(f"   Прощупывание прокси: {num(f.probes)}{surge(f.probes, f.probes_hist)}")
+        rows.append(("Прощупывание прокси", num(f.probes), surge(f.probes, f.probes_hist).strip()))
     if f.firewall_off:
-        lines.append("   Фаервол: ⚠️ выключен")
+        rows.append(("Фаервол", "—", "⚠️ выключен"))
     elif f.firewall is not None:
-        lines.append(f"   Фаервол: {num(f.firewall)} отброшено")
-    lines.append("")
+        rows.append(("Отброшено фаерволом", num(f.firewall), ""))
+    return rows
 
-    # --- Работа
-    lines.append("🩺 <b>Работа</b>")
+
+def _work(f: Facts) -> list:
+    """(значок, что, состояние)."""
+    OK, WARN, BAD = _icons()
+    rows = []
     evs = overlapping(f.events, f.a, f.b)
     if not f.watchdog:
-        lines.append("   Сторож: выключен")
+        rows.append((WARN, "Сторож", "выключен"))
     elif not evs:
-        lines.append("   Сторож: тревог нет")
+        rows.append((OK, "Сторож", "тревог нет"))
     else:
         total = sum(clipped_minutes(e, f.a, f.b) for e in evs)
-        lines.append(f"   Сторож: ⚠️ {len(evs)} {plural(len(evs), 'тревога', 'тревоги', 'тревог')}"
-                     + (f" · {minutes(total)}" if total else ""))
+        still = any(e.get("end") is None for e in evs)
+        rows.append((BAD if still else WARN, "Сторож",
+                     f"{len(evs)} {plural(len(evs), 'тревога', 'тревоги', 'тревог')}"
+                     + (f" · {minutes(total)}" if total else "")
+                     + (" · идёт сейчас" if still else "")))
     if f.ru is not None:
         n, bad = f.ru
         if n == 0:
-            lines.append("   Россия: ⚠️ проверок не было")
+            rows.append((WARN, "Россия", "проверок не было"))
         elif bad:
-            lines.append(f"   Россия: ⚠️ недоступен {bad} из {n}")
+            rows.append((BAD if bad == n else WARN, "Россия", f"недоступен {bad} из {n}"))
         else:
-            lines.append(f"   Россия: доступен · {num(n)} {plural(n, 'проверка', 'проверки', 'проверок')}")
-    dc = [e for e in evs if e.get("kind") in _DC_KINDS]
+            rows.append((OK, "Россия", f"доступен · {num(n)} {plural(n, 'проверка', 'проверки', 'проверок')}"))
     if f.watchdog:
+        dc = [e for e in evs if e.get("kind") in _DC_KINDS]
         if dc:
-            lines.append("   Telegram: ⚠️ " + "; ".join(
+            rows.append((WARN, "Telegram", "; ".join(
                 f"DC {html.escape(e.get('detail') or '?')} пропадал {minutes(clipped_minutes(e, f.a, f.b))}"
-                for e in dc))
+                for e in dc)))
         else:
-            lines.append("   Telegram: все DC на связи")
+            rows.append((OK, "Telegram", "все DC на связи"))
     if f.hub_total is not None:
         hub = [e for e in evs if e.get("kind") in _HUB_KINDS]
         if f.hub_total < 0 and not hub:
-            lines.append("   Серверы: ⚠️ хаб не ответил")
+            rows.append((BAD, "Серверы", "хаб не ответил"))
         elif not hub:
-            lines.append(f"   Серверы: все {f.hub_total} на связи")
+            rows.append((OK, "Серверы", f"все {f.hub_total} на связи"))
         else:
             parts = []
             for e in hub:
@@ -280,20 +289,108 @@ def render(f: Facts) -> str:
                     parts.append(f"хаб не отвечал {m}")
                 else:
                     who = e.get("detail") or "сервер"
-                    verb = "недоступны" if "," in who else "недоступен"
-                    parts.append(f"{html.escape(who)} {verb} {m}")
-            lines.append("   Серверы: ⚠️ " + "; ".join(parts))
+                    parts.append(f"{html.escape(who)} {'недоступны' if ',' in who else 'недоступен'} {m}")
+            rows.append((WARN, "Серверы", "; ".join(parts)))
     if f.backup is not None:
-        if f.backup[0] == "ok":
-            lines.append(f"   Копия: сделана · {size(f.backup[1]) if f.backup[1] >= 10**6 else str(round(f.backup[1] / 1024)) + ' КБ'}")
+        kind = f.backup[0]
+        if kind == "ok":
+            rows.append((OK, "Копия", f"сделана · {_kb(f.backup[1])}"))
+        elif kind == "pending":
+            rows.append((OK, "Копия", "первая ещё впереди"))
         else:
-            lines.append("   Копия: ⚠️ не сделана" + (" — ошибка" if f.backup[1] else ""))
-    lines.append("")
+            rows.append((BAD if f.backup[1] else WARN, "Копия",
+                         "не сделана" + (" — ошибка" if f.backup[1] else "")))
+    return rows
 
-    # --- Обслуживание
-    if f.maint:
-        lines.append("🔧 <b>Обслуживание</b>")
-        lines += [f"   {m}" for m in f.maint]
+
+def _maint(f: Facts) -> list:
+    """(значок, текст). Строки источника с «⚠️» требуют действия, остальные — к сведению."""
+    OK, WARN, _ = _icons()
+    out = []
+    for m in f.maint:
+        if m.startswith("⚠️"):
+            out.append((WARN, m.removeprefix("⚠️").strip()))
+        else:
+            out.append(("ℹ️", m))
+    return out
+
+
+def _title(f: Facts) -> tuple:
+    end = datetime.fromtimestamp(f.b, ZoneInfo(f.tz))
+    return html.escape(f.server), f"{end:%d.%m %H:%M} · {window_label(f.a, f.b)}"
+
+
+# ---------------------------------------------------------------- вывод
+def render_rich(f: Facts) -> str:
+    """Rich Message: заголовки и таблицы, как «Сводка» и «Серверы» в этом боте."""
+    name, when = _title(f)
+    t = _traffic(f)
+    out = [f"<h2>📊 {name}</h2>", f"<p><i>{when}</i></p>"]
+
+    out.append(f"<h3>📶 Трафик · {t['total']}" + (f" · {t['change']}" if t["change"] else "") + "</h3>")
+    if t["since_boot"]:
+        out.append("<p><i>Сервер перезагружался — трафик считан с загрузки.</i></p>")
+    if t["rows"]:
+        head = "<tr><th>Клиент</th>" + ("<th>3x-ui</th>" if t["has_xui"] else "") \
+               + ("<th>telemt</th>" if t["has_telemt"] else "") + "</tr>"
+        body = "".join(
+            f"<tr><td>{html.escape(str(n))}</td>"
+            + (f"<td>{size(x) if x is not None else '—'}</td>" if t["has_xui"] else "")
+            + (f"<td>{size(y) if y is not None else '—'}</td>" if t["has_telemt"] else "")
+            + "</tr>" for n, x, y in t["rows"])
+        out.append(f"<table>{head}{body}</table>")
+    if not t["has_telemt"]:
+        out.append("<p>⚠️ telemt не ответил</p>")
+    if t["peak"]:
+        out.append(f"<p>{t['peak']}</p>")
+
+    out.append("<h3>🛡 Защита</h3>")
+    out.append("<table><tr><th>Показатель</th><th>Число</th><th>Заметка</th></tr>" + "".join(
+        f"<tr><td>{a}</td><td>{b}</td><td>{c}</td></tr>" for a, b, c in _security(f)) + "</table>")
+
+    out.append("<h3>🩺 Работа</h3>")
+    out.append("<table><tr><th>Что</th><th>Состояние</th></tr>" + "".join(
+        f"<tr><td>{i} {a}</td><td>{b}</td></tr>" for i, a, b in _work(f)) + "</table>")
+
+    m = _maint(f)
+    if m:
+        out.append("<h3>🔧 Обслуживание</h3>")
+        out.append("<table>" + "".join(f"<tr><td>{i} {s}</td></tr>" for i, s in m) + "</table>")
     else:
-        lines.append("✅ Обслуживание не требуется")
+        out.append(f"<p>{_icons()[0]} Обслуживание не требуется</p>")
+    return "".join(out)
+
+
+def render(f: Facts) -> str:
+    """Запасной текст — на случай, если Rich Message не примут. Те же строки."""
+    name, when = _title(f)
+    t = _traffic(f)
+    lines = [f"📊 <b>{name}</b> · {when}", ""]
+    lines.append(f"📶 <b>Трафик</b>  {t['total']}" + (f"  {t['change']}" if t["change"] else ""))
+    if t["since_boot"]:
+        lines.append("   <i>сервер перезагружался — счёт с загрузки</i>")
+    for n, x, y in t["rows"]:
+        parts = []
+        if t["has_xui"] and x is not None:
+            parts.append(f"3x-ui {size(x)}")
+        if t["has_telemt"] and y is not None:
+            parts.append(f"telemt {size(y)}")
+        lines.append(f"   {html.escape(str(n))}: " + " · ".join(parts))
+    if not t["has_telemt"]:
+        lines.append("   telemt: ⚠️ не ответил")
+    if t["peak"]:
+        lines.append(f"   {t['peak']}")
+    lines += ["", "🛡 <b>Защита</b>"]
+    for a, b, c in _security(f):
+        lines.append(f"   {a}: {b}" + (f" · {c}" if c else ""))
+    lines += ["", "🩺 <b>Работа</b>"]
+    for i, a, b in _work(f):
+        lines.append(f"   {i} {a}: {b}")
+    lines.append("")
+    m = _maint(f)
+    if m:
+        lines.append("🔧 <b>Обслуживание</b>")
+        lines += [f"   {i} {s}" for i, s in m]
+    else:
+        lines.append(f"{_icons()[0]} Обслуживание не требуется")
     return "\n".join(lines)

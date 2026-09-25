@@ -28,6 +28,8 @@ F2B_DB = "/var/lib/fail2ban/fail2ban.sqlite3"
 RU_HISTORY = "/opt/mtproxyl/availability/history.jsonl"
 BACKUP_DIR = "/var/backups/vsm/config"
 BACKUP_TIMER = "/etc/systemd/system/vsm-backup.timer"
+# Копия суточная; два часа запаса — таймеру свойственен разброс запуска.
+BACKUP_MAX_AGE = 26 * 3600
 
 
 def _ro(path: str) -> Optional[sqlite3.Connection]:
@@ -172,16 +174,29 @@ def ru_checks(a: float, b: float) -> Optional[tuple]:
 
 
 def backup(a: float, b: float) -> Optional[tuple]:
-    """("ok", размер) | ("missing", была ли ошибка); None — копии VSM не настроены."""
+    """
+    ("ok", размер) | ("pending",) | ("missing", была ли ошибка); None — копии
+    VSM не настроены.
+
+    Смотрим, есть ли копия не старше суток с запасом, а НЕ «сделана ли внутри
+    окна»: первая сводка на главном 25.09.2026 была за 17 минут и честно
+    сказала «не сделана» — копия суточная и в эти минуты не должна была
+    появиться. Копий ещё не было вовсе, а таймер поставлен меньше суток
+    назад — значит первая впереди, это не тревога.
+    """
+    fresh = b - BACKUP_MAX_AGE
     best = None
     for f in glob.glob(f"{BACKUP_DIR}/config-*.tar.gz"):
         st = Path(f).stat()
-        if a <= st.st_mtime <= b and (best is None or st.st_mtime > best[0]):
+        if best is None or st.st_mtime > best[0]:
             best = (st.st_mtime, st.st_size)
-    if best:
+    if best and best[0] >= fresh:
         return ("ok", best[1])
-    if not Path(BACKUP_TIMER).exists():
+    timer = Path(BACKUP_TIMER)
+    if not timer.exists():
         return None
+    if best is None and timer.stat().st_mtime >= fresh:
+        return ("pending",)
     result = _run(["systemctl", "show", "vsm-backup.service", "-p", "Result", "--value"]).strip()
     return ("missing", bool(result) and result != "success")
 
