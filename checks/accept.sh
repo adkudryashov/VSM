@@ -207,6 +207,8 @@ screen menus/setup.sh  '3\nX\nX\n'         'настройка: UFW (3, без �
 screen menus/setup.sh  '4\nX\nX\n'         'настройка: IPv6 (4, без переключения)'
 screen menus/setup.sh  '5\nX\nX\n'         'настройка: SSL (5, есть проверка автопродления)' 'Автопродление'
 screen menus/setup.sh  '6\nX\nX\n'         'настройка: часовой пояс (6)'
+screen menus/setup.sh  '8\nX\nX\n'         'настройка: бан подбора SSH (8, без включения)' 'БАН ПОДБОРА'
+screen menus/setup.sh  '9\nX\nX\n'         'настройка: автообновления (9, без включения)' 'АВТООБНОВЛЕНИЯ'
 screen menus/warp.sh   '2\n\nX\n'          'WARP: порт (2)'
 screen menus/warp.sh   '4\nX\nX\n'         'WARP: служба (4)'
 screen menus/utils.sh  '2\n4\n\nX\n'       'утилиты: ncdu, свой путь (2→4)'

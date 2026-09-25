@@ -7,6 +7,12 @@ source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/common.sh" || {
 # пропадёт лишь пункт проверки продления.
 # shellcheck source=/dev/null
 [ -r "$VSM_LIB/cert_renew.sh" ] && . "$VSM_LIB/cert_renew.sh"
+# Бан подбора SSH и автообновления. Реестр — ради отметки, которую пункты
+# ставят при включении: по ней сверка потом следит, что защита на месте.
+# shellcheck source=/dev/null
+[ -r "$VSM_LIB/hardening.sh" ] && . "$VSM_LIB/hardening.sh"
+# shellcheck source=/dev/null
+[ -r "$VSM_LIB/expectations.sh" ] && . "$VSM_LIB/expectations.sh"
 
 # ----------------------------------------------------------------------
 # НАСТРОЙКИ СЕРВЕРА И ФУНКЦИИ ПРОВЕРКИ
@@ -764,6 +770,74 @@ function manage_ssl_menu {
     done
 }
 # ----------------------------------------------------------------------
+# ЗАЩИТА: БАН ПОДБОРА SSH И АВТООБНОВЛЕНИЯ (lib/hardening.sh)
+# ----------------------------------------------------------------------
+
+function show_ssh_ladder_menu {
+    declare -F ssh_ladder_state >/dev/null || { echo "Нет lib/hardening.sh — обновите VSM (пункт 7)."; return; }
+    while true; do
+        clear 2>/dev/null
+        ui_title "🛡  БАН ПОДБОРА ПАРОЛЯ SSH"
+        echo -e "   ${C_DESC}3 неудачи за час с одного адреса — бан на 15 минут. Каждый следующий${NC}"
+        echo -e "   ${C_DESC}бан того же адреса длиннее: 1 час, сутки, неделя, месяц, год.${NC}"
+        echo -e "   ${C_DESC}Действует и на вас: забанили себя — войдите через консоль хостера${NC}"
+        echo -e "   ${C_DESC}и снимите бан пунктом 2.${NC}"
+        echo ""
+        ui_kv 'Состояние' "$(ssh_ladder_state)" 17
+        local n; n="$(ssh_ladder_banned)"
+        [ -n "$n" ] && ui_kv 'В бане сейчас' "$n" 17
+        echo ""
+        ui_item "1" "🟢" "Включить"        "Ставит fail2ban, если его нет, и лестницу сроков"
+        ui_item "2" "🔓" "Разбанить адрес" "Снять бан и забыть историю адреса"
+        ui_danger_item "3" "Снять лестницу" "fail2ban останется со штатными сроками"
+        ui_item "X" "🔙" "Назад"
+        echo ""
+        read -p "Ваш выбор [1-3, X]: " c || break
+        case $c in
+            1) ssh_ladder_enable; read -r -p "Нажмите Enter..." _ || break ;;
+            2)
+                local ip
+                read -r -p "Адрес: " ip || break
+                [ -n "$ip" ] && ssh_ladder_unban "$ip"
+                read -r -p "Нажмите Enter..." _ || break
+                ;;
+            3)
+                local yn
+                read -r -p "Снять лестницу? Подбор пароля снова пойдёт штатными сроками fail2ban. [y/N]: " yn || break
+                [[ "$yn" =~ ^[YyДд]$ ]] && ssh_ladder_disable
+                read -r -p "Нажмите Enter..." _ || break
+                ;;
+            [Xx]) return ;;
+        esac
+    done
+}
+
+function show_updates_menu {
+    declare -F updates_state >/dev/null || { echo "Нет lib/hardening.sh — обновите VSM (пункт 7)."; return; }
+    while true; do
+        clear 2>/dev/null
+        ui_title "🩹  АВТООБНОВЛЕНИЯ БЕЗОПАСНОСТИ"
+        echo -e "   ${C_DESC}Только обновления безопасности Ubuntu, раз в ${HARD_UPDATE_DAYS} дней. Сервер сам не${NC}"
+        echo -e "   ${C_DESC}перезагружается: новое ядро — после ручной перезагрузки. Службы на${NC}"
+        echo -e "   ${C_DESC}обновлённых библиотеках перезапускаются сами, прокси моргнёт на секунды.${NC}"
+        echo ""
+        ui_kv 'Состояние'          "$(updates_state)" 20
+        ui_kv 'Последняя установка' "$(updates_last_run)" 20
+        echo ""
+        ui_item "1" "🟢" "Раз в ${HARD_UPDATE_DAYS} дней" "Снимает запреты хостера, если они есть"
+        ui_danger_item "2" "Снять настройку VSM" "Вернутся умолчания системы или хостера"
+        ui_item "X" "🔙" "Назад"
+        echo ""
+        read -p "Ваш выбор [1-2, X]: " c || break
+        case $c in
+            1) updates_monthly_enable; read -r -p "Нажмите Enter..." _ || break ;;
+            2) updates_monthly_disable; read -r -p "Нажмите Enter..." _ || break ;;
+            [Xx]) return ;;
+        esac
+    done
+}
+
+# ----------------------------------------------------------------------
 # ГЛАВНЫЙ ЦИКЛ МЕНЮ УСТАНОВКИ (Оригинал + 2 пункта)
 # ----------------------------------------------------------------------
 
@@ -793,6 +867,10 @@ function run_setup_menu {
         echo -e "   ${C_NAME}$(ui_pad '📈  BBR' 17)${NC}${BBR_C}$(ui_pad "$BBR_T" 20)${NC}${C_NAME}$(ui_pad '🏓  ICMP' 17)${NC}${PNG_C}${PNG_T}${NC}"
         echo -e "   ${C_NAME}$(ui_pad '🔒  UFW' 17)${NC}${UFW_C}$(ui_pad "$UFW_T" 20)${NC}${C_NAME}$(ui_pad '🌐  IPv6' 17)${NC}${IP6_C}${IP6_T}${NC}"
         ui_kv '🕒  Часовой пояс' "$(get_timezone_status)" 17
+        if declare -F ssh_ladder_state >/dev/null; then
+            ui_kv '🛡  Подбор SSH'   "$(ssh_ladder_state)" 17
+            ui_kv '🩹  Обновления'   "$(updates_state)" 17
+        fi
 
         echo ""
         ui_section "СЕТЬ"
@@ -806,10 +884,14 @@ function run_setup_menu {
         ui_item "6" "🕒" "Часовой пояс"    "Смена часового пояса сервера"
         ui_item "7" "📦" "Cloudflare WARP" "Исходящий трафик через WARP"
         echo ""
+        ui_section "ЗАЩИТА"
+        ui_item "8" "🛡" "Бан подбора SSH" "Нарастающий бан: 15 мин, час … год"
+        ui_item "9" "🩹" "Автообновления"  "Обновления безопасности раз в 30 дней"
+        echo ""
         ui_item "X" "🔙" "Назад"
         echo ""
 
-        read -p "Ваш выбор [1-7, X]: " choice || break
+        read -p "Ваш выбор [1-9, X]: " choice || break
         case $choice in
             1) show_bbr_menu ;;
             2) show_ping_menu ;;
@@ -820,6 +902,8 @@ function run_setup_menu {
             7)
             bash "$VSM_ROOT/menus/warp.sh"
             ;;
+            8) show_ssh_ladder_menu ;;
+            9) show_updates_menu ;;
             [Xx]) return ;;
         esac
     done

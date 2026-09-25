@@ -229,7 +229,12 @@ nginx намеренно `tell`: автопочинка потребовала �
                     после выпуска и пунктом 5 → cert_renew_apply (lib/cert_renew.sh):
                     продление переводится на webroot, иначе оно падает на занятом 80
 6 menus/warp.sh
+8 show_ssh_ladder_menu  lib/hardening.sh: fail2ban, лестница 15м…год, разбан с забыванием
+9 show_updates_menu     lib/hardening.sh: apt раз в 30 дней, снятие масок хостера
 ```
+
+Пункты 8 и 9 ставят отметку `ssh_ladder` / `monthly_updates` в
+`/etc/vsm/expectations.state`; по ней позиции реестра следят за защитой.
 
 `ufw_enable_safely` объединяет источники SSH-порта: `$SSH_CONNECTION`,
 `sshd -T`, `sshd_config.d`, `ss`. Порт панели наружу не открывает.
