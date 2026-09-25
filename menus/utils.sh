@@ -91,9 +91,10 @@ function manage_beszel_agent {
         ui_item "1" "📥" "Поставить агент"  "Или переподключить к другому хабу"
         ui_danger_item "2" "Удалить агент"  "Служба, бинарь, таймер обновления"
         ui_item "3" "📊" "Хаб на этом сервере"  "Поставить или сменить адрес"
+        ui_danger_item "4" "Удалить хаб"  "Данные — в копию, затем служба и nginx"
         ui_item "X" "🔙" "Назад"
         echo ""
-        read -p "Ваш выбор [1-3, X]: " ch || break
+        read -p "Ваш выбор [1-4, X]: " ch || break
         case "$ch" in
             1)
                 def="$(beszel_agent_hub_url 2>/dev/null)"
@@ -119,6 +120,22 @@ function manage_beszel_agent {
                 ;;
             3)
                 install_beszel_hub
+                read -p "Нажмите Enter..."
+                ;;
+            4)
+                if ! beszel_hub_installed; then
+                    echo -e "${BLUE}Хаба на этом сервере нет.${NC}"
+                else
+                    echo -e "${RED}❗  Хаб перестанет принимать агенты, все серверы в нём пропадут"
+                    echo -e "    из вида. Данные хаба (серверы, история, тревоги, токены)"
+                    echo -e "    сохранятся в копию в /var/backups/vsm/beszel.${NC}"
+                    read -r -p "$(echo -e "${RED}Введите УДАЛИТЬ для подтверждения: ${NC}")" yn || break
+                    if [ "$yn" = "УДАЛИТЬ" ]; then
+                        beszel_hub_remove || true
+                    else
+                        echo -e "${BLUE}Отменено.${NC}"
+                    fi
+                fi
                 read -p "Нажмите Enter..."
                 ;;
             [Xx]) return ;;

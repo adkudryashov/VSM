@@ -226,6 +226,108 @@ _bh_open_port() {
 }
 
 # ----------------------------------------------------------------------
+# beszel_hub_remove — снять хаб, сохранив его данные в копию.
+#
+# НЕ ОФИЦИАЛЬНЫМ -u. Он делает userdel beszel, а под этим же пользователем
+# работает агент beszel, если он стоит на этой машине: агент остался бы с
+# юнитом на несуществующего пользователя и не поднялся бы после перезагрузки.
+# И он удаляет /opt/beszel вместе с базой без копии — все серверы, история,
+# настройки тревог и токены пропали бы безвозвратно. Поэтому снимаем сами:
+# сначала копия, и только если она легла, удаление.
+# ----------------------------------------------------------------------
+BESZEL_HUB_BACKUP_DIR="${BESZEL_HUB_BACKUP_DIR:-/var/backups/vsm/beszel}"
+
+beszel_hub_remove() {
+    local port backup nginx_bak="" dir public agent_url
+    dir="$(dirname "$BESZEL_HUB_BIN")"
+    # Каталог уходит целиком через rm -rf — только настоящий каталог хаба.
+    case "$dir" in
+        */beszel) ;;
+        *) _bh_fail "каталог хаба выглядит странно ($dir) — не удаляю"; return 1 ;;
+    esac
+    beszel_hub_installed || [ -d "$dir" ] || { _bh_fail "хаба на этом сервере нет"; return 1; }
+    port="$(_bh_nginx_port)"
+    public="$(beszel_hub_url 2>/dev/null)"
+
+    systemctl disable --now beszel-hub-update.timer >/dev/null 2>&1
+    systemctl disable --now beszel-hub >/dev/null 2>&1
+
+    # 1. Копия данных — при остановленном хабе, чтобы база была целой.
+    if [ -d "$dir/beszel_data" ]; then
+        backup="${BESZEL_HUB_BACKUP_DIR}/hub-$(date +%Y%m%d-%H%M%S).tar.gz"
+        if ! ( umask 077 && mkdir -p "$BESZEL_HUB_BACKUP_DIR" && chmod 700 "$BESZEL_HUB_BACKUP_DIR" \
+               && tar -czf "$backup" -C "$dir" beszel_data ) || ! tar -tzf "$backup" >/dev/null 2>&1; then
+            rm -f "$backup"
+            systemctl enable --now beszel-hub >/dev/null 2>&1
+            systemctl enable --now beszel-hub-update.timer >/dev/null 2>&1
+            _bh_fail "копия данных хаба не легла — ничего не удаляю, хаб запущен обратно"
+            return 1
+        fi
+        _bh_say "Данные хаба сохранены: $backup"
+    fi
+
+    # 2. Наружу больше не отдаём.
+    if [ -f "$BESZEL_HUB_NGINX" ]; then
+        nginx_bak="$(mktemp /tmp/vsm-beszel-nginx.XXXXXX)" && cp -p "$BESZEL_HUB_NGINX" "$nginx_bak"
+        rm -f "$BESZEL_HUB_NGINX"
+        if nginx -t >/dev/null 2>&1; then
+            systemctl reload nginx
+            rm -f "$nginx_bak"
+            # Хабы, поставленные руками до этого пункта (стенд, 179), держали
+            # заголовки прокси в отдельном сниппете. Больше его никто не
+            # подключает — снимаем, если это так.
+            local snip=/etc/nginx/snippets/beszel-proxy.conf
+            if [ -f "$snip" ] && ! grep -rqs "beszel-proxy.conf" /etc/nginx --exclude-dir=snippets; then
+                rm -f "$snip"
+            fi
+        else
+            [ -n "$nginx_bak" ] && mv -f "$nginx_bak" "$BESZEL_HUB_NGINX"
+            _bh_fail "nginx без конфига хаба не собирается — конфиг возвращён, проверьте nginx -t"
+        fi
+    fi
+    if [ -n "$port" ] && command -v ufw >/dev/null 2>&1; then
+        ufw delete allow "${port}/tcp" >/dev/null 2>&1 && _bh_say "Порт ${port}/tcp закрыт в фаерволе."
+    fi
+
+    # 3. Служба, таймер, бинарь, данные.
+    rm -f /etc/systemd/system/beszel-hub.service \
+          /etc/systemd/system/beszel-hub-update.service \
+          /etc/systemd/system/beszel-hub-update.timer
+    rm -rf "$(dirname "$BESZEL_HUB_DROPIN")"
+    systemctl daemon-reload
+    systemctl reset-failed beszel-hub >/dev/null 2>&1
+    rm -rf "${dir:?}"
+    if beszel_agent_installed; then
+        _bh_say "Пользователь beszel оставлен: под ним работает агент."
+    else
+        userdel beszel >/dev/null 2>&1
+    fi
+
+    # 4. Проверка фактом.
+    if beszel_hub_installed || [ -e "$dir" ] || _bh_health; then
+        _bh_fail "хаб снят не до конца: служба $(systemctl is-active beszel-hub 2>/dev/null), каталог $([ -e "$dir" ] && echo есть || echo нет)"
+        return 1
+    fi
+    echo -e "${GREEN:-}✔ Хаб beszel удалён.${NC:-}"
+
+    # Кто на этой машине остался без хаба: по петле или по внешнему адресу.
+    _bh_was_ours() {
+        local u="${1%/}"
+        [ -n "$u" ] || return 1
+        [ "$u" = "http://${BESZEL_HUB_LOCAL}" ] || { [ -n "$public" ] && [ "$u" = "$public" ]; }
+    }
+    agent_url="$(beszel_agent_hub_url 2>/dev/null)"
+    if beszel_agent_installed && _bh_was_ours "$agent_url"; then
+        echo -e "${YELLOW:-}❗  Агент этого сервера ходил к удалённому хабу — переподключите его"
+        echo -e "    к другому хабу (пункт 1) или удалите (пункт 2).${NC:-}"
+    fi
+    if _bh_was_ours "$(grep -m1 -oP '^BESZEL_URL="?\K[^"]*' "${VSM_ROOT:-/root/VSM}/bots/.env" 2>/dev/null)"; then
+        echo -e "${YELLOW:-}❗  Бот подключён к удалённому хабу. Отключите: «Telegram-боты» →"
+        echo -e "    «Сторож» → «Хаб beszel» → «Отключить».${NC:-}"
+    fi
+}
+
+# ----------------------------------------------------------------------
 # beszel_hub_install <домен> <порт> [email]  (пароль — в BH_PASSWORD)
 # email нужен, только если учётной записи ещё нет.
 # ----------------------------------------------------------------------

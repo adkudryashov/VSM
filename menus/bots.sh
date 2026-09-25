@@ -342,14 +342,55 @@ function _beszel_set {
     done
 }
 
+function _beszel_unset {
+    local key file
+    for key in BESZEL_URL BESZEL_EMAIL BESZEL_PASSWORD; do
+        for file in "$CONF" "$ENV_FILE"; do
+            [ -f "$file" ] && sed -i "/^${key}=/d" "$file"
+        done
+    done
+}
+
 function _beszel_state {
     local url
     url=$(_wd_get BESZEL_URL)
     if [ -n "$url" ]; then echo "подключён: $url"; else echo "не подключён"; fi
 }
 
+# Отключить бота от хаба. Без этого пункта отключить было нечем, кроме правки
+# .env руками — а хаб, к которому бот подключён, бывает и удалён: тогда бот
+# каждую минуту стучится в пустоту и поднимает тревогу «хаб молчит».
+# Пустой адрес бот понимает как «хаба нет» (Beszel.configured): пропадают
+# кнопка «Серверы» и тревоги о хабе.
+function disconnect_beszel {
+    local yn
+    read -r -p "Отключить бота от хаба $(_wd_get BESZEL_URL)? [y/N]: " yn || return
+    [[ "$yn" =~ ^[YyДд]$ ]] || { echo -e "${BLUE}Отменено.${NC}"; return; }
+    _beszel_unset
+    if [ -n "$(_wd_get BESZEL_URL)" ] || grep -q '^BESZEL_URL=' "$ENV_FILE" 2>/dev/null; then
+        echo -e "${RED}❌ Адрес хаба остался в настройках — не удалось переписать файл.${NC}"
+        return
+    fi
+    echo -e "${GREEN}✅ Бот отключён от хаба: адрес и учётная запись удалены.${NC}"
+    _wd_restart
+}
+
 function manage_beszel {
-    local url email pass body answer rc
+    local url email pass body answer rc ch
+
+    if [ -n "$(_wd_get BESZEL_URL)" ]; then
+        echo ""
+        echo -e "Бот $(_beszel_state)."
+        ui_item "1" "🔁" "Подключить заново" "Другой адрес или учётная запись"
+        ui_danger_item "2" "Отключить" "Бот перестанет ходить к хабу"
+        ui_item "X" "🔙" "Назад"
+        read -r -p "Ваш выбор [1-2, X]: " ch || return
+        case "$ch" in
+            1) ;;
+            2) disconnect_beszel; read -p "Enter..."; return ;;
+            *) return ;;
+        esac
+    fi
 
     echo ""
     echo -e "${CYAN}--- ХАБ BESZEL -------------------------------------------${NC}"
