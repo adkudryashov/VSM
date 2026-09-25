@@ -585,8 +585,11 @@ read_foreign_timers() {
     # ЧУЖИЕ таймеры, а свой собственный — не находка. Поймано на живом
     # примере: добавление vsm-heartbeat.timer немедленно подняло расхождение,
     # то есть VSM пожаловался владельцу сам на себя.
+    # «-» — не таймер: так list-timers заполняет пустой столбец у таймера,
+    # чья служба не загружена (маски хостера на apt-daily). Попадал в эталон и
+    # поднимал расхождение, как только маски снимали.
     systemctl list-timers --all --no-pager --no-legend 2>/dev/null \
-        | awk '{print $NF}' | grep -vE '^(vsm-|systemd-|apt-|dpkg-|man-db|logrotate|fstrim|e2scrub)' \
+        | awk '{print $NF}' | grep -vE '^(-$|vsm-|systemd-|apt-|dpkg-|man-db|logrotate|fstrim|e2scrub)' \
         | sort -u | tr '\n' ' ' | sed 's/[[:space:]]*$//'
 }
 
