@@ -118,6 +118,7 @@ async def build(now: float) -> tuple[report.Facts, dict]:
                                                                   restarted),
         peak=(int(peak["value"]), float(peak["at"])) if peak.get("value") else None,
         ssh=ssh, ssh_prev=(d.get("prev") or {}).get("ssh"),
+        prev_span=(d.get("prev") or {}).get("span"),
         bans=await asyncio.to_thread(sources.bans, a, now),
         probes=probes, probes_hist=list(d.get("probes_hist") or []),
         firewall=fw, firewall_off=extra["fw_off"],

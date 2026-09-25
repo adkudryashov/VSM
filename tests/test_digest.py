@@ -45,9 +45,9 @@ def test_новый_пользователь_весь_счёт():
 
 
 def test_по_именам_и_перезапуск_движка():
-    prev = {"adkrw": 1000, "family": 500}
-    now = {"adkrw": 1500, "family": 800, "smlab": 40}
-    assert R.per_name(now, prev) == {"adkrw": 500, "family": 300, "smlab": 40}
+    prev = {"alice": 1000, "carol": 500}
+    now = {"alice": 1500, "carol": 800, "dave": 40}
+    assert R.per_name(now, prev) == {"alice": 500, "carol": 300, "dave": 40}
     # Движок перезапускался: его счётчики с нуля. Вычитать прежние нельзя —
     # 800 после перезапуска минус 500 до него дало бы 300 вместо 800.
     assert R.per_name(now, prev, restarted=True) == now
@@ -76,10 +76,23 @@ def test_размеры():
 
 
 def test_сравнение_со_вчера():
-    assert R.change(112, 100) == "↑ 12% ко вчера"
-    assert R.change(92, 100) == "↓ 8% ко вчера"
-    assert R.change(100, None) == ""
-    assert R.change(100, 0) == ""
+    D = 86400
+    assert R.change(112, 100, D, D) == "↑ 12% ко вчера"
+    assert R.change(92, 100, D, D) == "↓ 8% ко вчера"
+    assert R.change(100, None, D, D) == ""
+    assert R.change(100, 0, D, D) == ""
+
+
+def test_сравнение_по_скорости_а_не_по_сумме():
+    """22:22 25.09: 21 минуту сравнили с 17 и получили «↑ 267%»."""
+    D = 86400
+    # Полсуток с той же скоростью, что вчера, — это «как вчера», а не «−50%».
+    assert R.change(50, 100, D / 2, D) == "как вчера"
+    # Отрезок короче трёх часов — не сравниваем вовсе.
+    assert R.change(11, 3, 21 * 60, 17 * 60) == ""
+    assert R.change(100, 100, 2 * 3600, D) == ""
+    # Длина прошлого окна неизвестна (состояние прежней версии) — молчим.
+    assert R.change(100, 90, D, None) == ""
 
 
 def test_окно():
@@ -111,10 +124,10 @@ def test_событие_обрезается_окном():
 
 def _facts(**kw):
     a = мск(2026, 9, 25, 22, 0)
-    base = dict(server="HostUp", a=a, b=a + 86400, traffic=7_500_000_000,
-                traffic_prev=6_700_000_000,
-                xui={"adkrw": 2_100_000_000, "chekhov": 600_000_000},
-                telemt={"adkrw": 300_000_000, "family": 1_200_000_000, "smlab": 0},
+    base = dict(server="server1", a=a, b=a + 86400, traffic=7_500_000_000,
+                traffic_prev=6_700_000_000, prev_span=86400,
+                xui={"alice": 2_100_000_000, "bob": 600_000_000},
+                telemt={"alice": 300_000_000, "carol": 1_200_000_000, "dave": 0},
                 peak=(11, a + 86000), ssh=2339, ssh_prev=2540, bans=(41, 14, 5),
                 probes=17, probes_hist=[15, 20, 18], firewall=1922,
                 ru=(48, 0), hub_total=5, backup=("ok", 53_000))
@@ -124,10 +137,10 @@ def _facts(**kw):
 
 def test_спокойный_день():
     t = R.render(_facts())
-    assert "HostUp</b> · 26.09 22:00 · за сутки" in t
+    assert "server1</b> · 26.09 22:00 · за сутки" in t
     assert "7,5 ГБ  ↑ 12% ко вчера" in t
-    assert "adkrw: 3x-ui 2,1 ГБ · telemt 300 МБ" in t
-    assert "chekhov: 3x-ui 600 МБ" in t and "smlab: telemt 0" in t
+    assert "alice: 3x-ui 2,1 ГБ · telemt 300 МБ" in t
+    assert "bob: 3x-ui 600 МБ" in t and "dave: telemt 0" in t
     assert "Попытки подбора SSH: 2 339 · ↓ 8% ко вчера" in t
     assert "Баны: 41 · 14 адресов" in t and "Баны на сутки и дольше: 5" in t
     assert "🟢 Сторож: тревог нет" in t and "🟢 Telegram: все DC на связи" in t
@@ -139,12 +152,12 @@ def test_спокойный_день():
 def test_день_с_событиями():
     a = мск(2026, 9, 25, 22, 0)
     evs = [{"kind": "dc_dead", "start": a + 3600, "end": a + 3600 + 130 * 60, "detail": "5"},
-           {"kind": "beszel_silent", "start": a + 7200, "end": a + 7200 + 720, "detail": "VEESP"}]
+           {"kind": "beszel_silent", "start": a + 7200, "end": a + 7200 + 720, "detail": "beta"}]
     t = R.render(_facts(events=evs, ru=(48, 1), backup=("missing", True),
                         maint=["⚠️ Нужна перезагрузка (ядро)", "Автообновления: 94 пакета"]))
     assert "🟡 Сторож: 2 тревоги · 2 ч 22 мин" in t
     assert "🟡 Telegram: DC 5 пропадал 2 ч 10 мин" in t
-    assert "🟡 Серверы: VEESP недоступен 12 мин" in t
+    assert "🟡 Серверы: beta недоступен 12 мин" in t
     assert "🟡 Россия: недоступен 1 из 48" in t
     assert "🔴 Копия: не сделана — ошибка" in t
     assert "🔧 <b>Обслуживание</b>" in t
@@ -182,11 +195,11 @@ def test_без_хаба_и_fail2ban():
 
 def test_rich_таблицами_как_сводка_бота():
     t = R.render_rich(_facts())
-    assert t.startswith("<h2>📊 HostUp</h2>")
+    assert t.startswith("<h2>📊 server1</h2>")
     assert "<h3>📶 Трафик · 7,5 ГБ · ↑ 12% ко вчера</h3>" in t
     assert "<tr><th>Клиент</th><th>3x-ui</th><th>telemt</th></tr>" in t
-    assert "<tr><td>adkrw</td><td>2,1 ГБ</td><td>300 МБ</td></tr>" in t
-    assert "<tr><td>chekhov</td><td>600 МБ</td><td>—</td></tr>" in t
+    assert "<tr><td>alice</td><td>2,1 ГБ</td><td>300 МБ</td></tr>" in t
+    assert "<tr><td>bob</td><td>600 МБ</td><td>—</td></tr>" in t
     assert "<tr><td>🟢 Сторож</td><td>тревог нет</td></tr>" in t
     assert "Обслуживание не требуется" in t
     # Таблиц три, и каждая закрыта: незакрытый тег Rich Message отвергает целиком.
@@ -210,8 +223,11 @@ def test_события_и_сутки(tmp_path, monkeypatch):
     assert led.note_peak(7, now=1500.0) and not led.note_peak(5, now=1600.0)
     led.roll(3000.0, {"nic": 1}, traffic=10, ssh=20, probes=30)
     again = L.Ledger(tmp_path / "digest.json")          # пережило перезапуск
-    assert again.data["prev"] == {"traffic": 10, "ssh": 20}
+    assert again.data["prev"] == {"traffic": 10, "ssh": 20, "span": None}
     assert again.data["probes_hist"] == [30] and again.data["peak"] == {}
+    # Вторые сутки: длина прошлого окна — от прошлого закрытия.
+    again.roll(3000.0 + 86400, {"nic": 2}, traffic=11, ssh=21, probes=31)
+    assert again.data["prev"]["span"] == 86400
 
 
 def test_старые_события_забываются(tmp_path):
@@ -302,16 +318,16 @@ def test_копия_по_возрасту_а_не_по_окну(tmp_path, monkey
 
 def test_лимиты_молчат_без_лимитов():
     now = time.time()
-    assert S.limits([("adkrw", 5 * 10**9, 0, 0)],
-                    [{"username": "family", "total_octets": 10**9, "data_quota_bytes": 0}], now) == []
+    assert S.limits([("alice", 5 * 10**9, 0, 0)],
+                    [{"username": "carol", "total_octets": 10**9, "data_quota_bytes": 0}], now) == []
 
 
 def test_лимиты_на_исходе():
     now = time.time()
-    out = S.limits([("adkrw", 95, 100, int((now + 3 * 86400 + 60) * 1000))],
-                   [{"username": "smlab", "total_octets": 0,
+    out = S.limits([("alice", 95, 100, int((now + 3 * 86400 + 60) * 1000))],
+                   [{"username": "dave", "total_octets": 0,
                      "expiration_rfc3339": datetime.fromtimestamp(now + 2 * 86400 + 60, ZoneInfo("UTC")).isoformat()}],
                    now)
-    assert any("adkrw: израсходовано 95%" in s for s in out)
-    assert any("adkrw: срок через 3 дн." in s for s in out)
-    assert any("smlab: срок через 2 дн." in s for s in out)
+    assert any("alice: израсходовано 95%" in s for s in out)
+    assert any("alice: срок через 3 дн." in s for s in out)
+    assert any("dave: срок через 2 дн." in s for s in out)

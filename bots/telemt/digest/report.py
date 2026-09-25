@@ -97,11 +97,28 @@ def plural(n: int, one: str, few: str, many: str) -> str:
     return many
 
 
-def change(cur: Optional[int], prev: Optional[int]) -> str:
-    """«↑ 12% ко вчера». Пусто, когда сравнивать не с чем."""
-    if cur is None or not prev:
+# Короче этого отрезок не сравниваем: за час-другой трафик и подбор пароля
+# скачут в разы без всякой причины.
+MIN_COMPARE_SPAN = 3 * 3600
+
+
+def change(cur: Optional[int], prev: Optional[int],
+           span: Optional[float] = None, prev_span: Optional[float] = None) -> str:
+    """
+    «↑ 12% ко вчера» — по СКОРОСТИ (в час), а не по сумме. Пусто, когда
+    сравнивать не с чем.
+
+    Первая редакция сравнивала суммы, и нажатие «За сутки» в 22:22 показало
+    «↓ 41%» и «↑ 267%»: 21 минуту сравнили с 17 минутами. Днём было бы то же
+    самое — полсуток против суток дают «−50%» на ровном месте. Длина
+    прошлого окна неизвестна (состояние от прежней версии) — не сравниваем.
+    """
+    if cur is None or not prev or not span or not prev_span:
         return ""
-    p = round((cur - prev) / prev * 100)
+    if min(span, prev_span) < MIN_COMPARE_SPAN:
+        return ""
+    now_rate, prev_rate = cur / span, prev / prev_span
+    p = round((now_rate - prev_rate) / prev_rate * 100)
     if p == 0:
         return "как вчера"
     return f"{'↑' if p > 0 else '↓'} {abs(p)}% ко вчера"
@@ -170,6 +187,7 @@ class Facts:
     # Защита
     ssh: Optional[int] = None
     ssh_prev: Optional[int] = None
+    prev_span: Optional[float] = None    # длина прошлого окна, сек; None — неизвестна
     bans: Optional[tuple] = None         # (банов, адресов, дошли до суток); None — fail2ban нет
     probes: Optional[int] = None
     probes_hist: list = field(default_factory=list)
@@ -209,7 +227,7 @@ def _kb(b: int) -> str:
 
 def _traffic(f: Facts) -> dict:
     zone = ZoneInfo(f.tz)
-    ch = "" if f.traffic_since_boot else change(f.traffic, f.traffic_prev)
+    ch = "" if f.traffic_since_boot else change(f.traffic, f.traffic_prev, f.b - f.a, f.prev_span)
     names = list(dict.fromkeys(list((f.xui or {}).keys()) + list((f.telemt or {}).keys())))
     rows = [(n, (f.xui or {}).get(n), (f.telemt or {}).get(n)) for n in names]
     peak = ""
@@ -226,7 +244,7 @@ def _security(f: Facts) -> list:
     """(показатель, число, заметка) — заметка: сравнение со вчера или всплеск."""
     rows = []
     if f.ssh is not None:
-        rows.append(("Попытки подбора SSH", num(f.ssh), change(f.ssh, f.ssh_prev)))
+        rows.append(("Попытки подбора SSH", num(f.ssh), change(f.ssh, f.ssh_prev, f.b - f.a, f.prev_span)))
     if f.bans is None:
         rows.append(("Баны", "—", "⚠️ fail2ban не установлен"))
     else:

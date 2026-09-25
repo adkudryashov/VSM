@@ -105,9 +105,12 @@ class Ledger:
     def roll(self, now: float, snap: dict, traffic: Optional[int],
              ssh: Optional[int], probes: Optional[int]) -> None:
         """Закрыть сутки: новый снимок, прошлые итоги для «ко вчера», пик с нуля."""
+        # Начало закрываемых суток — ДО перезаписи: иначе длина окна всегда ноль.
+        last = self.data.get("last_run")
         self.data["last_run"] = now
         self.data["snap"] = snap
-        self.data["prev"] = {"traffic": traffic, "ssh": ssh}
+        self.data["prev"] = {"traffic": traffic, "ssh": ssh,
+                             "span": (now - float(last)) if last else None}
         hist = list(self.data.get("probes_hist") or [])
         if probes is not None:
             hist.append(int(probes))
