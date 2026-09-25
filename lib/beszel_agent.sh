@@ -127,7 +127,7 @@ beszel_agent_state() {
 # Поставить или переподключить: beszel_agent_install <хаб> <ключ> <токен>
 # ----------------------------------------------------------------------
 beszel_agent_install() {
-    local hub="${1%/}" key="$2" token="$3" tmp code i link groups
+    local hub="${1%/}" key="$2" token="$3" code
     case "$hub" in
         https://*|http://*) ;;
         *) _ba_fail "адрес хаба должен начинаться с https:// — получено: ${hub:-пусто}"; return 1 ;;
@@ -142,6 +142,56 @@ beszel_agent_install() {
     code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$hub/api/health" 2>/dev/null)"
     [ "$code" = "200" ] || { _ba_fail "хаб не отвечает: $hub/api/health → ${code:-нет ответа}"; return 1; }
 
+    # Агент уже стоит — переподключаем, не скачивая заново. Установщик
+    # beszel качает бинарь и файл сумм при КАЖДОМ запуске, а GitHub с
+    # серверов отвечает не на каждое соединение: 25.09.2026 на P2GO файл сумм
+    # дважды не скачался за 10 секунд, и смена хаба у работающего агента
+    # той же версии упала на сети, которая для неё не нужна вовсе.
+    if beszel_agent_installed; then
+        # Работающий агент не оставляем без хаба: не подключился к новому —
+        # возвращаем прежний юнит.
+        local backup="${BESZEL_AGENT_UNIT}.vsm-before"
+        cp -p "$BESZEL_AGENT_UNIT" "$backup" || { _ba_fail "не удалось сохранить копию юнита"; return 1; }
+        _beszel_agent_set_env "$hub" "$key" "$token" || { rm -f "$backup"; return 1; }
+        if _beszel_agent_verify; then
+            rm -f "$backup"
+            return 0
+        fi
+        mv -f "$backup" "$BESZEL_AGENT_UNIT"
+        systemctl daemon-reload
+        systemctl restart beszel-agent
+        _ba_fail "агент возвращён к прежнему хабу: $(beszel_agent_hub_url)"
+        return 1
+    fi
+    _beszel_agent_run_installer "$hub" "$key" "$token" || return 1
+    _beszel_agent_verify
+}
+
+# Три строки Environment в юните — через python, а не sed: в ключе хаба
+# base64 с «/» и «+», которые sed понял бы как разделитель и шаблон.
+_beszel_agent_set_env() {
+    local hub="$1" key="$2" token="$3"
+    BA_HUB="$hub" BA_KEY="$key" BA_TOKEN="$token" python3 - "$BESZEL_AGENT_UNIT" <<'PY' || { _ba_fail "не удалось переписать $BESZEL_AGENT_UNIT"; return 1; }
+import os, re, sys
+path = sys.argv[1]
+text = open(path, encoding="utf-8").read()
+for name, env in (("HUB_URL", "BA_HUB"), ("KEY", "BA_KEY"), ("TOKEN", "BA_TOKEN")):
+    line = f'Environment="{name}={os.environ[env]}"'
+    new, n = re.subn(rf'^Environment="{name}=.*"$', lambda m: line, text, flags=re.M)
+    if n == 0:
+        new = re.sub(r"^\[Service\]$", lambda m: m.group(0) + "\n" + line, text, count=1, flags=re.M)
+    text = new
+tmp = path + ".vsm-tmp"
+with open(tmp, "w", encoding="utf-8") as f:
+    f.write(text)
+os.chmod(tmp, os.stat(path).st_mode & 0o7777)
+os.replace(tmp, path)
+PY
+    echo -e "${C_DESC:-}   Агент уже стоит — меняю только адрес хаба, ключ и токен.${NC:-}"
+}
+
+_beszel_agent_run_installer() {
+    local hub="$1" key="$2" token="$3" tmp
     tmp="$(mktemp /tmp/vsm-beszel-agent.XXXXXX.sh)" || return 1
     if ! curl -fsSL --max-time 60 "$BESZEL_AGENT_INSTALLER_URL" -o "$tmp" || [ ! -s "$tmp" ]; then
         rm -f "$tmp"
@@ -157,10 +207,12 @@ beszel_agent_install() {
         _ba_fail "установщик beszel завершился с ошибкой"; return 1
     fi
     rm -f "$tmp"
+}
 
-    # Установщик на уже стоящем агенте правит юнит sed-ом и перезапускает
-    # службу не всегда. Перезапуск наш — чтобы проверка смотрела на запуск
-    # с новыми ключами.
+# Перезапуск наш — чтобы проверка смотрела на запуск с новыми ключами:
+# установщик перезапускает службу не всегда, а правка юнита — никогда.
+_beszel_agent_verify() {
+    local i link groups
     systemctl daemon-reload
     systemctl restart beszel-agent || { _ba_fail "служба beszel-agent не запускается"; return 1; }
 
