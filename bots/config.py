@@ -148,6 +148,21 @@ class Settings(BaseSettings):
     # пропущенных докладов подряд, а не случайная задержка.
     BESZEL_STALE_MINUTES: int = 5
 
+    # --- Сводка за сутки (telemt/digest) ---
+    # Выключена по умолчанию, как и сторож: сообщение без запроса включать за
+    # владельца нельзя. Кнопка под сводкой в боте переключает рассылку сама и
+    # важнее этой настройки (решение хранится в data/digest.json).
+    # Сутки закрываются в DIGEST_TIME всегда — и при выключенной рассылке:
+    # кнопка «За сутки» показывает именно сутки, а не всё время с выключения.
+    DIGEST_ENABLED: bool = False
+    DIGEST_TIME: str = "22:00"
+    DIGEST_TZ: str = "Europe/Moscow"
+    # Порты, на которых считается пик одновременных подключений: 443 — nginx
+    # перед 3x-ui и WEB Proxy, 8444 — telemt.
+    DIGEST_PEAK_PORTS: str = "443,8444"
+    # Имя сервера в заголовке. Пусто — домен telemt, как в /status.
+    DIGEST_NAME: str = ""
+
     # --- Пути. Считаются от каталога bots/, абсолютных путей в коде нет ---
     GEOIP_CITY_DB: str = str(DATA_DIR / "geoip" / "GeoLite2-City.mmdb")
     GEOIP_ASN_DB: str = str(DATA_DIR / "geoip" / "GeoLite2-ASN.mmdb")

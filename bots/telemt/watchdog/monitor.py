@@ -174,7 +174,8 @@ class Watchdog:
             # проход: сообщение владельцу уже ушло, а это только про кнопки.
             logging.warning("Сторож: не перенёс карточку вниз: %s", exc)
 
-    async def _fire_or_clear(self, bot: Bot, event, flap, *, fire: str, clear: str) -> None:
+    async def _fire_or_clear(self, bot: Bot, event, flap, *, fire: str, clear: str,
+                             detail: str = "") -> None:
         """
         Один разбор события для всех тревог сразу.
 
@@ -182,7 +183,19 @@ class Watchdog:
         для напоминания отдельный, укороченный текст нельзя: через полчаса
         человек уже не помнит подробностей из первого сообщения, а лезть за ним
         вверх по чату он не станет.
+
+        detail — что именно (какой DC, какой сервер) для сводки за сутки.
+        Событие пишется и при заглушённых тревогах: пауза глушит сообщения, а
+        не саму аварию, и в вечерней сводке она быть обязана.
         """
+        if event in (FIRE, CLEAR):
+            try:
+                from telemt.digest import ledger
+                ledger.shared().record(ledger.flap_name(self.state, flap),
+                                       "fire" if event == FIRE else "clear",
+                                       flap.bad_since or flap.since, detail)
+            except Exception as exc:
+                logging.warning("Сторож: событие не записано в сводку: %s", exc)
         if event == FIRE:
             await self._notify(bot, fire)
         elif event == REPEAT:
@@ -290,6 +303,7 @@ class Watchdog:
             await self._fire_or_clear(
                 bot, self.state.dc_dead.update(is_bad=verdict.partial),
                 self.state.dc_dead,
+                detail=verdict.label() if verdict.partial else "",
                 fire="🚨 <b>ДАТА-ЦЕНТР TELEGRAM БЕЗ ПИСАТЕЛЕЙ</b>\n"
                      f"Пусто: DC {html.escape(verdict.label())} — "
                      f"{len(verdict.dead)} из {verdict.total} групп.\n"
@@ -443,6 +457,7 @@ class Watchdog:
         await self._fire_or_clear(
             bot, self.state.beszel_silent.update(is_bad=bool(беда)),
             self.state.beszel_silent,
+            detail=", ".join(беда),
             fire="🚨 <b>СЕРВЕР ПЕРЕСТАЛ ОТЧИТЫВАТЬСЯ</b>\n"
                  f"Молчат: {html.escape(', '.join(беда))}.\n"
                  f"Порог — {int(settings.BESZEL_STALE_MINUTES)} мин без доклада.\n"

@@ -17,6 +17,9 @@ BTN_SUMMARY = "ℹ️ Сводка"
 # Железо всех серверов из хаба beszel. Появляется, только когда хаб подключён:
 # кнопка, которая всегда отвечает «не настроено», — это не подсказка, а мусор.
 BTN_SERVERS = "🖥 Серверы"
+# Сводка за сутки (telemt/digest). Календарь, а не 📊: тот уже у «Статуса» и
+# «Общего статуса», а одинаковые значки на соседних кнопках не различить.
+BTN_DIGEST = "📅 За сутки"
 BTN_BACK = "⬅️ Назад"
 BTN_CANCEL = "❌ Отмена"
 
@@ -59,7 +62,7 @@ PANEL_PREFIX = "📱 "
 # нажатое посреди добавления панели, стало бы её именем.
 MENU_BUTTONS = set(
     TELEMT_BUTTONS + XUI_BUTTONS + XUI_MANAGE_BUTTONS
-    + [BTN_TELEMT_SECTION, BTN_XUI_SECTION, BTN_SUMMARY, BTN_SERVERS, BTN_BACK]
+    + [BTN_TELEMT_SECTION, BTN_XUI_SECTION, BTN_SUMMARY, BTN_SERVERS, BTN_DIGEST, BTN_BACK]
 )
 
 
@@ -81,10 +84,12 @@ def root_keyboard() -> ReplyKeyboardMarkup:
     if _beszel().configured:
         b.add(KeyboardButton(text=BTN_SERVERS))
         b.add(KeyboardButton(text=BTN_SUMMARY))
-        b.adjust(2, 2)
+        b.add(KeyboardButton(text=BTN_DIGEST))
+        b.adjust(2, 2, 1)
     else:
         b.add(KeyboardButton(text=BTN_SUMMARY))
-        b.adjust(2, 1)
+        b.add(KeyboardButton(text=BTN_DIGEST))
+        b.adjust(2, 2)
     return b.as_markup(resize_keyboard=True, one_time_keyboard=False)
 
 

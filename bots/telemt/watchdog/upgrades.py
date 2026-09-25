@@ -57,6 +57,12 @@ def recent_packages(within_secs: int = 900, path: Path = APT_HISTORY,
     заметное время. Замер 03.09.2026: обновление в 06:23:10, движок поднялся
     в 06:23:17, но в тот же заход apt ставил пакеты до 06:23:19.
     """
+    now = datetime.now().timestamp() if now is None else now
+    return packages_between(now - within_secs, now, path)[:limit]
+
+
+def packages_between(a: float, b: float, path: Path = APT_HISTORY) -> list[str]:
+    """Пакеты, обновлённые автоматикой с a по b. Нужна ещё и сводке за сутки."""
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
@@ -65,7 +71,6 @@ def recent_packages(within_secs: int = 900, path: Path = APT_HISTORY,
         logging.info("Сторож: не прочитал %s: %s", path, exc)
         return []
 
-    now = datetime.now().timestamp() if now is None else now
     found: list[str] = []
 
     for block in _blocks(text):
@@ -77,7 +82,7 @@ def recent_packages(within_secs: int = 900, path: Path = APT_HISTORY,
                                       "%Y-%m-%d %H:%M:%S").timestamp()
         except ValueError:
             continue
-        if not 0 <= now - stamp <= within_secs:
+        if not a <= stamp <= b:
             continue
         # Только автоматика. Своё «apt install» причиной не называем: если
         # человек ставил пакеты руками, он и так знает, что сделал.
@@ -90,4 +95,4 @@ def recent_packages(within_secs: int = 900, path: Path = APT_HISTORY,
                     if name not in found:
                         found.append(name)
 
-    return found[:limit]
+    return found

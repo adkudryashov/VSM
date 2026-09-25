@@ -14,9 +14,10 @@ from config import settings
 from telemt.api.client import TelemtAPIClient
 from common import http
 from telemt.handlers import (common, users, stats, reports, panel, metrics, map,
-                             aboutall, watch, cleanup)
+                             aboutall, watch, cleanup, digest)
 from telemt.utils.storage import init_db, bulk_save_ips, cleanup_old_ips
 from telemt.watchdog.monitor import watchdog_loop  # noqa: F401  (реэкспорт для точек входа)
+from telemt.digest.loop import digest_loop  # noqa: F401  (реэкспорт для точек входа)
 
 # Порядок важен: aiogram отдаёт событие первому подошедшему обработчику.
 ROUTERS = [
@@ -30,6 +31,7 @@ ROUTERS = [
     aboutall.router,
     watch.router,
     cleanup.router,
+    digest.router,
 ]
 
 COMMANDS = [
@@ -48,6 +50,7 @@ COMMANDS = [
     BotCommand(command="check",        description="🇷🇺 проверить доступность из РФ"),
     BotCommand(command="mute",         description="🔕 заглушить тревоги"),
     BotCommand(command="unmute",       description="🔔 вернуть тревоги"),
+    BotCommand(command="digest",       description="📅 сводка за сутки"),
 ]
 
 
