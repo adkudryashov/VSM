@@ -210,7 +210,7 @@ panel_proxy_insert() {
 # зоны лимита. Замерено 30.08.2026 при врезке блока WEB:
 #
 #   [emerg] limit_req_zone "diag_api" is already bound ...
-#           in /etc/nginx/sites-enabled/adkrw.kagis.kz.vsm-bak:2
+#           in /etc/nginx/sites-enabled/panel.example.com.vsm-bak:2
 #
 # Дальше откат отрабатывал честно — и блок было НЕВОЗМОЖНО применить вовсе.
 # Дефект молчаливый: на прежней раскладке его не видно, на новой не видно

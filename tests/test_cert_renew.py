@@ -38,7 +38,7 @@ def bash(скрипт):
 ВХОД_С_ПЕРЕНАПРАВЛЕНИЕМ = """\
 server {
     listen 80;
-    server_name adkrw.example.com adkrww.example.com;
+    server_name panel.example.com reality.example.com;
     return 301 https://$host$request_uri;
 }
 """
@@ -46,7 +46,7 @@ server {
 ВХОД_БЕЗ_ПЕРЕНАПРАВЛЕНИЯ = """\
 server {
     listen 80;
-    server_name adkrw.example.com;
+    server_name panel.example.com;
     location / { root /var/www/html; }
 }
 """

@@ -298,7 +298,7 @@ Ubuntu 26.04 ставит по умолчанию **sudo-rs**, и его `visudo
 
 **Зачем.** До этого бот только читал: восемнадцать команд, ни одной изменяющей.
 История IP копилась бессрочно и переживала переименование пользователей — на
-приёмке в ней лежали три имени (`hello`, `adkrw`, `smlab`), из которых у telemt
+приёмке в ней лежали три имени (`alice`, `bob`, `carol`), из которых у telemt
 осталось не всё. Стереть её было нечем.
 
 ### Что решено и от чего отказались
@@ -978,8 +978,8 @@ Telegram и куда-либо ещё его не шлём — ни открыт�
 которого всё началось:
 
 ```
-certbot renew --dry-run --cert-name adkrw.kagis.kz
-Failed to renew certificate adkrw.kagis.kz with error: Could not bind TCP
+certbot renew --dry-run --cert-name panel.example.com
+Failed to renew certificate panel.example.com with error: Could not bind TCP
 port 80 because it is already in use by another process on this system
 ```
 
@@ -1052,7 +1052,7 @@ nginx не перезагружался после продления даже �
 
 Владелец поставил хаб beszel; снаружи он не открывался, потому что ufw
 пропускает только 22, 80, 443, 8444 и порт AmneziaWG. Выбор владельца — доступ
-**без новой записи DNS, на отдельном порту**: `https://adkrw.kagis.kz:8445`.
+**без новой записи DNS, на отдельном порту**: `https://panel.example.com:8445`.
 
 Сделано: хаб переведён на петлю (`127.0.0.1:8090`) отдельным файлом
 `beszel-hub.service.d/10-loopback.conf`, снаружи его отдаёт nginx по TLS уже

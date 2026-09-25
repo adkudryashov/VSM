@@ -10,7 +10,7 @@ XUI_PROFILE_FILE="${XUI_PROFILE_FILE:-/etc/vsm/xui-profile.json}"
 XUI_PROFILE_TOOL="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)/tools/xui-profile.py"
 
 # Имя сервера, с которого снят шаблон: подсказка по умолчанию. На новом
-# сервере его обычно меняют — «My1Cent» у другого хостера станет другим.
+# сервере его обычно меняют — «MyVPS» у другого хостера станет другим.
 xui_profile_source_name() {
     python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["source"].get("NAME", ""))' \
         "$XUI_PROFILE_FILE" 2>/dev/null
@@ -54,8 +54,8 @@ xui_profile_ask() {
     case "$answer" in [Nn]*) return 0 ;; esac
     local def name
     def="$(xui_profile_source_name)"
-    echo -e "${C_DESC}   Названия: входящие — «флаг сервис тип» (🇸🇪 My1Cent xhttp), подписка —"
-    echo -e "   «флаг сервис клиент» (🇸🇪 My1Cent adkrw). Флаг — страны сервера,"
+    echo -e "${C_DESC}   Названия: входящие — «флаг сервис тип» (🇩🇪 MyVPS xhttp), подписка —"
+    echo -e "   «флаг сервис клиент» (🇩🇪 MyVPS alice). Флаг — страны сервера,"
     echo -e "   его ставит установщик; клиента подставит сама панель.${NC}"
     read -r -p "Название сервиса [${def:-без названия}] (- — без названия): " name || return 0
     name="${name:-$def}"

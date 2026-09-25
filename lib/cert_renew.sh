@@ -18,7 +18,7 @@
 # же, и продление падает. Замерено на стенде 20.09.2026:
 #
 #   certbot renew --dry-run
-#   Failed to renew certificate adkrw.kagis.kz with error: Could not bind TCP
+#   Failed to renew certificate panel.example.com with error: Could not bind TCP
 #   port 80 because it is already in use by another process on this system
 #
 # Тишина полная: таймер отработал, в журнале ошибка, никто не смотрит.

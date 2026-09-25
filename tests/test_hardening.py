@@ -78,7 +78,7 @@ def test_файл_apt_читается_после_файла_хостера():
     r = _bash('echo "$HARD_APT_CONF"')
     наш = Path(r.stdout.strip()).name
     # apt читает apt.conf.d в порядке имён; последнее значение побеждает.
-    assert sorted(["99-hostup-disable-automatic-apt", "99needrestart", наш])[-1] == наш
+    assert sorted(["99-hoster-disable-automatic-apt", "99needrestart", наш])[-1] == наш
 
 
 # --- Состояние по ответам fail2ban ---------------------------------------

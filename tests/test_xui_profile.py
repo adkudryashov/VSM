@@ -44,7 +44,7 @@ CREATE TABLE hosts (id integer PRIMARY KEY AUTOINCREMENT, group_id text, inbound
 CREATE TABLE settings (id integer PRIMARY KEY AUTOINCREMENT, key text, value text);
 """
 
-ДОМЕН_А, РЕАЛИТИ_А, IP_А = "adk.gnilron.se", "adkrw.gnilron.se", "179.254.109.140"
+ДОМЕН_А, РЕАЛИТИ_А, IP_А = "panel.example.com", "reality.example.com", "203.0.113.10"
 ДОМЕН_Б, РЕАЛИТИ_Б, IP_Б = "panel.example.org", "real.example.org", "203.0.113.7"
 
 
@@ -99,33 +99,33 @@ def свежая_установка(путь, домен, реалити, ws_por
 
 def сервер_владельца(путь):
     """Сервер А после правок владельца: названия, подписка, xhttp включён, hy2 и awg."""
-    свежая_установка(путь, ДОМЕН_А, РЕАЛИТИ_А, 24101, 33543, флаг="🇸🇪")
+    свежая_установка(путь, ДОМЕН_А, РЕАЛИТИ_А, 24101, 33543, флаг="🇩🇪")
     c = sqlite3.connect(путь)
     for suffix, sort in (("reality", 2), ("ws", 4), ("xhttp", 1), ("trojan-grpc", 5)):
         c.execute("update inbounds set remark = ?, sub_sort_index = ? where remark = ?",
-                  (f"🇸🇪 My1Cent {suffix}", sort, f"🇸🇪 {suffix}"))
+                  (f"🇩🇪 MyVPS {suffix}", sort, f"🇩🇪 {suffix}"))
     c.execute("update inbounds set enable = 1, sniffing = ? where port = 0",
               (json.dumps({"enabled": True, "destOverride": ["http", "tls"]}),))
     st = json.loads(c.execute("select stream_settings from inbounds where port = 8443").fetchone()[0])
     st["realitySettings"]["minClientVer"] = "1.8.1"
     c.execute("update inbounds set stream_settings = ?, settings = ? where port = 8443",
               (json.dumps(st), json.dumps({"clients": [{"id": "клиент-uuid"}], "decryption": "none"})))
-    hy2 = вставить(c, "🇸🇪 My1Cent hy2", 443, "hysteria", {"clients": [{"auth": "секрет"}], "version": 2},
+    hy2 = вставить(c, "🇩🇪 MyVPS hy2", 443, "hysteria", {"clients": [{"auth": "секрет"}], "version": 2},
                    {"network": "hysteria", "security": "tls",
                     "tlsSettings": {"serverName": ДОМЕН_А, "certificates": [
                         {"certificateFile": f"/root/cert/{ДОМЕН_А}/fullchain.pem",
                          "keyFile": f"/root/cert/{ДОМЕН_А}/privkey.pem"}]},
                     "finalmask": {"udp": [{"type": "salamander", "settings": {"password": "СТАРЫЙПАРОЛЬ"}}]}},
                    "in-443-udp", listen=IP_А, sort=6)
-    вставить(c, "🇸🇪 My1Cent awg", 26680, "amneziawg",
+    вставить(c, "🇩🇪 MyVPS awg", 26680, "amneziawg",
              {"clients": [], "server": {"privateKey": "СТАРЫЙПРИВ", "publicKey": "СТАРЫЙПУБ",
                                         "headerProtectionKey": "СТАРЫЙHPK", "jc": 3, "s1": 111,
                                         "h1": "52956019", "subnetIp": "10.8.1.0"}},
              None, "in-26680-udp", sort=3)
     c.execute("insert into hosts (group_id, inbound_id, remark, address, port, security) "
               "values ('g', ?, 'hy2', ?, 443, 'same')", (hy2, ДОМЕН_А))
-    for k, v in (("subTitle", "🇸🇪 adkrw My1Cent"), ("subSupportUrl", "https://t.me/adkrw"),
-                 ("subAnnounce", "Контакты: https://t.me/adkrw"), ("subUpdates", "1"),
+    for k, v in (("subTitle", "🇩🇪 alice MyVPS"), ("subSupportUrl", "https://t.me/alice"),
+                 ("subAnnounce", "Контакты: https://t.me/alice"), ("subUpdates", "1"),
                  ("tgBotToken", "ТОКЕН-НЕ-ПЕРЕНОСИТЬ"), ("remarkModel", "-ieo"),
                  ("subClashEnable", "false")):
         if c.execute("select 1 from settings where key = ?", (k,)).fetchone():
@@ -216,8 +216,8 @@ def test_в_шаблоне_нет_секретов(шаблон):
 
 def test_имя_и_флаг_угаданы_и_стали_метками(шаблон):
     p = json.loads(шаблон.read_text(encoding="utf-8"))
-    assert p["source"] == {"FLAG": "🇸🇪", "NAME": "My1Cent"}
-    assert p["settings"]["subTitle"] == "{FLAG} adkrw {NAME}"
+    assert p["source"] == {"FLAG": "🇩🇪", "NAME": "MyVPS"}
+    assert p["settings"]["subTitle"] == "{FLAG} alice {NAME}"
     remarks = [i["remark"] for i in p["inbounds"]]
     assert "{FLAG} {NAME} reality" in remarks
 
@@ -237,7 +237,7 @@ def test_названия_стали_своими_на_новом_сервере
     assert {"🇩🇪 Hetzner reality", "🇩🇪 Hetzner ws", "🇩🇪 Hetzner xhttp",
             "🇩🇪 Hetzner trojan-grpc", "🇩🇪 Hetzner hy2", "🇩🇪 Hetzner awg"} == names
     assert настройка(наложенный, "subTitle") == "🇩🇪 Hetzner {{EMAIL}}"
-    assert настройка(наложенный, "subSupportUrl") == "https://t.me/adkrw"
+    assert настройка(наложенный, "subSupportUrl") == "https://t.me/alice"
 
 
 def test_порты_и_пути_остались_от_установщика(наложенный):
