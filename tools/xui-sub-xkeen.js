@@ -47,7 +47,6 @@
 
   function providerYaml() {
     var name = providerName();
-    var service = serviceName();
     var file = name.toLowerCase().replace(/[^a-z0-9_-]/g, '');
     var lines = [
       'proxy-providers:',
@@ -61,13 +60,10 @@
       '      url: http://www.msftncsi.com/ncsi.txt',
       '      interval: 60'
     ];
-    // Входящие называются «флаг тип»: у двух серверов одной страны на роутере
-    // было бы два «🇸🇪 awg». Приставка сервиса их различает (mihomo 1.19,
-    // adapter/provider/override.go).
-    if (service) {
-      lines.push('    override:');
-      lines.push('      additional-prefix: "' + service.replace(/["\\]/g, '') + ' "');
-    }
+    // Приставки сервиса к именам прокси (override.additional-prefix) нет
+    // намеренно: входящие называются «флаг сервис тип», и сервис в имени уже
+    // есть — приставка дала бы «My1Cent 🇸🇪 My1Cent awg». Была с 24.09 по
+    // 25.09.2026, пока входящие назывались «флаг тип».
     return lines.concat([
       '',
       '# Подключить провайдер в группе прокси:',

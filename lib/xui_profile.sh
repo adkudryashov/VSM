@@ -54,7 +54,7 @@ xui_profile_ask() {
     case "$answer" in [Nn]*) return 0 ;; esac
     local def name
     def="$(xui_profile_source_name)"
-    echo -e "${C_DESC}   Названия: входящие — «флаг тип» (🇸🇪 xhttp), подписка —"
+    echo -e "${C_DESC}   Названия: входящие — «флаг сервис тип» (🇸🇪 My1Cent xhttp), подписка —"
     echo -e "   «флаг сервис клиент» (🇸🇪 My1Cent adkrw). Флаг — страны сервера,"
     echo -e "   его ставит установщик; клиента подставит сама панель.${NC}"
     read -r -p "Название сервиса [${def:-без названия}] (- — без названия): " name || return 0
