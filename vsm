@@ -23,6 +23,13 @@ source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/common.sh" || {
 # обновления просто выходил из меню, и починить изнутри было уже нельзя.
 VSM_DIR="$VSM_ROOT"
 
+# Хаб и агент beszel — для экрана «Доступы и домены». Не обязателен: на
+# установке, обновлённой не до конца, раздела просто не будет.
+if [ -f "$VSM_ROOT/lib/beszel_agent.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$VSM_ROOT/lib/beszel_agent.sh"
+fi
+
 # ----------------------------------------------------------------------
 # РАЗОВАЯ УБОРКА ПОСЛЕ ПЕРЕЕЗДА НА КАТАЛОЖНУЮ РАСКЛАДКУ
 #
@@ -216,8 +223,8 @@ function show_access_info {
                 if [ "$reveal" -eq 1 ]; then
                     # printf, а не echo -e: пароль приходит аргументом, и его
                     # содержимое не должно разбираться на escape-последовательности.
-                    printf "   %b%s%b%b%s%b
-" "$C_NAME" "$(ui_pad '🔑  Пароль' 17)" "$NC"                         "$C_SECRET" "$tpass" "$NC"
+                    printf "   %b%s%b%b%s%b\n" "$C_NAME" "$(ui_pad '🔑  Пароль' 17)" "$NC" \
+                        "$C_SECRET" "$tpass" "$NC"
                 else
                     ui_kv '🔑  Пароль' 'скрыт, показать — P' 17
                 fi
@@ -237,6 +244,30 @@ function show_access_info {
         else
             echo -e "   ${C_NAME}$(ui_pad '🌐  Адрес' 17)${NC}${C_WARN}панель не установлена${NC}"
             ui_kv '➡  Как поставить' '«Стек telemt» → «Веб-панель»' 17
+        fi
+
+        # Мониторинг beszel. Хаб — один на все серверы владельца, и на каком
+        # он стоит, помнить неоткуда: адрес жил в голове и в закладках. Агент —
+        # на каждом сервере, и главное про него — ходит ли он к хабу.
+        if declare -F beszel_hub_installed >/dev/null 2>&1 \
+           && { beszel_hub_installed || beszel_agent_installed; }; then
+            echo ""
+            ui_section "МОНИТОРИНГ BESZEL"
+            if beszel_hub_installed; then
+                local hub_url
+                hub_url=$(beszel_hub_url)
+                if [ -n "$hub_url" ]; then
+                    ui_kv '📊  Хаб' "$hub_url" 17
+                else
+                    ui_kv '📊  Хаб' "стоит здесь, наружу не выпущен ($(beszel_hub_listen))" 17
+                fi
+            fi
+            if beszel_agent_installed; then
+                ui_kv '🖥  Агент' "$(beszel_agent_state)" 17
+                ui_kv '🔗  Ходит к' "$(beszel_agent_hub_url)" 17
+            else
+                ui_kv '🖥  Агент' 'не установлен — «Утилиты» → «Агент beszel»' 17
+            fi
         fi
 
         # Остаток прежней установки AmneziaWG.

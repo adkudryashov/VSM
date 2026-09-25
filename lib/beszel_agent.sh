@@ -65,6 +65,45 @@ beszel_agent_link() {
     esac
 }
 
+# ----------------------------------------------------------------------
+# Хаб beszel на ЭТОМ сервере: есть ли и по какому адресу его видно снаружи.
+#
+# Адрес не хранится нигде, кроме конфига nginx, который отдаёт хаб наружу, —
+# его и читаем: server_name и порт listen из файла, где proxy_pass ведёт на
+# адрес хаба. Адрес хаба — из его же ExecStart (с учётом drop-in: там на 179
+# хаб переведён на петлю). Выдумать адрес, которого nginx не отдаёт, хуже,
+# чем сказать «наружу не выпущен».
+#   beszel_hub_listen  → 127.0.0.1:8090
+#   beszel_hub_url     → https://adk.gnilron.se:8445 ; пусто — не выпущен
+# ----------------------------------------------------------------------
+beszel_hub_installed() {
+    [ -n "$(systemctl show -p FragmentPath --value beszel-hub 2>/dev/null)" ]
+}
+
+beszel_hub_listen() {
+    local exec addr
+    exec="$(systemctl show -p ExecStart --value beszel-hub 2>/dev/null)"
+    addr="$(grep -oE -- '--http[ =]"?[^ ";]+' <<< "$exec" | tail -1)"
+    addr="${addr#--http}"; addr="${addr# }"; addr="${addr#=}"; addr="${addr#\"}"
+    echo "${addr:-0.0.0.0:8090}"
+}
+
+beszel_hub_url() {
+    local port f conf name lport
+    port="$(beszel_hub_listen)"; port="${port##*:}"
+    for f in /etc/nginx/conf.d/*.conf /etc/nginx/sites-enabled/*; do
+        [ -f "$f" ] || continue
+        conf="$(cat "$f" 2>/dev/null)"
+        grep -qE "proxy_pass[[:space:]]+http://(127\.0\.0\.1|localhost):${port}[;/]" <<< "$conf" || continue
+        name="$(grep -m1 -oP '^\s*server_name\s+\K[^\s;]+' <<< "$conf")"
+        lport="$(grep -m1 -oP '^\s*listen\s+\K[0-9]+(?=\s+ssl)' <<< "$conf")"
+        [ -n "$name" ] && [ -n "$lport" ] || continue
+        if [ "$lport" = "443" ]; then echo "https://${name}"; else echo "https://${name}:${lport}"; fi
+        return 0
+    done
+    return 1
+}
+
 # Одна строка для меню.
 beszel_agent_state() {
     if ! beszel_agent_installed; then
