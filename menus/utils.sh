@@ -16,19 +16,70 @@ function check_utils_deps {
 
 # shellcheck disable=SC1091
 source "$VSM_LIB/beszel_agent.sh"
+# shellcheck disable=SC1091
+source "$VSM_LIB/beszel_hub.sh"
 
 # ----------------------------------------------------------------------
-# АГЕНТ BESZEL. Подробности — в шапке lib/beszel_agent.sh.
+# Хаб beszel на этом сервере. Подробности — в шапке lib/beszel_hub.sh.
+# ----------------------------------------------------------------------
+function install_beszel_hub {
+    local domain port email p2 def_domain def_port need_account=1
+    def_domain="$(grep -m1 '^DOMAIN_PANEL=' /etc/vsm/telemt.conf 2>/dev/null | cut -d= -f2- | tr -d '"')"
+    def_port="$(_bh_nginx_port)"; def_port="${def_port:-8445}"
+    echo ""
+    _bh_say "Хаб встанет на петлю, наружу его отдаст nginx по TLS на домене с"
+    _bh_say "сертификатом этого сервера. Учётную запись VSM заведёт сам ДО того,"
+    _bh_say "как хаб станет виден снаружи: у свежего хаба администратором"
+    _bh_say "становится первый, кто открыл страницу."
+    echo ""
+    read -r -p "Домен хаба${def_domain:+ [$def_domain]}: " domain || return
+    domain="${domain:-$def_domain}"
+    read -r -p "Порт снаружи [$def_port]: " port || return
+    port="${port:-$def_port}"
+    if beszel_hub_installed && _bh_health && ! beszel_hub_first_run; then
+        need_account=0
+    fi
+    if [ "$need_account" = 1 ]; then
+        read -r -p "Email для входа в хаб: " email || return
+        # Пароль не печатается и не попадает в аргументы процессов.
+        IFS= read -rs -p "Пароль (от 8 символов): " BH_PASSWORD || return; echo ""
+        IFS= read -rs -p "Пароль ещё раз: " p2 || return; echo ""
+        if [ "$BH_PASSWORD" != "$p2" ]; then
+            unset BH_PASSWORD p2; echo -e "${RED}❌ Пароли не совпали.${NC}"; return
+        fi
+        if [ "${#BH_PASSWORD}" -lt 8 ]; then
+            unset BH_PASSWORD p2; echo -e "${RED}❌ Пароль короче 8 символов — хаб его не примет.${NC}"; return
+        fi
+        export BH_PASSWORD
+    fi
+    beszel_hub_install "$domain" "$port" "$email" || true
+    unset BH_PASSWORD p2
+    if [ -n "$(beszel_hub_url)" ]; then
+        echo ""
+        _bh_say "Дальше: войдите в хаб, «Настройки → Токены и отпечатки» — включите"
+        _bh_say "общий токен и сделайте его постоянным. Там же ключ хаба. С ними"
+        _bh_say "агенты подключаются пунктом 1 — здесь и на других серверах."
+    fi
+}
+
+# ----------------------------------------------------------------------
+# АГЕНТ И ХАБ BESZEL. Подробности — в шапках lib/beszel_agent.sh и
+# lib/beszel_hub.sh.
 # ----------------------------------------------------------------------
 function manage_beszel_agent {
-    local ch hub key token def yn
+    local ch hub key token def yn hub_url
     while true; do
         clear 2>/dev/null
-        ui_title "🖥  АГЕНТ BESZEL"
+        ui_title "🖥  BESZEL: АГЕНТ И ХАБ"
         ui_section "СОСТОЯНИЕ"
-        echo -e "   $(beszel_agent_state)"
+        echo -e "   Агент: $(beszel_agent_state)"
         if beszel_agent_installed; then
             echo -e "   ${C_DESC}версия $(beszel_agent_version), хаб $(beszel_agent_hub_url)${NC}"
+        fi
+        hub_url=""
+        if beszel_hub_installed; then
+            hub_url="$(beszel_hub_url)"
+            echo -e "   Хаб здесь: ${hub_url:-стоит, наружу не выпущен ($(beszel_hub_listen))}"
         fi
         echo ""
         echo -e "   ${C_DESC}Агент сам ходит к хабу по WebSocket — порт на этом сервере${NC}"
@@ -37,14 +88,20 @@ function manage_beszel_agent {
         echo -e "   ${C_DESC}Токены и отпечатки» — один на все, сервер появится в хабе сам.${NC}"
         echo ""
         ui_section "ДЕЙСТВИЯ"
-        ui_item "1" "📥" "Поставить"  "Или переподключить к другому хабу"
-        ui_danger_item "2" "Удалить"  "Служба, бинарь, таймер обновления"
+        ui_item "1" "📥" "Поставить агент"  "Или переподключить к другому хабу"
+        ui_danger_item "2" "Удалить агент"  "Служба, бинарь, таймер обновления"
+        ui_item "3" "📊" "Хаб на этом сервере"  "Поставить или сменить адрес"
         ui_item "X" "🔙" "Назад"
         echo ""
-        read -p "Ваш выбор [1-2, X]: " ch || break
+        read -p "Ваш выбор [1-3, X]: " ch || break
         case "$ch" in
             1)
                 def="$(beszel_agent_hub_url 2>/dev/null)"
+                # Хаб на этой же машине — агенту ближе всего петля: так он
+                # не зависит ни от nginx, ни от сертификата. Проверено на 179.
+                if [ -z "$def" ] && beszel_hub_installed; then
+                    def="http://$(beszel_hub_listen)"
+                fi
                 read -r -p "Адрес хаба${def:+ [$def]}: " hub || break
                 hub="${hub:-$def}"
                 read -r -p "Ключ хаба (ssh-ed25519 …): " key || break
@@ -58,6 +115,10 @@ function manage_beszel_agent {
             2)
                 read -r -p "$(echo -e "${RED}Удалить агент? Сервер пропадёт из хаба. [y/N]: ${NC}")" yn || break
                 [[ "$yn" =~ ^[YyДд]$ ]] && { beszel_agent_remove || true; }
+                read -p "Нажмите Enter..."
+                ;;
+            3)
+                install_beszel_hub
                 read -p "Нажмите Enter..."
                 ;;
             [Xx]) return ;;
@@ -86,7 +147,7 @@ function run_utils_menu {
         echo ""
         ui_section "ОБСЛУЖИВАНИЕ"
         ui_item "8" "🧹" "Очистка"        "Кэш пакетов, журналы, временные файлы"
-        ui_item "9" "🖥" "Агент beszel"   "$(beszel_agent_state)"
+        ui_item "9" "🖥" "beszel"         "Агент: $(beszel_agent_state)"
         echo ""
         # Завершение процесса уехало с 9 на 10 из-за агента beszel — в эту
         # сторону сдвиг безопасен: по старой привычке попадёшь на безобидный

@@ -266,7 +266,7 @@ function show_access_info {
                 ui_kv '🖥  Агент' "$(beszel_agent_state)" 17
                 ui_kv '🔗  Ходит к' "$(beszel_agent_hub_url)" 17
             else
-                ui_kv '🖥  Агент' 'не установлен — «Утилиты» → «Агент beszel»' 17
+                ui_kv '🖥  Агент' 'не установлен — «Утилиты» → «beszel»' 17
             fi
         fi
 

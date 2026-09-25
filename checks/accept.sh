@@ -212,7 +212,7 @@ screen menus/warp.sh   '4\nX\nX\n'         'WARP: служба (4)'
 screen menus/utils.sh  '2\n4\n\nX\n'       'утилиты: ncdu, свой путь (2→4)'
 screen menus/utils.sh  '7\n\n\nX\n'        'утилиты: привязка домена (7)'
 screen menus/utils.sh  '8\nX\nX\nX\n'       'утилиты: очистка (8, без подтверждения)' 'ЧТО МОЖНО ОСВОБОДИТЬ'
-screen menus/utils.sh  '9\nX\nX\n'          'утилиты: агент beszel (9)' 'АГЕНТ BESZEL'
+screen menus/utils.sh  '9\nX\nX\n'          'утилиты: beszel (9)' 'АГЕНТ И ХАБ'
 
 echo
 if [ "$FAIL" -eq 0 ]; then
