@@ -102,19 +102,26 @@ class Ledger:
         return False
 
     # -------------------------------------------------------------- сутки
-    def roll(self, now: float, snap: dict, traffic: Optional[int],
+    def roll(self, now: float, snap: dict, clients: Optional[int],
              ssh: Optional[int], probes: Optional[int]) -> None:
-        """Закрыть сутки: новый снимок, прошлые итоги для «ко вчера», пик с нуля."""
+        """
+        Закрыть сутки: новый снимок, прошлые итоги для «ко вчера», пик с нуля.
+
+        Ключи «clients» и «foreign_hist» новые (26.09): прежние «traffic» и
+        «probes_hist» хранили трафик сетевой карты и прощупывания вместе с
+        нашими зондами — сравнивать с ними новые числа нельзя.
+        """
         # Начало закрываемых суток — ДО перезаписи: иначе длина окна всегда ноль.
         last = self.data.get("last_run")
         self.data["last_run"] = now
         self.data["snap"] = snap
-        self.data["prev"] = {"traffic": traffic, "ssh": ssh,
+        self.data["prev"] = {"clients": clients, "ssh": ssh,
                              "span": (now - float(last)) if last else None}
-        hist = list(self.data.get("probes_hist") or [])
+        self.data.pop("probes_hist", None)
+        hist = list(self.data.get("foreign_hist") or [])
         if probes is not None:
             hist.append(int(probes))
-        self.data["probes_hist"] = hist[-KEEP_PROBES:]
+        self.data["foreign_hist"] = hist[-KEEP_PROBES:]
         self.data["peak"] = {}
         self.save()
 

@@ -104,6 +104,19 @@ async def build(now: float) -> tuple[report.Facts, dict]:
     traffic = report.delta(snap["nic"], None if rebooted else old.get("nic"))
     probes = (report.delta(snap["bad"], None if restarted else old.get("bad"))
               if snap["bad"] is not None else None)
+    # Наши зонды вычитаем за то же время, за какое считан счётчик: после
+    # перезапуска движка — с его старта, а не с начала суток.
+    ours = None
+    if probes is not None:
+        since = a
+        if restarted:
+            try:
+                since = max(a, float(snap["telemt_start"]))
+            except (TypeError, ValueError):
+                pass
+        ours = await asyncio.to_thread(sources.our_probes, since, now)
+        if ours:
+            probes = max(probes - ours, 0)
     fw = report.delta(snap["fw"], None if rebooted else old.get("fw")) if snap["fw"] is not None else None
 
     ssh = await asyncio.to_thread(sources.ssh_attempts, a, now)
@@ -112,7 +125,8 @@ async def build(now: float) -> tuple[report.Facts, dict]:
         server=settings.DIGEST_NAME or _server_name(),
         a=a, b=now, tz=settings.DIGEST_TZ,
         traffic=traffic, traffic_since_boot=rebooted,
-        traffic_prev=(d.get("prev") or {}).get("traffic"),
+        clients_prev=(d.get("prev") or {}).get("clients"),
+        telemt_restarted=restarted,
         xui=None if snap["xui"] is None else report.per_name(snap["xui"], old.get("xui") or {}),
         telemt=None if snap["telemt"] is None else report.per_name(snap["telemt"], old.get("telemt") or {},
                                                                   restarted),
@@ -120,7 +134,7 @@ async def build(now: float) -> tuple[report.Facts, dict]:
         ssh=ssh, ssh_prev=(d.get("prev") or {}).get("ssh"),
         prev_span=(d.get("prev") or {}).get("span"),
         bans=await asyncio.to_thread(sources.bans, a, now),
-        probes=probes, probes_hist=list(d.get("probes_hist") or []),
+        probes=probes, probes_ours=ours, probes_hist=list(d.get("foreign_hist") or []),
         firewall=fw, firewall_off=extra["fw_off"],
         watchdog=bool(settings.WATCHDOG_ENABLED),
         events=list(d.get("events") or []),
@@ -167,7 +181,7 @@ async def send(bot: Bot, f: report.Facts) -> None:
 async def close_day(bot: Bot, now: float) -> None:
     led = ledger()
     f, snap = await build(now)
-    led.roll(now, snap, f.traffic if not f.traffic_since_boot else None, f.ssh, f.probes)
+    led.roll(now, snap, None if f.telemt_restarted else report.clients_total(f), f.ssh, f.probes)
     if led.enabled:
         await send(bot, f)
 

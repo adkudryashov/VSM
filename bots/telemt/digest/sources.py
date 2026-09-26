@@ -150,12 +150,12 @@ def bans(a: float, b: float) -> Optional[tuple]:
         return None
 
 
-def ru_checks(a: float, b: float) -> Optional[tuple]:
-    """(проверок, провальных) из истории MTProxyL; None — истории нет."""
+def _ru_history(a: float, b: float) -> Optional[list]:
+    """Записи проверок MTProxyL за окно; None — истории нет."""
     p = Path(RU_HISTORY)
     if not p.exists():
         return None
-    n = bad = 0
+    out = []
     try:
         for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
             try:
@@ -165,12 +165,34 @@ def ru_checks(a: float, b: float) -> Optional[tuple]:
             except Exception:
                 continue
             if a <= t <= b:
-                n += 1
-                if float(r.get("percentage") or 0) < float(settings.RU_CHECK_FLOOR_PCT):
-                    bad += 1
+                out.append(r)
     except OSError:
         return None
-    return n, bad
+    return out
+
+
+def ru_checks(a: float, b: float) -> Optional[tuple]:
+    """(проверок, провальных) из истории MTProxyL; None — истории нет."""
+    recs = _ru_history(a, b)
+    if recs is None:
+        return None
+    floor = float(settings.RU_CHECK_FLOOR_PCT)
+    return len(recs), sum(1 for r in recs if float(r.get("percentage") or 0) < floor)
+
+
+def our_probes(a: float, b: float) -> Optional[int]:
+    """
+    Зонды Globalping, которые MTProxyL сам шлёт в наш прокси за окно.
+
+    Для telemt они неотличимы от чужого прощупывания: зонд открывает
+    соединение и уходит, не пройдя рукопожатия. Замерено 25–26.09: счётчик
+    плохих соединений рос ровно на total_probes после каждой проверки, и 160
+    из 180 за утро были нашими.
+    """
+    recs = _ru_history(a, b)
+    if recs is None:
+        return None
+    return sum(int(r.get("total_probes") or 0) for r in recs)
 
 
 def backup(a: float, b: float) -> Optional[tuple]:

@@ -124,8 +124,10 @@ def test_событие_обрезается_окном():
 
 def _facts(**kw):
     a = мск(2026, 9, 25, 22, 0)
+    # Клиенты в сумме 4,2 ГБ, сетевая карта 7,5 — меньше двойного объёма:
+    # сервер сам ничего заметного не гонял.
     base = dict(server="server1", a=a, b=a + 86400, traffic=7_500_000_000,
-                traffic_prev=6_700_000_000, prev_span=86400,
+                clients_prev=3_750_000_000, prev_span=86400,
                 xui={"alice": 2_100_000_000, "bob": 600_000_000},
                 telemt={"alice": 300_000_000, "carol": 1_200_000_000, "dave": 0},
                 peak=(11, a + 86000), ssh=2339, ssh_prev=2540, bans=(41, 14, 5),
@@ -138,7 +140,8 @@ def _facts(**kw):
 def test_спокойный_день():
     t = R.render(_facts())
     assert "server1</b> · 26.09 22:00 · за сутки" in t
-    assert "7,5 ГБ  ↑ 12% ко вчера" in t
+    assert "Трафик</b>  4,2 ГБ  ↑ 12% ко вчера" in t
+    assert "Через сеть сервера" not in t
     assert "alice: 3x-ui 2,1 ГБ · telemt 300 МБ" in t
     assert "bob: 3x-ui 600 МБ" in t and "dave: telemt 0" in t
     assert "Попытки подбора SSH: 2 339 · ↓ 8% ко вчера" in t
@@ -175,10 +178,37 @@ def test_копия_первая_впереди_не_тревога():
     assert "🟢 Копия: первая ещё впереди" in t
 
 
-def test_перезагрузка_посреди_суток_без_сравнения():
+def test_перезапуск_telemt_без_сравнения():
+    t = R.render(_facts(telemt_restarted=True))
+    assert "≈ 4,2 ГБ" in t and "ко вчера" not in t.split("\n")[2]
+    assert "telemt перезапускался" in t
+
+
+def test_перезагрузка_не_трогает_клиентов():
+    """Счётчики 3x-ui живут в базе и перезагрузку переживают."""
     t = R.render(_facts(traffic_since_boot=True))
-    assert "≈ 7,5 ГБ" in t and "ко вчера" not in t.split("\n")[2]
-    assert "счёт с загрузки" in t
+    assert "Трафик</b>  4,2 ГБ  ↑ 12% ко вчера" in t and "≈" not in t
+
+
+def test_тест_скорости_не_выдаётся_за_клиентов():
+    """26.09: iperf3 из меню отправил 30 ГБ, заголовок показал 33,2 ГБ при 3,5 у клиентов."""
+    for render in (R.render, R.render_rich):
+        t = render(_facts(traffic=33_200_000_000, traffic_since_boot=True))
+        assert "4,2 ГБ" in t
+        assert "Через сеть сервера прошло 33,2 ГБ с загрузки: сверх клиентов — сам сервер" in t
+
+
+def test_без_клиентов_остаётся_сетевая_карта():
+    t = R.render_rich(_facts(xui=None, telemt=None, traffic_since_boot=True))
+    assert "<h3>📶 Трафик · ≈ 7,5 ГБ</h3>" in t
+    assert "Сервер перезагружался" in t
+
+
+def test_наши_зонды_подписаны():
+    t = R.render(_facts(probes=3, probes_ours=160))
+    assert "Прощупывание прокси: 3 · без наших проверок (160)" in t
+    t = R.render(_facts(probes=212, probes_ours=20))
+    assert "Прощупывание прокси: 212 · ⚠️ ×12; без наших проверок (20)" in t
 
 
 def test_имена_экранируются():
@@ -196,7 +226,7 @@ def test_без_хаба_и_fail2ban():
 def test_rich_таблицами_как_сводка_бота():
     t = R.render_rich(_facts())
     assert t.startswith("<h2>📊 server1</h2>")
-    assert "<h3>📶 Трафик · 7,5 ГБ · ↑ 12% ко вчера</h3>" in t
+    assert "<h3>📶 Трафик · 4,2 ГБ · ↑ 12% ко вчера</h3>" in t
     assert "<tr><th>Клиент</th><th>3x-ui</th><th>telemt</th></tr>" in t
     assert "<tr><td>alice</td><td>2,1 ГБ</td><td>300 МБ</td></tr>" in t
     assert "<tr><td>bob</td><td>600 МБ</td><td>—</td></tr>" in t
@@ -221,12 +251,15 @@ def test_события_и_сутки(tmp_path, monkeypatch):
     led.record("dc_dead", "clear", None, now=2000.0)
     assert led.data["events"] == [{"kind": "dc_dead", "start": 1000.0, "end": 2000.0, "detail": "5"}]
     assert led.note_peak(7, now=1500.0) and not led.note_peak(5, now=1600.0)
-    led.roll(3000.0, {"nic": 1}, traffic=10, ssh=20, probes=30)
+    # Состояние прежней версии: прощупывания вместе с нашими зондами.
+    led.data["probes_hist"] = [980, 960]
+    led.roll(3000.0, {"nic": 1}, clients=10, ssh=20, probes=30)
     again = L.Ledger(tmp_path / "digest.json")          # пережило перезапуск
-    assert again.data["prev"] == {"traffic": 10, "ssh": 20, "span": None}
-    assert again.data["probes_hist"] == [30] and again.data["peak"] == {}
+    assert again.data["prev"] == {"clients": 10, "ssh": 20, "span": None}
+    assert again.data["foreign_hist"] == [30] and again.data["peak"] == {}
+    assert "probes_hist" not in again.data              # со старыми не смешиваем
     # Вторые сутки: длина прошлого окна — от прошлого закрытия.
-    again.roll(3000.0 + 86400, {"nic": 2}, traffic=11, ssh=21, probes=31)
+    again.roll(3000.0 + 86400, {"nic": 2}, clients=11, ssh=21, probes=31)
     assert again.data["prev"]["span"] == 86400
 
 
@@ -264,6 +297,20 @@ def test_проверки_из_россии(tmp_path, monkeypatch):
     monkeypatch.setattr(S, "RU_HISTORY", str(p))
     a = datetime(2026, 9, 25, 0, 0, tzinfo=ZoneInfo("UTC")).timestamp()
     assert S.ru_checks(a, a + 86400) == (2, 1)
+
+
+def test_наши_зонды_за_окно(tmp_path, monkeypatch):
+    p = tmp_path / "history.jsonl"
+    p.write_text(
+        '{"checked_at":"2026-09-26T04:17:28Z","total_probes":20}\n'
+        '{"checked_at":"2026-09-26T04:43:40Z","total_probes":20}\n'
+        '{"checked_at":"2026-09-26T05:13:46Z"}\n'           # без поля — ноль, не падение
+        '{"checked_at":"2026-09-25T10:00:00Z","total_probes":20}\n', encoding="utf-8")
+    monkeypatch.setattr(S, "RU_HISTORY", str(p))
+    a = datetime(2026, 9, 26, 4, 11, tzinfo=ZoneInfo("UTC")).timestamp()
+    assert S.our_probes(a, a + 3 * 3600) == 40
+    monkeypatch.setattr(S, "RU_HISTORY", str(tmp_path / "нет.jsonl"))
+    assert S.our_probes(a, a + 3600) is None
 
 
 def test_баны_и_ступени(tmp_path, monkeypatch):

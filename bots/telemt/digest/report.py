@@ -177,10 +177,12 @@ class Facts:
     a: float
     b: float
     tz: str = "Europe/Moscow"
-    # Трафик
-    traffic: Optional[int] = None
+    # Трафик. Главное число — клиенты: сетевая карта считает и то, что сервер
+    # делает сам (тест скорости 26.09 дал 30 ГБ при 3,5 ГБ у клиентов).
+    traffic: Optional[int] = None        # вся сеть сервера, приём + отдача
     traffic_since_boot: bool = False     # перезагрузка посреди окна: часть потеряна
-    traffic_prev: Optional[int] = None
+    clients_prev: Optional[int] = None   # клиенты за прошлые сутки
+    telemt_restarted: bool = False       # движок перезапускался: его счёт неполный
     xui: Optional[dict] = None           # email → байты; None — 3x-ui нет
     telemt: Optional[dict] = None        # пользователь → байты; None — telemt не ответил
     peak: Optional[tuple] = None         # (соединений, epoch)
@@ -189,7 +191,8 @@ class Facts:
     ssh_prev: Optional[int] = None
     prev_span: Optional[float] = None    # длина прошлого окна, сек; None — неизвестна
     bans: Optional[tuple] = None         # (банов, адресов, дошли до суток); None — fail2ban нет
-    probes: Optional[int] = None
+    probes: Optional[int] = None         # чужие: наши проверки уже вычтены
+    probes_ours: Optional[int] = None    # зонды MTProxyL за окно; None — не знаем
     probes_hist: list = field(default_factory=list)
     firewall: Optional[int] = None       # отброшено пакетов
     firewall_off: bool = False
@@ -225,9 +228,21 @@ def _kb(b: int) -> str:
 # Одни и те же строки идут и в таблицы Rich Message, и в запасной текст:
 # собрать их дважды значило бы однажды получить два разных вердикта об одном.
 
+def clients_total(f: Facts) -> Optional[int]:
+    """Сумма по клиентам 3x-ui и telemt; None — ни того, ни другого нет."""
+    if f.xui is None and f.telemt is None:
+        return None
+    return sum((f.xui or {}).values()) + sum((f.telemt or {}).values())
+
+
+# Прокси пропускает каждый байт клиента дважды — принял снаружи, отдал
+# клиенту. Сверх двойного объёма и гигабайта сверху — работа самого сервера.
+SELF_TRAFFIC_SLACK = 10**9
+
+
 def _traffic(f: Facts) -> dict:
     zone = ZoneInfo(f.tz)
-    ch = "" if f.traffic_since_boot else change(f.traffic, f.traffic_prev, f.b - f.a, f.prev_span)
+    clients = clients_total(f)
     names = list(dict.fromkeys(list((f.xui or {}).keys()) + list((f.telemt or {}).keys())))
     rows = [(n, (f.xui or {}).get(n), (f.telemt or {}).get(n)) for n in names]
     peak = ""
@@ -235,9 +250,26 @@ def _traffic(f: Facts) -> dict:
         at = datetime.fromtimestamp(f.peak[1], zone)
         peak = (f"Пик: {num(f.peak[0])} "
                 f"{plural(f.peak[0], 'подключение', 'подключения', 'подключений')} в {at:%H:%M}")
-    return {"total": ("≈ " if f.traffic_since_boot else "") + size(f.traffic), "change": ch,
+    notes = []
+    if clients is None:
+        # Ни 3x-ui, ни telemt: остаётся только сетевая карта. Сравнивать не с
+        # чем — «вчера» хранится по клиентам.
+        total = ("≈ " if f.traffic_since_boot else "") + size(f.traffic)
+        ch = ""
+        if f.traffic_since_boot:
+            notes.append("Сервер перезагружался — трафик считан с загрузки.")
+    else:
+        total = ("≈ " if f.telemt_restarted else "") + size(clients)
+        ch = "" if f.telemt_restarted else change(clients, f.clients_prev, f.b - f.a, f.prev_span)
+        if f.telemt_restarted:
+            notes.append("telemt перезапускался — его трафик считан с перезапуска.")
+        if f.traffic is not None and f.traffic > 2 * clients + SELF_TRAFFIC_SLACK:
+            notes.append(f"Через сеть сервера прошло {size(f.traffic)}"
+                         + (" с загрузки" if f.traffic_since_boot else "")
+                         + ": сверх клиентов — сам сервер (тесты скорости, обновления).")
+    return {"total": total, "change": ch, "notes": notes,
             "rows": rows, "has_xui": f.xui is not None, "has_telemt": f.telemt is not None,
-            "peak": peak, "since_boot": f.traffic_since_boot}
+            "peak": peak}
 
 
 def _security(f: Facts) -> list:
@@ -253,7 +285,10 @@ def _security(f: Facts) -> list:
         if long:
             rows.append(("Баны на сутки и дольше", num(long), ""))
     if f.probes is not None:
-        rows.append(("Прощупывание прокси", num(f.probes), surge(f.probes, f.probes_hist).strip()))
+        note = surge(f.probes, f.probes_hist).strip()
+        if f.probes_ours:
+            note = "; ".join(x for x in (note, f"без наших проверок ({num(f.probes_ours)})") if x)
+        rows.append(("Прощупывание прокси", num(f.probes), note))
     if f.firewall_off:
         rows.append(("Фаервол", "—", "⚠️ выключен"))
     elif f.firewall is not None:
@@ -346,8 +381,8 @@ def render_rich(f: Facts) -> str:
     out = [f"<h2>📊 {name}</h2>", f"<p><i>{when}</i></p>"]
 
     out.append(f"<h3>📶 Трафик · {t['total']}" + (f" · {t['change']}" if t["change"] else "") + "</h3>")
-    if t["since_boot"]:
-        out.append("<p><i>Сервер перезагружался — трафик считан с загрузки.</i></p>")
+    for n in t["notes"]:
+        out.append(f"<p><i>{n}</i></p>")
     if t["rows"]:
         head = "<tr><th>Клиент</th>" + ("<th>3x-ui</th>" if t["has_xui"] else "") \
                + ("<th>telemt</th>" if t["has_telemt"] else "") + "</tr>"
@@ -385,8 +420,8 @@ def render(f: Facts) -> str:
     t = _traffic(f)
     lines = [f"📊 <b>{name}</b> · {when}", ""]
     lines.append(f"📶 <b>Трафик</b>  {t['total']}" + (f"  {t['change']}" if t["change"] else ""))
-    if t["since_boot"]:
-        lines.append("   <i>сервер перезагружался — счёт с загрузки</i>")
+    for n in t["notes"]:
+        lines.append(f"   <i>{n}</i>")
     for n, x, y in t["rows"]:
         parts = []
         if t["has_xui"] and x is not None:
