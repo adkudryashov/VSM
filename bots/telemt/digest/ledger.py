@@ -101,6 +101,23 @@ class Ledger:
             return True
         return False
 
+    # ------------------------------------------------------- попытки SSH
+    # Журнал на сервере бывает меньше суток: у хостера Hostup потолок 128 МБ,
+    # и telemt заполняет его за ~16 часов. К 22:00 вчерашний вечер уже стёрт —
+    # 26.09 одно и то же окно показало утром 41 попытку, днём 14. Поэтому
+    # попытки забираются из журнала по ходу суток и копятся здесь.
+    def ssh_read_from(self, default: float) -> float:
+        """С какого момента журнал ещё не прочитан."""
+        return float(self.data.get("ssh_read") or default)
+
+    def ssh_counted(self) -> int:
+        return int(self.data.get("ssh_count") or 0)
+
+    def add_ssh(self, n: int, upto: float) -> None:
+        self.data["ssh_count"] = self.ssh_counted() + int(n)
+        self.data["ssh_read"] = upto
+        self.save()
+
     # -------------------------------------------------------------- сутки
     def roll(self, now: float, snap: dict, clients: Optional[int],
              ssh: Optional[int], probes: Optional[int]) -> None:
@@ -117,6 +134,8 @@ class Ledger:
         self.data["snap"] = snap
         self.data["prev"] = {"clients": clients, "ssh": ssh,
                              "span": (now - float(last)) if last else None}
+        self.data["ssh_count"] = 0
+        self.data["ssh_read"] = now
         self.data.pop("probes_hist", None)
         hist = list(self.data.get("foreign_hist") or [])
         if probes is not None:

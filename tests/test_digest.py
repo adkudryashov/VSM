@@ -259,8 +259,31 @@ def test_события_и_сутки(tmp_path, monkeypatch):
     assert again.data["foreign_hist"] == [30] and again.data["peak"] == {}
     assert "probes_hist" not in again.data              # со старыми не смешиваем
     # Вторые сутки: длина прошлого окна — от прошлого закрытия.
+    again.add_ssh(5, 3000.0 + 3600)
     again.roll(3000.0 + 86400, {"nic": 2}, clients=11, ssh=21, probes=31)
     assert again.data["prev"]["span"] == 86400
+    # Накопленные попытки SSH начинаются заново вместе с сутками.
+    assert again.ssh_counted() == 0 and again.ssh_read_from(0) == 3000.0 + 86400
+
+
+def test_попытки_ssh_копятся_по_ходу_суток(tmp_path, monkeypatch):
+    """26.09: журнал в 128 МБ стёр вчерашний вечер, и 41 попытка стала 14."""
+    import asyncio
+    from telemt.digest import loop as LP
+    led = L.Ledger(tmp_path / "digest.json")
+    a = мск(2026, 9, 25, 22, 0)
+    led.roll(a, {}, None, None, None)
+    журнал = [a + 600, a + 3000, a + 7000]          # моменты «Failed password»
+    стёрто_до = [0.0]
+    monkeypatch.setattr(S, "ssh_attempts", lambda x, y: sum(
+        1 for t in журнал if x <= t <= y and t >= стёрто_до[0]))
+    monkeypatch.setattr(S, "established", lambda ports: 0)
+    monkeypatch.setattr(LP, "ledger", lambda: led)
+    for t in (a + 1000, a + 1900, a + 4000, a + 7300):
+        asyncio.run(LP.tick(None, t))
+    # Журнал потерял всё старше: накопленное остаётся.
+    стёрто_до[0] = a + 80000
+    assert led.ssh_counted() == 3 and led.ssh_read_from(a) == a + 7300
 
 
 def test_старые_события_забываются(tmp_path):

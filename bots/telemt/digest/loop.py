@@ -29,6 +29,9 @@ from telemt.digest import report, sources
 from telemt.digest.ledger import shared as ledger
 
 TICK = 60
+# Как часто забирать попытки SSH из журнала. Журнал живёт от ~16 часов (см.
+# Ledger.add_ssh) — полчаса оставляют запас в тридцать раз.
+SSH_EVERY = 1800
 
 
 def keyboard(enabled: bool) -> InlineKeyboardMarkup:
@@ -119,7 +122,9 @@ async def build(now: float) -> tuple[report.Facts, dict]:
             probes = max(probes - ours, 0)
     fw = report.delta(snap["fw"], None if rebooted else old.get("fw")) if snap["fw"] is not None else None
 
-    ssh = await asyncio.to_thread(sources.ssh_attempts, a, now)
+    # Накопленное за сутки плюс хвост, который ещё не забирали из журнала.
+    tail = await asyncio.to_thread(sources.ssh_attempts, led.ssh_read_from(a), now)
+    ssh = None if tail is None else led.ssh_counted() + tail
     peak = d.get("peak") or {}
     f = report.Facts(
         server=settings.DIGEST_NAME or _server_name(),
@@ -199,6 +204,11 @@ async def tick(bot: Bot, now: float | None = None) -> None:
         logging.info("Сводка: первый снимок, первые сутки закроются в %s %s",
                      settings.DIGEST_TIME, settings.DIGEST_TZ)
         return
+    read_from = led.ssh_read_from(float(last))
+    if now - read_from >= SSH_EVERY:
+        n = await asyncio.to_thread(sources.ssh_attempts, read_from, now)
+        if n is not None:
+            led.add_ssh(n, now)
     if now >= report.next_run(float(last), settings.DIGEST_TIME, settings.DIGEST_TZ):
         await close_day(bot, now)
 
