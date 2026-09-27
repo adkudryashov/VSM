@@ -126,7 +126,16 @@ async def cmd_map(message: types.Message):
         # его прячет Referrer-Policy: no-referrer. Это тот же размен, который
         # владелец принял при разборе карты 14.08.2026, только провайдер
         # другой и без ключа.
-        m = folium.Map(location=[avg_lat, avg_lon], zoom_start=3, tiles='OpenStreetMap')
+        #
+        # ПЛИТКАМ — ТОЛЬКО ДОМЕН. OpenStreetMap не отдаёт плитки без Referer:
+        # вместо карты весь экран «403 Access blocked», и отдаётся это тем же
+        # HTTP 200 с картинкой (увидено владельцем 27.09.2026, замерено curl'ом:
+        # без Referer — плитка-заглушка, с одним доменом — настоящая). Страница
+        # целиком по-прежнему no-referrer, а плиткам Leaflet (1.9+) ставит свой
+        # referrerpolicy: strict-origin отдаёт адрес сайта без пути, то есть
+        # без секретного префикса.
+        m = folium.Map(location=[avg_lat, avg_lon], zoom_start=3, tiles=None)
+        folium.TileLayer('OpenStreetMap', referrerPolicy='strict-origin').add_to(m)
         cluster = MarkerCluster().add_to(m)
         
         for lat, lon, popup in coords:
