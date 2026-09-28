@@ -9,7 +9,8 @@ globalping.py. Разделение не ради красоты: логику �
 
   движок недоступен      API не отвечает — прокси либо лёг, либо потерял API
   движок перезапустился  process_started_at сменился без нашего ведома
-  писатели просели       некому писать в Telegram: клиенты подключатся и зависнут
+  писатели просели       некому писать в Telegram: без запасного пути напрямую
+                         (me2dc_fallback) клиенты подключатся и зависнут
   пустой дата-центр      среднее покрытие прячет целиком пустую группу
   часы и ключи           рассинхрон часов или скачущий адрес — снаружи как блокировка
   WEB Proxy              не принимает соединения или упёрся в свои пределы
@@ -79,6 +80,10 @@ class Watchdog:
         self.beszel = beszel_client()
         # Последний разбор ответа хаба — его показывает экран «Серверы».
         self.beszel_last = None
+        # Включён ли у движка запасной путь напрямую (me2dc_fallback). None —
+        # не знаем. Нужен карточке: при нём тревога о писателях — не авария
+        # для клиентов, и карточка должна это сказать.
+        self.fallback: bool | None = None
         # Последний вердикт по доступности из РФ — его показывает /watch.
         self.ru_last: dict | None = None
         self.ru_error: str = ""
@@ -175,7 +180,7 @@ class Watchdog:
             logging.warning("Сторож: не перенёс карточку вниз: %s", exc)
 
     async def _fire_or_clear(self, bot: Bot, event, flap, *, fire: str, clear: str,
-                             detail: str = "") -> None:
+                             detail: str = "", repeat: bool = True) -> None:
         """
         Один разбор события для всех тревог сразу.
 
@@ -187,6 +192,9 @@ class Watchdog:
         detail — что именно (какой DC, какой сервер) для сводки за сутки.
         Событие пишется и при заглушённых тревогах: пауза глушит сообщения, а
         не саму аварию, и в вечерней сводке она быть обязана.
+
+        repeat=False — без напоминаний раз в полчаса: для тревоги, которая
+        клиентов не задевает. Тревога и отбой приходят как обычно.
         """
         if event in (FIRE, CLEAR):
             try:
@@ -198,7 +206,7 @@ class Watchdog:
                 logging.warning("Сторож: событие не записано в сводку: %s", exc)
         if event == FIRE:
             await self._notify(bot, fire)
-        elif event == REPEAT:
+        elif event == REPEAT and repeat:
             minutes = flap.duration()
             head = (f"⏳ <b>Авария продолжается {minutes} мин</b>\n\n" if minutes
                     else "⏳ <b>Авария продолжается</b>\n\n")
@@ -269,22 +277,63 @@ class Watchdog:
                 "снаружи подмена выглядит не как авария, а как заметный сервер.",
             )
 
+        await self._poll_writers(bot, writers)
+        await self._poll_selftest(bot)
+        await self._poll_web(bot)
+        await self._poll_beszel(bot)
+        await self._poll_hard_fails(bot, started)
+
+    async def _poll_writers(self, bot: Bot, writers: dict | None) -> None:
+        """
+        Писатели и дата-центры без них.
+
+        ЗАПАСНОЙ ПУТЬ МЕНЯЕТ СМЫСЛ ТРЕВОГИ. При me2dc_fallback движок без
+        писателей пускает клиентов к дата-центрам напрямую. 28.09.2026 на
+        главном писателей не было 12 часов (0 из 43), а Telegram у клиентов
+        работал: из 71 142 выходов к Telegram удались 71 099. Сторож же каждые
+        полчаса писал «клиенты будут зависать» — неправду. Теперь при
+        включённом запасном пути тревога так и говорит и не повторяется: о
+        себе она напоминает строкой карточки и событием в сводке.
+
+        Не знаем, включён ли он (движок не ответил, поле пропало), — прежний
+        текст и повторы: промолчать о настоящей аварии дороже лишнего сообщения.
+        """
+        fallback = None
+        try:
+            gates = (await self.api.runtime_gates()).get("data") or {}
+            raw = gates.get("me2dc_fallback_enabled")
+            if isinstance(raw, bool):
+                fallback = raw
+        except Exception as exc:
+            logging.info("Сторож: состояние маршрута не пришло: %s", exc)
+        self.fallback = fallback
+
+        floor = float(settings.WATCHDOG_COVERAGE_FLOOR_PCT)
         summary = (writers or {}).get("summary") or {}
         coverage = summary.get("fresh_coverage_pct")
         if coverage is None:
             coverage = summary.get("coverage_pct")
+        low = None
         if coverage is not None:
-            low = float(coverage) < float(settings.WATCHDOG_COVERAGE_FLOOR_PCT)
+            low = float(coverage) < floor
+            if fallback:
+                effect = ("Клиентов это обычно не задевает: без писателей прокси "
+                          "пускает их к дата-центрам Telegram напрямую — запасной "
+                          "путь включён. Напоминать каждые полчаса не буду.\n"
+                          "Сами писатели могут не подняться часами: 28.09.2026 "
+                          "их вернул только перезапуск движка — "
+                          "<code>systemctl restart telemt</code>")
+            else:
+                effect = "Клиенты будут подключаться и зависать."
             await self._fire_or_clear(
                 bot, self.state.writers.update(is_bad=low), self.state.writers,
                 fire="🚨 <b>ПРОСЕЛИ ПИСАТЕЛИ В TELEGRAM</b>\n"
-                     f"Покрытие: {float(coverage):.0f}% "
-                     f"(порог {float(settings.WATCHDOG_COVERAGE_FLOOR_PCT):.0f}%)\n"
+                     f"Покрытие: {float(coverage):.0f}% (порог {floor:.0f}%)\n"
                      f"Живых: {summary.get('alive_writers', '?')} из "
-                     f"{summary.get('required_writers', '?')} нужных.\n"
-                     "Клиенты будут подключаться и зависать.",
+                     f"{summary.get('required_writers', '?')} нужных.\n" + effect,
                 clear="✅ <b>ПИСАТЕЛИ ВОССТАНОВЛЕНЫ</b>\n"
                       f"Покрытие: {float(coverage):.0f}%",
+                repeat=not fallback,
             )
 
         # Пустая группа дата-центров. Отдельно от покрытия выше: то — среднее
@@ -298,8 +347,24 @@ class Watchdog:
             logging.info("Сторож: список дата-центров не пришёл: %s", exc)
         verdict = dcs.read_verdict(dc_payload)
         # Групп не видно — это отсутствие данных, а не отсутствие аварии:
-        # состояние тревоги тогда не трогаем вовсе.
-        if verdict.total:
+        # состояние тревоги тогда не трогаем вовсе. Пусты ВСЕ группы — тоже
+        # не трогаем: это не «дата-центры ожили», а та же авария целиком, и о
+        # ней говорит тревога о писателях. 28.09.2026 последняя живая группа
+        # опустела, и сторож прислал «✅ снова с писателями» при нуле из 43.
+        if verdict.total and not verdict.empty:
+            if fallback:
+                effect = ("Клиенты, чьи учётные записи живут там, могут "
+                          "подключаться и зависать. Запасной путь напрямую "
+                          "включён, но спасает ли он при пропаже одного "
+                          "дата-центра, движок не показывает.\n")
+            else:
+                effect = ("Клиенты, чьи учётные записи живут там, будут "
+                          "подключаться и зависать.\n")
+            # Про среднее говорим, только когда оно и правда выше порога:
+            # 28.09.2026 эта строка пришла при покрытии 0%.
+            average = ("Общее покрытие писателей при этом остаётся выше порога: "
+                       "оно усредняет и такую пропажу не показывает.\n"
+                       if low is False else "")
             await self._fire_or_clear(
                 bot, self.state.dc_dead.update(is_bad=verdict.partial),
                 self.state.dc_dead,
@@ -308,20 +373,12 @@ class Watchdog:
                      f"Пусто: DC {html.escape(verdict.label())} — "
                      f"{len(verdict.dead)} из {verdict.total} групп.\n"
                      + (f"Просели, но держатся: DC {html.escape(verdict.weak_label())}.\n"
-                        if verdict.weak else "") +
-                     "Клиенты, чьи учётные записи живут там, будут "
-                     "подключаться и зависать.\n"
-                     "Общее покрытие писателей при этом остаётся выше порога: "
-                     "оно усредняет и такую пропажу не показывает.\n"
+                        if verdict.weak else "")
+                     + effect + average +
                      "Чаще всего это закрытый путь до серверов Telegram, "
                      "а не поломка прокси.",
                 clear="✅ <b>ДАТА-ЦЕНТРЫ TELEGRAM СНОВА С ПИСАТЕЛЯМИ</b>",
             )
-
-        await self._poll_selftest(bot)
-        await self._poll_web(bot)
-        await self._poll_beszel(bot)
-        await self._poll_hard_fails(bot, started)
 
     async def _poll_selftest(self, bot: Bot) -> None:
         """
@@ -933,8 +990,13 @@ class Watchdog:
 
         lines.append("🚨 Тревога: движок недоступен" if self.state.engine.firing
                      else "✅ Движок отвечает")
-        lines.append("🚨 Тревога: писатели просели" if self.state.writers.firing
-                     else "✅ Писатели в норме")
+        if not self.state.writers.firing:
+            lines.append("✅ Писатели в норме")
+        elif self.fallback:
+            lines.append("🚨 Тревога: писатели просели\n"
+                         "   клиенты идут к Telegram напрямую, запасным путём")
+        else:
+            lines.append("🚨 Тревога: писатели просели")
         # Эти строки — только пока тревога висит. В исправном состоянии
         # карточка про них молчит: пять лишних «✅» отодвинули бы вниз то, ради
         # чего на неё смотрят, а само «всё хорошо» уже сказано строками выше.
