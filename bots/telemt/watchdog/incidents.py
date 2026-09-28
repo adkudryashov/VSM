@@ -222,6 +222,17 @@ class WatchState:
 
     engine: Flap = field(default_factory=Flap)
     writers: Flap = field(default_factory=Flap)
+    # Писателей почти нет — счётчик для перезапуска движка (restart.py). Не
+    # тревога: сообщений по нему нет, нужен только момент начала. Порог один
+    # опрос: сглаживает время (WATCHDOG_RESTART_AFTER_MINUTES), а не счёт.
+    stuck: Flap = field(default_factory=lambda: Flap(threshold=1))
+    # Когда движок перезапускали в последний раз — сторож сам или по кнопке.
+    # Хранится, чтобы перезапуск бота не обнулил паузу между перезапусками.
+    restart_at: float = 0.0
+    # Что уже сказано про перезапуск в этой аварии: "" | "closed" (путь
+    # закрыт, не перезапускаю) | "failed" (перезапуск не помог). По одному
+    # разу на аварию, иначе выйдет тот же будильник, что с напоминаниями.
+    restart_note: str = ""
     # Дата-центр Telegram без единого писателя. Отдельно от writers, потому
     # что то — среднее по серверу, а среднее прячет целиком пустую группу:
     # 77% покрытия при двух мёртвых группах из двенадцати (замер 08.09.2026).
@@ -288,6 +299,9 @@ class WatchState:
         return {
             "engine": self.engine.to_dict(),
             "writers": self.writers.to_dict(),
+            "stuck": self.stuck.to_dict(),
+            "restart_at": self.restart_at,
+            "restart_note": self.restart_note,
             "dc_dead": self.dc_dead.to_dict(),
             "ru_access": self.ru_access.to_dict(),
             "ru_stale": self.ru_stale.to_dict(),
@@ -315,6 +329,10 @@ class WatchState:
         return cls(
             engine=Flap.from_dict(data.get("engine", {}), threshold),
             writers=Flap.from_dict(data.get("writers", {}), threshold),
+            # Порог свой, не общий из настроек — обоснование у поля выше.
+            stuck=Flap.from_dict(data.get("stuck", {}), 1),
+            restart_at=float(data.get("restart_at", 0.0) or 0.0),
+            restart_note=str(data.get("restart_note", "") or ""),
             dc_dead=Flap.from_dict(data.get("dc_dead", {}), threshold),
             ru_access=Flap.from_dict(data.get("ru_access", {}), threshold),
             # Порог свой, не общий из настроек — обоснование у поля выше.

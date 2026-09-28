@@ -65,8 +65,21 @@ def keyboard() -> InlineKeyboardMarkup:
     # половине установок отвечает «данных нет», хуже её отсутствия.
     if (watchdog.ru_last or {}).get("probes"):
         rows.append([InlineKeyboardButton(text="🔍 Зонды", callback_data="wd:probes")])
+    # Перезапуск — только пока висит тревога о писателях: единственный случай,
+    # когда он замерено помогал (28.09.2026). Всегда видимая кнопка
+    # «перезапустить прокси» — приглашение нажать её просто так.
+    if watchdog.state.writers.firing:
+        rows.append([InlineKeyboardButton(text="🔄 Перезапустить движок",
+                                          callback_data="wd:restart")])
     rows.append([pause])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def restart_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Да, перезапустить", callback_data="wd:restart:yes"),
+        InlineKeyboardButton(text="✖️ Отмена", callback_data="wd:restart:no"),
+    ]])
 
 
 def render_probes() -> str:

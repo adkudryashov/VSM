@@ -91,6 +91,17 @@ class Ledger:
                                if e.get("end") is None or float(e["end"]) >= cutoff]
         self.save()
 
+    def note(self, kind: str, detail: str = "", now: Optional[float] = None) -> None:
+        """Мгновенное событие — начало и конец совпадают. Сейчас это только
+        перезапуск движка сторожем ("restart", detail "auto" | "manual")."""
+        now = time.time() if now is None else now
+        evs = self.data.setdefault("events", [])
+        evs.append({"kind": kind, "start": now, "end": now, "detail": detail})
+        cutoff = now - KEEP_EVENTS
+        self.data["events"] = [e for e in evs
+                               if e.get("end") is None or float(e["end"]) >= cutoff]
+        self.save()
+
     # ---------------------------------------------------------------- пик
     def note_peak(self, value: int, now: Optional[float] = None) -> bool:
         """Запомнить, если больше прежнего пика. True — изменилось."""

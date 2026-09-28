@@ -177,6 +177,55 @@ async def cb_mute_set(callback: types.CallbackQuery):
     await card.refresh(callback.bot, force=True)
 
 
+@router.callback_query(F.data == "wd:restart")
+async def cb_restart_ask(callback: types.CallbackQuery):
+    """
+    Кнопка живёт и под тревогой, и под карточкой. Подтверждение — вторым
+    нажатием на том же сообщении: перезапуск обрывает всех клиентов, а
+    промахнуться пальцем по кнопке в тревоге ночью легко.
+    """
+    await callback.answer("Клиенты переподключатся через несколько секунд. Точно?")
+    try:
+        await callback.message.edit_reply_markup(reply_markup=card.restart_confirm_keyboard())
+    except Exception as exc:
+        logging.info("Кнопки перезапуска не заменились: %s", exc)
+
+
+@router.callback_query(F.data == "wd:restart:no")
+async def cb_restart_cancel(callback: types.CallbackQuery):
+    await callback.answer("Отменено.")
+    await _restore_markup(callback)
+
+
+@router.callback_query(F.data == "wd:restart:yes")
+async def cb_restart(callback: types.CallbackQuery):
+    # Отвечаем сразу: Telegram ждёт отклика несколько секунд, а перезапуск с
+    # ожиданием писателей идёт до полутора минут.
+    await callback.answer("Перезапускаю движок…")
+    try:
+        # Кнопки с сообщения снимаем: второй перезапуск по старой тревоге
+        # после того, как всё поднялось, ни к чему.
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await callback.message.answer("🔄 Перезапускаю движок, жду писателей до полутора минут…")
+    await send_long_message(callback.message, await watchdog.manual_restart())
+    await card.refresh(callback.bot, force=True)
+
+
+async def _restore_markup(callback: types.CallbackQuery) -> None:
+    """Вернуть прежние кнопки: под карточкой — её, под тревогой — перезапуск."""
+    ids = {str(v) for v in watchdog.state.cards.values()}
+    try:
+        if str(callback.message.message_id) in ids:
+            await callback.message.edit_reply_markup(reply_markup=card.keyboard())
+        else:
+            from telemt.watchdog.monitor import restart_keyboard
+            await callback.message.edit_reply_markup(reply_markup=restart_keyboard())
+    except Exception as exc:
+        logging.info("Кнопки не вернулись: %s", exc)
+
+
 @router.callback_query(F.data == "wd:unmute")
 async def cb_unmute(callback: types.CallbackQuery):
     watchdog.unmute()

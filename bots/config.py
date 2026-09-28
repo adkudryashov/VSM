@@ -69,6 +69,17 @@ class Settings(BaseSettings):
     # единичных всплесков, а не рабочее значение. Подробности в
     # telemt/watchdog/upstreams.py.
     WATCHDOG_HARD_FAIL_PCT: float = 20.0
+    # Сторож сам перезапускает движок, когда писателей нет (покрытие ниже
+    # WATCHDOG_RESTART_BELOW_PCT) дольше WATCHDOG_RESTART_AFTER_MINUTES, а
+    # серверы Telegram с этой машины отвечают — то есть застрял сам движок.
+    # 28.09.2026 писатели не поднимались так 12 часов, и вернул их только
+    # перезапуск. Не чаще раза в WATCHDOG_RESTART_COOLDOWN_HOURS: не помог —
+    # сторож сообщает и больше не пробует. Цена перезапуска — клиенты
+    # переподключаются через несколько секунд. Обоснование в watchdog/restart.py.
+    WATCHDOG_AUTO_RESTART: bool = True
+    WATCHDOG_RESTART_BELOW_PCT: float = 10.0
+    WATCHDOG_RESTART_AFTER_MINUTES: int = 30
+    WATCHDOG_RESTART_COOLDOWN_HOURS: int = 6
 
     # --- Доступность из РФ (Globalping) ---
     # ЦЕНА ЭТОЙ ПРОВЕРКИ. Каждый прогон просит публичный сервис Globalping

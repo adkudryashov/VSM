@@ -506,8 +506,11 @@ function manage_watchdog {
         clear 2>/dev/null
         ui_title "🛡  СТОРОЖ TELEMT"
 
-        local wd ru iv pr tok port sni wd_t wd_c ru_t ru_c
+        local wd ru iv pr tok port sni wd_t wd_c ru_t ru_c ar ar_t ar_c
         wd=$(_wd_get WATCHDOG_ENABLED); ru=$(_wd_get RU_CHECK_ENABLED)
+        # Нет строки в .env — действует умолчание бота, а оно «включено».
+        ar=$(_wd_get WATCHDOG_AUTO_RESTART); ar="${ar:-true}"
+        if [ "$ar" = "true" ]; then ar_t="ВКЛЮЧЁН"; ar_c="$C_OK"; else ar_t="ВЫКЛЮЧЕН"; ar_c="$C_DESC"; fi
         iv=$(_wd_get RU_CHECK_INTERVAL_MINUTES); pr=$(_wd_get RU_CHECK_PROBES)
         tok=$(_wd_get RU_CHECK_TOKEN); port=$(_wd_get RU_CHECK_PORT); sni=$(_wd_get RU_CHECK_SNI)
         if [ "$wd" = "true" ]; then wd_t="ВКЛЮЧЁН"; wd_c="$C_OK"; else wd_t="ВЫКЛЮЧЕН"; wd_c="$C_DANGER"; fi
@@ -517,6 +520,7 @@ function manage_watchdog {
         ui_section "СОСТОЯНИЕ"
         echo -e "   ${C_NAME}$(ui_pad '🛡  Сторож' 24)${NC}${wd_c}${wd_t}${NC}"
         echo -e "   ${C_NAME}$(ui_pad '🇷🇺  Доступность из РФ' 24)${NC}${ru_c}${ru_t}${NC}"
+        echo -e "   ${C_NAME}$(ui_pad '🔄  Автоперезапуск' 24)${NC}${ar_c}${ar_t}${NC}"
         if [ "$ru" = "true" ]; then
             ui_kv '⏱  Интервал' "${iv:-60} мин" 24
             ui_kv '📡  Зондов за прогон' "${pr:-10}" 24
@@ -530,6 +534,7 @@ function manage_watchdog {
         echo -e "   ${C_DESC}изменился конфиг движка · сменился внешний адрес${NC}"
         echo -e "   ${C_DESC}пустой дата-центр · разошлись часы · ошибки ключей${NC}"
         echo -e "   ${C_DESC}WEB Proxy не принимает или упёрся в предел${NC}"
+        echo -e "   ${C_DESC}перезапускает движок, если писатели застряли (пункт 6)${NC}"
         echo -e "   ${C_DESC}Команды в боте: /watch /check /mute /unmute${NC}"
 
         echo ""
@@ -539,11 +544,12 @@ function manage_watchdog {
         ui_item "3" "⏱" "Интервал и зонды" "Как часто и сколькими зондами проверять"
         ui_item "4" "🔑" "Токен Globalping" "Поднимает часовой бюджет проверок"
         ui_item "5" "🖥" "Хаб beszel" "$(_beszel_state)"
+        ui_item "6" "🔄" "Автоперезапуск" "Движок сам, если писатели застряли"
         echo ""
         ui_item "X" "🔙" "Назад"
         echo ""
 
-        read -p "Ваш выбор [1-5, X]: " ch || break
+        read -p "Ваш выбор [1-6, X]: " ch || break
         case "$ch" in
             1)
                 if [ "$wd" = "true" ]; then
@@ -623,6 +629,19 @@ function manage_watchdog {
                 _wd_restart; read -p "Enter..."
                 ;;
             5) manage_beszel ;;
+            6)
+                if [ "$ar" = "true" ]; then
+                    _wd_set WATCHDOG_AUTO_RESTART false
+                    echo -e "${YELLOW}Автоперезапуск выключен: при застрявших писателях${NC}"
+                    echo -e "${YELLOW}сторож только сообщит, под тревогой будет кнопка.${NC}"
+                else
+                    _wd_set WATCHDOG_AUTO_RESTART true
+                    echo -e "${GREEN}Автоперезапуск включён.${NC}"
+                    echo -e "${BLUE}Писателей почти нет 30 мин, а серверы Telegram отвечают —${NC}"
+                    echo -e "${BLUE}сторож перезапустит движок, не чаще раза в 6 часов.${NC}"
+                fi
+                _wd_restart; read -p "Enter..."
+                ;;
             [Xx]) return ;;
             *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
         esac

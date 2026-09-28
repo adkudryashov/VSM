@@ -53,8 +53,11 @@ class Бот:
     def __init__(self):
         self.sent: list[str] = []
 
-    async def send_message(self, chat_id, text, parse_mode=None):
+        self.markups: list = []
+
+    async def send_message(self, chat_id, text, parse_mode=None, reply_markup=None):
         self.sent.append(text)
+        self.markups.append(reply_markup)
 
 
 class API:
@@ -91,6 +94,13 @@ def сторож(monkeypatch, часы):
     monkeypatch.setattr(monitor, "_save_state", lambda state: None)
     monkeypatch.setattr(settings, "ADMIN_IDS", [1])
     monkeypatch.setattr(settings, "WATCHDOG_COVERAGE_FLOOR_PCT", 50)
+    # Автоперезапуск проверяется в test_watchdog_restart.py. Здесь он выключен,
+    # а настоящий systemctl подменён отказом — на случай, если его всё же позовут.
+    monkeypatch.setattr(settings, "WATCHDOG_AUTO_RESTART", False)
+
+    async def нельзя(*a, **k):
+        raise AssertionError("тест позвал настоящий перезапуск")
+    monkeypatch.setattr(monitor.restart, "systemctl_restart", нельзя)
     w = monitor.Watchdog()
     w.state = WatchState()
     w.api = API()

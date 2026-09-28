@@ -35,15 +35,26 @@ import time
 from pathlib import Path
 
 from aiogram import Bot
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from config import settings, DATA_DIR
 from telemt.api.client import TelemtAPIClient
 from common.beszel import shared as beszel_client
-from telemt.watchdog import (beszel_hub, dcs, drift, globalping, mtproxyl, selftest,
-                             upgrades, upstreams, web)
+from telemt.watchdog import (beszel_hub, dcs, drift, globalping, mtproxyl, restart,
+                             selftest, upgrades, upstreams, web)
 from telemt.watchdog.incidents import CLEAR, FIRE, REPEAT, REPEAT_SECONDS, WatchState
 
 STATE_PATH = Path(DATA_DIR) / "watchdog.json"
+
+# Свой перезапуск движка сторож не объявляет как «движок перезапустился»:
+# о нём уже сказано отдельным сообщением.
+OWN_RESTART_QUIET = 5 * 60
+
+
+def restart_keyboard() -> InlineKeyboardMarkup:
+    """Кнопка под тревогой о писателях. Подтверждение — вторым нажатием."""
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🔄 Перезапустить движок", callback_data="wd:restart")]])
 
 
 def _load_state() -> WatchState:
@@ -134,7 +145,8 @@ class Watchdog:
         _save_state(self.state)
 
     # ---------------------------------------------------------------- отправка
-    async def _notify(self, bot: Bot, text: str, force: bool = False) -> None:
+    async def _notify(self, bot: Bot, text: str, force: bool = False,
+                      markup: InlineKeyboardMarkup | None = None) -> None:
         """
         Рассылает тревогу администраторам.
 
@@ -146,7 +158,11 @@ class Watchdog:
             return
         for admin_id in settings.ADMIN_IDS:
             try:
-                await bot.send_message(chat_id=admin_id, text=text, parse_mode="HTML")
+                if markup is None:
+                    await bot.send_message(chat_id=admin_id, text=text, parse_mode="HTML")
+                else:
+                    await bot.send_message(chat_id=admin_id, text=text, parse_mode="HTML",
+                                           reply_markup=markup)
             except Exception as exc:
                 logging.warning("Сторож: не доставил админу %s: %s", admin_id, exc)
             else:
@@ -180,7 +196,8 @@ class Watchdog:
             logging.warning("Сторож: не перенёс карточку вниз: %s", exc)
 
     async def _fire_or_clear(self, bot: Bot, event, flap, *, fire: str, clear: str,
-                             detail: str = "", repeat: bool = True) -> None:
+                             detail: str = "", repeat: bool = True,
+                             markup: InlineKeyboardMarkup | None = None) -> None:
         """
         Один разбор события для всех тревог сразу.
 
@@ -205,12 +222,12 @@ class Watchdog:
             except Exception as exc:
                 logging.warning("Сторож: событие не записано в сводку: %s", exc)
         if event == FIRE:
-            await self._notify(bot, fire)
+            await self._notify(bot, fire, markup=markup)
         elif event == REPEAT and repeat:
             minutes = flap.duration()
             head = (f"⏳ <b>Авария продолжается {minutes} мин</b>\n\n" if minutes
                     else "⏳ <b>Авария продолжается</b>\n\n")
-            await self._notify(bot, head + fire)
+            await self._notify(bot, head + fire, markup=markup)
         elif event == CLEAR:
             minutes = flap.duration()
             await self._notify(bot, clear + (f"\nДлилась {minutes} мин." if minutes else ""))
@@ -254,7 +271,8 @@ class Watchdog:
             return
 
         started = str(info.get("process_started_at_epoch_secs") or "")
-        if self.state.started_at.update(started):
+        own = time.time() - self.state.restart_at < OWN_RESTART_QUIET
+        if self.state.started_at.update(started) and not own:
             # Причину называем, если она видна. Владелец два дня подряд
             # получал «движок перезапустился» и каждый раз выяснял почему
             # заново, а причина была одна: ночное автообновление системы,
@@ -319,21 +337,27 @@ class Watchdog:
             if fallback:
                 effect = ("Клиентов это обычно не задевает: без писателей прокси "
                           "пускает их к дата-центрам Telegram напрямую — запасной "
-                          "путь включён. Напоминать каждые полчаса не буду.\n"
-                          "Сами писатели могут не подняться часами: 28.09.2026 "
-                          "их вернул только перезапуск движка — "
-                          "<code>systemctl restart telemt</code>")
+                          "путь включён. Напоминать каждые полчаса не буду.\n")
             else:
-                effect = "Клиенты будут подключаться и зависать."
+                effect = "Клиенты будут подключаться и зависать.\n"
+            if settings.WATCHDOG_AUTO_RESTART:
+                hint = (f"Если писателей почти не будет "
+                        f"{int(settings.WATCHDOG_RESTART_AFTER_MINUTES)} мин, а серверы "
+                        "Telegram отвечают, сторож сам перезапустит движок. "
+                        "Можно и сейчас — кнопкой ниже.")
+            else:
+                hint = ("Писатели могут не подняться часами: 28.09.2026 их вернул "
+                        "только перезапуск движка — кнопка ниже.")
             await self._fire_or_clear(
                 bot, self.state.writers.update(is_bad=low), self.state.writers,
                 fire="🚨 <b>ПРОСЕЛИ ПИСАТЕЛИ В TELEGRAM</b>\n"
                      f"Покрытие: {float(coverage):.0f}% (порог {floor:.0f}%)\n"
                      f"Живых: {summary.get('alive_writers', '?')} из "
-                     f"{summary.get('required_writers', '?')} нужных.\n" + effect,
+                     f"{summary.get('required_writers', '?')} нужных.\n" + effect + hint,
                 clear="✅ <b>ПИСАТЕЛИ ВОССТАНОВЛЕНЫ</b>\n"
                       f"Покрытие: {float(coverage):.0f}%",
                 repeat=not fallback,
+                markup=restart_keyboard(),
             )
 
         # Пустая группа дата-центров. Отдельно от покрытия выше: то — среднее
@@ -379,6 +403,130 @@ class Watchdog:
                      "а не поломка прокси.",
                 clear="✅ <b>ДАТА-ЦЕНТРЫ TELEGRAM СНОВА С ПИСАТЕЛЯМИ</b>",
             )
+
+        await self._maybe_restart(bot, coverage, dc_payload)
+
+    # ------------------------------------------------------- перезапуск движка
+    async def _maybe_restart(self, bot: Bot, coverage, dc_payload) -> None:
+        """Сам перезапустить движок, если застрял. Условия — в restart.py."""
+        st = self.state
+        if coverage is None:
+            # Не знаем покрытия — не знаем ничего: состояние не трогаем.
+            return
+        dead = float(coverage) < float(settings.WATCHDOG_RESTART_BELOW_PCT)
+        st.stuck.update(is_bad=dead)
+        if not dead:
+            st.restart_note = ""
+            return
+        now = time.time()
+        since = st.stuck.bad_since
+
+        # Перезапуск в этой аварии уже был и не помог — сказать один раз.
+        if (restart.restarted_in_incident(since, st.restart_at)
+                and now - st.restart_at >= restart.VERDICT_AFTER
+                and st.restart_note != "failed"):
+            st.restart_note = "failed"
+            await self._notify(
+                bot,
+                "⚠️ <b>ПЕРЕЗАПУСК ДВИЖКА НЕ ПОМОГ</b>\n"
+                f"Прошло {int((now - st.restart_at) // 60)} мин, писателей по-прежнему "
+                f"почти нет (покрытие {float(coverage):.0f}%).\n"
+                "Сам перезапускать больше не буду: причина не в застрявшем движке. "
+                "Нужно разбираться на сервере — начать с "
+                "<code>journalctl -u telemt -n 100</code>.")
+            return
+        if st.restart_note == "failed":
+            # Обещали не пробовать — и не пробуем до конца этой аварии, даже
+            # когда пауза в шесть часов истечёт.
+            return
+
+        verdict = restart.due(
+            enabled=bool(settings.WATCHDOG_AUTO_RESTART), stuck_since=since, now=now,
+            last_restart=st.restart_at,
+            after=float(settings.WATCHDOG_RESTART_AFTER_MINUTES) * 60,
+            cooldown=float(settings.WATCHDOG_RESTART_COOLDOWN_HOURS) * 3600)
+        if verdict != restart.DUE:
+            return
+        is_open = await self._path_open(dc_payload)
+        if is_open is not True:
+            if st.restart_note != "closed":
+                st.restart_note = "closed"
+                await self._notify(
+                    bot,
+                    "⚠️ <b>ДВИЖОК НЕ ПЕРЕЗАПУСКАЮ</b>\n"
+                    f"Писателей почти нет {int((now - since) // 60)} мин, но и "
+                    "серверы Telegram с этого сервера не отвечают"
+                    + ("" if is_open is False else " (проверить не по чему — "
+                       "движок не назвал их адресов)")
+                    + ". Похоже на закрытый снаружи путь — перезапуск тут не "
+                    "поможет, а клиентов оборвёт.")
+            return
+        ok, err = await self._restart_engine("auto")
+        minutes = int((now - since) // 60)
+        if ok:
+            await self._notify(
+                bot,
+                "🔄 <b>СТОРОЖ ПЕРЕЗАПУСТИЛ ДВИЖОК</b>\n"
+                f"Писателей почти не было {minutes} мин (покрытие "
+                f"{float(coverage):.0f}%), а серверы Telegram отвечают — значит, "
+                "застрял сам движок. Клиенты переподключатся за несколько секунд.\n"
+                "Вернутся писатели — придёт «✅ Писатели восстановлены». "
+                "Не вернутся — скажу через 10 минут.")
+        else:
+            await self._notify(
+                bot,
+                "🚨 <b>НЕ СМОГ ПЕРЕЗАПУСТИТЬ ДВИЖОК</b>\n"
+                f"<code>{html.escape(err or 'systemctl restart telemt')}</code>")
+
+    async def _path_open(self, dc_payload):
+        """Отдельным методом — чтобы тесты подменяли сеть, а не решение."""
+        return await restart.path_open(restart.endpoints(dc_payload))
+
+    async def _restart_engine(self, by: str) -> tuple[bool, str]:
+        """
+        Перезапуск движка и запись о нём. by: "auto" | "manual".
+
+        Время запоминаем и при неудаче: пауза между попытками нужна именно
+        тогда, когда что-то идёт не так.
+        """
+        ok, err = await restart.systemctl_restart("telemt")
+        self.state.restart_at = time.time()
+        _save_state(self.state)
+        try:
+            from telemt.digest import ledger
+            ledger.shared().note("restart", by)
+        except Exception as exc:
+            logging.warning("Сторож: перезапуск не записан в сводку: %s", exc)
+        logging.warning("Сторож: движок перезапущен (%s): %s", by, "ok" if ok else err)
+        return ok, err
+
+    async def manual_restart(self) -> str:
+        """
+        Перезапуск по кнопке. Ждёт писателей до полутора минут и говорит итог.
+
+        Пауза между перезапусками здесь своя, две минуты, а не шесть часов:
+        человек решает сам, защищаем только от двойного нажатия.
+        """
+        if time.time() - self.state.restart_at < 120:
+            return ("Движок перезапускали меньше двух минут назад — писатели "
+                    "поднимаются до минуты, подождите.")
+        ok, err = await self._restart_engine("manual")
+        if not ok:
+            return f"❌ Перезапуск не удался:\n<code>{html.escape(err or '?')}</code>"
+        floor = float(settings.WATCHDOG_COVERAGE_FLOOR_PCT)
+        alive = need = "?"
+        for _ in range(18):
+            await asyncio.sleep(5)
+            try:
+                s = ((await self.api.me_writers()).get("data") or {}).get("summary") or {}
+            except Exception:
+                continue
+            alive, need = s.get("alive_writers", "?"), s.get("required_writers", "?")
+            pct = s.get("fresh_coverage_pct", s.get("coverage_pct"))
+            if isinstance(pct, (int, float)) and pct >= floor:
+                return f"✅ Движок перезапущен. Писатели: {alive} из {need}."
+        return (f"⚠️ Движок перезапущен, но за полторы минуты писатели не вернулись: "
+                f"{alive} из {need}. Сторож продолжает следить.")
 
     async def _poll_selftest(self, bot: Bot) -> None:
         """

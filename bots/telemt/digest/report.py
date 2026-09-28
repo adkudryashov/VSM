@@ -210,6 +210,7 @@ class Facts:
 
 _DC_KINDS = {"dc_dead"}
 _HUB_KINDS = {"beszel_silent", "beszel_hub"}
+_RESTART_KINDS = {"restart"}
 
 
 def _icons():
@@ -301,6 +302,10 @@ def _work(f: Facts) -> list:
     OK, WARN, BAD = _icons()
     rows = []
     evs = overlapping(f.events, f.a, f.b)
+    # Перезапуск движка сторожем — действие, а не тревога: в счёт тревог не
+    # идёт, у него своя строка ниже.
+    restarts = [e for e in evs if e.get("kind") in _RESTART_KINDS]
+    evs = [e for e in evs if e.get("kind") not in _RESTART_KINDS]
     if not f.watchdog:
         rows.append((WARN, "Сторож", "выключен"))
     elif not evs:
@@ -328,6 +333,15 @@ def _work(f: Facts) -> list:
                 for e in dc)))
         else:
             rows.append((OK, "Telegram", "все DC на связи"))
+    if restarts:
+        auto = sum(1 for e in restarts if e.get("detail") == "auto")
+        hand = len(restarts) - auto
+        parts = []
+        if auto:
+            parts.append(f"сторож сам — {auto} {plural(auto, 'раз', 'раза', 'раз')}")
+        if hand:
+            parts.append(f"кнопкой — {hand} {plural(hand, 'раз', 'раза', 'раз')}")
+        rows.append((WARN, "Движок", "перезапускали: " + ", ".join(parts)))
     if f.hub_total is not None:
         hub = [e for e in evs if e.get("kind") in _HUB_KINDS]
         if f.hub_total < 0 and not hub:

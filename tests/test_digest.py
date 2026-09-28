@@ -173,6 +173,19 @@ def test_незакрытая_авария_красная():
     assert "🔴 Сторож: 1 тревога · 1 ч 46 мин · идёт сейчас" in t
 
 
+def test_перезапуск_движка_не_тревога(tmp_path):
+    # Перезапуск — действие сторожа, а не авария: в счёт тревог не идёт.
+    a = мск(2026, 9, 25, 22, 0)
+    led = L.Ledger(tmp_path / "digest.json")
+    led.note("restart", "auto", now=a + 3600)
+    led.note("restart", "manual", now=a + 7200)
+    led.note("restart", "auto", now=a + 9000)
+    t = R.render(_facts(events=led.data["events"]))
+    assert "🟢 Сторож: тревог нет" in t
+    assert "🟡 Движок: перезапускали: сторож сам — 2 раза, кнопкой — 1 раз" in t
+    assert "Движок" not in R.render(_facts())
+
+
 def test_копия_первая_впереди_не_тревога():
     t = R.render(_facts(backup=("pending",)))
     assert "🟢 Копия: первая ещё впереди" in t
