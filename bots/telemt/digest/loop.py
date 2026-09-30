@@ -32,6 +32,9 @@ TICK = 60
 # Как часто забирать попытки SSH из журнала. Журнал живёт от ~16 часов (см.
 # Ledger.add_ssh) — полчаса оставляют запас в тридцать раз.
 SSH_EVERY = 1800
+# Как часто запоминать счётчики telemt — столько трафика может пропасть при его
+# перезапуске (см. Ledger.telemt_reading). Запрос к API на петле.
+TELEMT_EVERY = 300
 
 
 def keyboard(enabled: bool) -> InlineKeyboardMarkup:
@@ -61,6 +64,22 @@ async def _telemt() -> tuple:
     return users, started, bad
 
 
+def _users_bytes(users) -> dict:
+    return {str(u.get("username")): int(u.get("total_octets") or 0) for u in users}
+
+
+async def _telemt_reading() -> tuple:
+    """(отметка запуска, байты по пользователям) без метрик; (None, None) — не ответил."""
+    api = TelemtAPIClient()
+    try:
+        users = await api.users()
+        info = (await api.system_info()).get("data") or {}
+        return str(info.get("process_started_at_epoch_secs") or ""), _users_bytes(users)
+    except Exception as exc:
+        logging.info("Сводка: движок не ответил: %s", exc)
+        return None, None
+
+
 async def _snapshot() -> tuple[dict, dict]:
     """(снимок счётчиков, сопутствующее для этого же прохода)."""
     users, started, bad = await _telemt()
@@ -70,8 +89,7 @@ async def _snapshot() -> tuple[dict, dict]:
         "boot": sources.boot_id(),
         "nic": sources.nic_bytes(),
         "xui": None if xui is None else {e: b for e, b, _, _ in xui},
-        "telemt": None if users is None else {str(u.get("username")): int(u.get("total_octets") or 0)
-                                               for u in users},
+        "telemt": None if users is None else _users_bytes(users),
         "telemt_start": started,
         "bad": bad,
         "fw": fw,
@@ -94,12 +112,18 @@ async def _hub_total():
 
 
 async def build(now: float) -> tuple[report.Facts, dict]:
-    """Собрать сводку от последнего закрытия суток до now. Ничего не сохраняет."""
+    """
+    Собрать сводку от последнего закрытия суток до now. Сутки не закрывает;
+    сохраняет только свежее чтение счётчиков telemt — это факт, а не итог.
+    """
     led = ledger()
     d = led.data
     a = float(d.get("last_run") or now)
     old = d.get("snap") or {}
     snap, extra = await _snapshot()
+    if snap["telemt"] is not None:
+        # Перезапуск мог случиться после последнего чтения по ходу суток.
+        led.telemt_reading(snap["telemt_start"], snap["telemt"], now)
 
     rebooted = bool(old.get("boot")) and old.get("boot") != snap["boot"]
     restarted = bool(old.get("telemt_start")) and old.get("telemt_start") != snap["telemt_start"]
@@ -126,15 +150,19 @@ async def build(now: float) -> tuple[report.Facts, dict]:
     tail = await asyncio.to_thread(sources.ssh_attempts, led.ssh_read_from(a), now)
     ssh = None if tail is None else led.ssh_counted() + tail
     peak = d.get("peak") or {}
+    telemt = None
+    if snap["telemt"] is not None:
+        telemt = report.per_name(snap["telemt"], old.get("telemt") or {}, restarted)
+        for name, b in led.telemt_banked().items():
+            telemt[name] = telemt.get(name, 0) + b
     f = report.Facts(
         server=settings.DIGEST_NAME or _server_name(),
         a=a, b=now, tz=settings.DIGEST_TZ,
         traffic=traffic, traffic_since_boot=rebooted,
         clients_prev=(d.get("prev") or {}).get("clients"),
-        telemt_restarted=restarted,
+        telemt_restarted=restarted, telemt_lost=led.telemt_lost(),
         xui=None if snap["xui"] is None else report.per_name(snap["xui"], old.get("xui") or {}),
-        telemt=None if snap["telemt"] is None else report.per_name(snap["telemt"], old.get("telemt") or {},
-                                                                  restarted),
+        telemt=telemt,
         peak=(int(peak["value"]), float(peak["at"])) if peak.get("value") else None,
         ssh=ssh, ssh_prev=(d.get("prev") or {}).get("ssh"),
         prev_span=(d.get("prev") or {}).get("span"),
@@ -186,7 +214,8 @@ async def send(bot: Bot, f: report.Facts) -> None:
 async def close_day(bot: Bot, now: float) -> None:
     led = ledger()
     f, snap = await build(now)
-    led.roll(now, snap, None if f.telemt_restarted else report.clients_total(f), f.ssh, f.probes)
+    led.roll(now, snap, report.clients_total(f) if report.telemt_exact(f) else None,
+             f.ssh, f.probes)
     if led.enabled:
         await send(bot, f)
 
@@ -204,6 +233,11 @@ async def tick(bot: Bot, now: float | None = None) -> None:
         logging.info("Сводка: первый снимок, первые сутки закроются в %s %s",
                      settings.DIGEST_TIME, settings.DIGEST_TZ)
         return
+    seen = float((led.data.get("tm_last") or {}).get("at") or 0)
+    if now - seen >= TELEMT_EVERY:
+        start, users = await _telemt_reading()
+        if users is not None:
+            led.telemt_reading(start, users, now)
     read_from = led.ssh_read_from(float(last))
     if now - read_from >= SSH_EVERY:
         n = await asyncio.to_thread(sources.ssh_attempts, read_from, now)

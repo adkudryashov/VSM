@@ -182,7 +182,10 @@ class Facts:
     traffic: Optional[int] = None        # вся сеть сервера, приём + отдача
     traffic_since_boot: bool = False     # перезагрузка посреди окна: часть потеряна
     clients_prev: Optional[int] = None   # клиенты за прошлые сутки
-    telemt_restarted: bool = False       # движок перезапускался: его счёт неполный
+    telemt_restarted: bool = False       # движок перезапускался
+    # Сколько секунд счёта telemt могло пропасть при перезапусках (копилка в
+    # Ledger.telemt_reading); None — перезапуск прошёл мимо копилки, счёт неполный.
+    telemt_lost: Optional[float] = None
     xui: Optional[dict] = None           # email → байты; None — 3x-ui нет
     telemt: Optional[dict] = None        # пользователь → байты; None — telemt не ответил
     peak: Optional[tuple] = None         # (соединений, epoch)
@@ -236,8 +239,29 @@ def clients_total(f: Facts) -> Optional[int]:
     return sum((f.xui or {}).values()) + sum((f.telemt or {}).values())
 
 
+# Сколько может пропасть при перезапуске telemt, чтобы счёт ещё считался
+# точным. Сводка читает счётчики раз в 5 минут (loop.TELEMT_EVERY); запас —
+# на пропущенный проход.
+TELEMT_LOST_OK = 15 * 60
+
+
+def telemt_exact(f: Facts) -> bool:
+    """Счёт telemt за сутки полон: перезапусков не было или их сшила копилка."""
+    if not f.telemt_restarted:
+        return True
+    return f.telemt_lost is not None and f.telemt_lost <= TELEMT_LOST_OK
+
+
 # Прокси пропускает каждый байт клиента дважды — принял снаружи, отдал
-# клиенту. Сверх двойного объёма и гигабайта сверху — работа самого сервера.
+# клиенту, — и сверху платит заголовками, шифрованием, подтверждениями.
+# Замер на главном 30.09.2026: за 15 часов сетевая карта 22,78 ГБ при 10,63 ГБ
+# у клиентов — в 2,14 раза; захват пакетов за 10 минут: 99% байтов у nginx,
+# xray и telemt. Прежний порог «вдвое и гигабайт сверху» срабатывал и на таком
+# исправном дне: 29.09 сводка написала «сверх клиентов — сам сервер» про
+# обычные накладные расходы и недосчитанный после перезапуска telemt.
+# Сверх 2,5 раза и гигабайта — уже работа самого сервера (тест скорости 26.09
+# дал 33 ГБ при 3,5 ГБ у клиентов, в 9 раз).
+PROXY_FACTOR = 2.5
 SELF_TRAFFIC_SLACK = 10**9
 
 
@@ -260,11 +284,18 @@ def _traffic(f: Facts) -> dict:
         if f.traffic_since_boot:
             notes.append("Сервер перезагружался — трафик считан с загрузки.")
     else:
-        total = ("≈ " if f.telemt_restarted else "") + size(clients)
-        ch = "" if f.telemt_restarted else change(clients, f.clients_prev, f.b - f.a, f.prev_span)
-        if f.telemt_restarted:
+        rough = not telemt_exact(f)
+        total = ("≈ " if rough else "") + size(clients)
+        ch = "" if rough else change(clients, f.clients_prev, f.b - f.a, f.prev_span)
+        if rough:
             notes.append("telemt перезапускался — его трафик считан с перезапуска.")
-        if f.traffic is not None and f.traffic > 2 * clients + SELF_TRAFFIC_SLACK:
+        elif f.telemt_restarted:
+            notes.append("telemt перезапускался — счёт сшит через перезапуск, "
+                         f"мог пропасть трафик не больше чем за {max(int(f.telemt_lost // 60), 1)} мин.")
+        # Неполный счёт telemt судить не даёт: недосчитанное выглядело бы
+        # как трафик самого сервера.
+        if (not rough and f.traffic is not None
+                and f.traffic > PROXY_FACTOR * clients + SELF_TRAFFIC_SLACK):
             notes.append(f"Через сеть сервера прошло {size(f.traffic)}"
                          + (" с загрузки" if f.traffic_since_boot else "")
                          + ": сверх клиентов — сам сервер (тесты скорости, обновления).")

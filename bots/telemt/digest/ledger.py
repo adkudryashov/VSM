@@ -129,6 +129,45 @@ class Ledger:
         self.data["ssh_read"] = upto
         self.save()
 
+    # --------------------------------------- счёт telemt через перезапуски
+    # telemt при перезапуске обнуляет счётчики пользователей, и трафик до
+    # перезапуска пропадал из сводки, а с ним — сравнение со вчера на ДВОЕ
+    # суток: сегодня счёт неполный, завтра не с чем сравнить. 28.09 и 29.09
+    # 2026 перезапуски шли день за днём (руками, затем обновление из панели),
+    # и сравнение трафика не появилось ни разу. Поэтому счётчики запоминаются
+    # по ходу суток, а при смене отметки запуска прожитое банкуется в tm_acc.
+    def telemt_reading(self, start: str, users: dict, at: float) -> None:
+        """Очередное чтение счётчиков telemt. Сменилась отметка запуска —
+        переносим прожитое прошлой жизнью движка в копилку суток."""
+        last = self.data.get("tm_last") or {}
+        if last.get("start") and start and last["start"] != start:
+            snap = self.data.get("snap") or {}
+            # База прошлой жизни — снимок начала суток, если он сделан в ней
+            # же; иначе она началась внутри суток, и считать надо с нуля.
+            base = (snap.get("telemt") or {}) if snap.get("telemt_start") == last["start"] else {}
+            acc = self.data.setdefault("tm_acc", {})
+            for name, value in (last.get("users") or {}).items():
+                grown = int(value or 0) - int(base.get(name) or 0)
+                if grown > 0:
+                    acc[name] = int(acc.get(name) or 0) + grown
+            # Что могло пропасть: от последнего чтения до перезапуска.
+            try:
+                lost = max(float(start) - float(last.get("at") or 0), 0.0)
+            except (TypeError, ValueError):
+                lost = float("inf")
+            self.data["tm_lost"] = max(float(self.data.get("tm_lost") or 0), lost)
+        self.data["tm_last"] = {"start": start, "users": dict(users or {}), "at": at}
+        self.save()
+
+    def telemt_banked(self) -> dict:
+        return dict(self.data.get("tm_acc") or {})
+
+    def telemt_lost(self) -> Optional[float]:
+        """Сколько секунд счёта могло пропасть при перезапусках; None — ни
+        одного перезапуска не прошло через копилку."""
+        v = self.data.get("tm_lost")
+        return None if v is None else float(v)
+
     # -------------------------------------------------------------- сутки
     def roll(self, now: float, snap: dict, clients: Optional[int],
              ssh: Optional[int], probes: Optional[int]) -> None:
@@ -147,6 +186,11 @@ class Ledger:
                              "span": (now - float(last)) if last else None}
         self.data["ssh_count"] = 0
         self.data["ssh_read"] = now
+        self.data["tm_acc"] = {}
+        self.data.pop("tm_lost", None)
+        if snap.get("telemt") is not None:
+            self.data["tm_last"] = {"start": snap.get("telemt_start"),
+                                    "users": dict(snap["telemt"]), "at": now}
         self.data.pop("probes_hist", None)
         hist = list(self.data.get("foreign_hist") or [])
         if probes is not None:

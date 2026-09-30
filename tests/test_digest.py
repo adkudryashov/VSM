@@ -211,6 +211,18 @@ def test_тест_скорости_не_выдаётся_за_клиентов()
         assert "Через сеть сервера прошло 33,2 ГБ с загрузки: сверх клиентов — сам сервер" in t
 
 
+def test_накладные_расходы_прокси_не_выдаются_за_сервер():
+    """30.09: карта в 2,14 раза больше клиентов — обычная работа прокси.
+    29.09 прежний порог (вдвое + 1 ГБ) назвал похожий день «сам сервер»."""
+    # Сам замер: 15 часов, карта 22,78 ГБ, 3x-ui 10,06 ГБ, telemt 0,566 ГБ.
+    t = R.render(_facts(traffic=22_780_000_000, xui={"alice": 10_060_000_000},
+                        telemt={"bob": 566_000_000}))
+    assert "Через сеть сервера" not in t
+    # Замер 29.09: 20,8 ГБ при недосчитанном telemt — судить не по чему.
+    t = R.render(_facts(traffic=20_800_000_000, telemt_restarted=True))
+    assert "Через сеть сервера" not in t
+
+
 def test_без_клиентов_остаётся_сетевая_карта():
     t = R.render_rich(_facts(xui=None, telemt=None, traffic_since_boot=True))
     assert "<h3>📶 Трафик · ≈ 7,5 ГБ</h3>" in t
@@ -292,11 +304,88 @@ def test_попытки_ssh_копятся_по_ходу_суток(tmp_path, mo
         1 for t in журнал if x <= t <= y and t >= стёрто_до[0]))
     monkeypatch.setattr(S, "established", lambda ports: 0)
     monkeypatch.setattr(LP, "ledger", lambda: led)
+
+    async def движок_молчит():
+        return None, None
+    monkeypatch.setattr(LP, "_telemt_reading", движок_молчит)
     for t in (a + 1000, a + 1900, a + 4000, a + 7300):
         asyncio.run(LP.tick(None, t))
     # Журнал потерял всё старше: накопленное остаётся.
     стёрто_до[0] = a + 80000
     assert led.ssh_counted() == 3 and led.ssh_read_from(a) == a + 7300
+
+
+def test_счёт_telemt_сшивается_через_перезапуски(tmp_path):
+    """28–29.09: два перезапуска подряд, и сравнения трафика не было двое суток."""
+    a = 1_790_000_000.0
+    led = L.Ledger(tmp_path / "digest.json")
+    led.roll(a, {"telemt_start": "100", "telemt": {"alice": 1000, "bob": 10}}, None, None, None)
+    led.telemt_reading("100", {"alice": 1500, "bob": 10}, a + 300)
+    # Перезапуск в a+550: счётчики с нуля.
+    led.telemt_reading(str(int(a + 550)), {"alice": 200}, a + 600)
+    assert led.telemt_banked() == {"alice": 500}
+    assert led.telemt_lost() == 250                  # от чтения до перезапуска
+    # Второй перезапуск: прошлая жизнь началась внутри суток — база ноль.
+    led.telemt_reading(str(int(a + 550)), {"alice": 300, "bob": 7}, a + 900)
+    led.telemt_reading(str(int(a + 950)), {"alice": 5}, a + 1000)
+    assert led.telemt_banked() == {"alice": 800, "bob": 7}
+    assert led.telemt_lost() == 250
+    # Копилка переживает перезапуск бота и обнуляется с закрытием суток.
+    again = L.Ledger(tmp_path / "digest.json")
+    assert again.telemt_banked() == {"alice": 800, "bob": 7}
+    again.roll(a + 86400, {"telemt_start": "x", "telemt": {"alice": 9}}, None, None, None)
+    assert again.telemt_banked() == {} and again.telemt_lost() is None
+
+
+def test_без_перезапусков_копилка_пуста(tmp_path):
+    led = L.Ledger(tmp_path / "digest.json")
+    led.roll(0.0, {"telemt_start": "1", "telemt": {"alice": 1}}, None, None, None)
+    for t in range(300, 3000, 300):
+        led.telemt_reading("1", {"alice": t}, float(t))
+    assert led.telemt_banked() == {} and led.telemt_lost() is None
+
+
+def test_сшитый_счёт_сравнивается_со_вчера():
+    t = R.render(_facts(telemt_restarted=True, telemt_lost=250))
+    assert "Трафик</b>  4,2 ГБ  ↑ 12% ко вчера" in t
+    assert "счёт сшит через перезапуск" in t and "не больше чем за 4 мин" in t
+    assert R.telemt_exact(_facts(telemt_restarted=True, telemt_lost=250))
+
+
+@pytest.mark.parametrize("lost", [None, 3600.0])
+def test_несшитый_счёт_без_сравнения(lost):
+    # None — перезапуск прошёл мимо копилки (бот стоял, код старый);
+    # час — между чтением и перезапуском слишком много пропало.
+    f = _facts(telemt_restarted=True, telemt_lost=lost)
+    t = R.render(f)
+    assert "≈ 4,2 ГБ" in t and "ко вчера" not in t.split("Попытки")[0]
+    assert not R.telemt_exact(f)
+
+
+def test_tick_читает_telemt_раз_в_пять_минут(tmp_path, monkeypatch):
+    import asyncio
+    from telemt.digest import loop as LP
+    led = L.Ledger(tmp_path / "digest.json")
+    a = мск(2026, 9, 25, 22, 0)
+    led.roll(a, {"telemt_start": "1", "telemt": {"alice": 0}}, None, None, None)
+    monkeypatch.setattr(S, "established", lambda ports: 0)
+    monkeypatch.setattr(S, "ssh_attempts", lambda x, y: 0)
+    monkeypatch.setattr(LP, "ledger", lambda: led)
+    чтения = []
+    жизнь = {"start": "1", "alice": 0}
+
+    async def движок():
+        чтения.append(1)
+        жизнь["alice"] += 100
+        return жизнь["start"], {"alice": жизнь["alice"]}
+    monkeypatch.setattr(LP, "_telemt_reading", движок)
+    for m in range(0, 30):                           # полчаса, такт — минута
+        if m == 17:
+            жизнь.update(start=str(int(a + 17 * 60)), alice=0)   # перезапуск
+        asyncio.run(LP.tick(None, a + 60 + m * 60))
+    assert len(чтения) == 6
+    assert led.telemt_banked() == {"alice": 300}
+    assert led.telemt_lost() <= 300
 
 
 def test_старые_события_забываются(tmp_path):
