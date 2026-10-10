@@ -177,6 +177,10 @@ def test_nginx_принимает_обрыв_чужого_имени(tmp_path):
     stream = xh.sni_apply(STREAM, 17449).replace("listen     443;", "listen 127.0.0.1:18443;") \
         .replace("listen     [::]:443;", "")
     rc, err = _nginx_t(tmp_path, http_body=xh.sni_reject_conf(17449), stream_body=stream)
+    # Папка modules-enabled есть и там, где модуля stream нет (машина CI
+    # GitHub, 10.10.2026): судить о нём можно только по ответу самого nginx.
+    if rc and 'unknown directive "stream"' in err:
+        pytest.skip("nginx без модуля stream")
     assert rc == 0, err
 
 
