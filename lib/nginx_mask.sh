@@ -186,10 +186,57 @@ nginx_mask_http2_wanted() {
 }
 
 # ----------------------------------------------------------------------
-# Текст vhost в stdout.
+# Умеет ли nginx ssl_reject_handshake (появилась в 1.19.4). На старом nginx
+# директива роняет nginx -t, и откат унёс бы маску целиком — без обрыва
+# пустого имени маска хотя бы работает, как раньше.
+# ----------------------------------------------------------------------
+nginx_mask_reject_supported() {
+    local v
+    v="$(nginx -v 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)" || true
+    [ -n "$v" ] || return 1
+    [ "$(printf '%s\n1.19.4\n' "$v" | sort -V | head -1)" = "1.19.4" ]
+}
+
+# Что маска отдаёт на рукопожатие без имени — для сверки с реестром.
+nginx_mask_reject_state() {
+    local body
+    [ -r "$MASK_VHOST" ] || { echo "нет маски"; return 0; }
+    body="$(grep -vE '^[[:space:]]*#' "$MASK_VHOST" 2>/dev/null)" || true
+    if grep -qE '^[[:space:]]*ssl_reject_handshake[[:space:]]+on[[:space:]]*;' <<< "$body"; then
+        echo "обрыв"
+    else
+        echo "сертификат"
+    fi
+}
+
+# ----------------------------------------------------------------------
+# Текст vhost в stdout. Восьмой аргумент «1» добавляет сервер по умолчанию,
+# который обрывает рукопожатие без имени (см. ниже).
 # ----------------------------------------------------------------------
 nginx_mask_render() {
     local port="$1" domain="$2" webroot="$3" cert="$4" key="$5" http2_flag="$6" tls="$7"
+    local reject="${8:-}" reject_block=""
+
+    # ПУСТОЕ ИМЯ — НЕ «ЧУЖОЕ» ДЛЯ TELEMT. Чужое имя telemt обрывает сам
+    # (unknown_sni_action), а проверка в src/proxy/handshake/tls_handshake.rs
+    # начинается с client_sni.is_some(): ClientHello без имени проходит мимо
+    # неё и уходит сюда. Единственный server{} на порту — он же сервер по
+    # умолчанию, и сканер, пришедший по голому адресу без имени, получал
+    # сертификат с нашим доменом (замерено 10.10.2026 с самого сервера:
+    # openssl s_client -noservername → CN=домен панели). Теперь такой запрос
+    # получает «unrecognized name», как и на 443 (lib/xui_harden.sh).
+    #
+    # Свой домен по-прежнему попадает в блок выше по server_name, а telemt
+    # собирает профиль TLS-front с именем tls_domain — его это не задевает.
+    if [ "$reject" = 1 ]; then
+        reject_block="
+# Без имени или с чужим именем — обрыв рукопожатия, сертификат не показывается.
+server {
+    listen 127.0.0.1:${port} ssl${http2_flag} default_server;
+    server_name _;
+    ssl_reject_handshake on;
+}"
+    fi
 
     cat << EOF
 # self-SNI цель для telemt. Файл создан VSM, правки затрутся при следующем
@@ -221,7 +268,7 @@ ${tls}
     # Если в webroot панели когда-нибудь появится PHP, сюда нужно переносить и
     # location ~ \.php$ с тем же fastcgi_pass, что у панели.
     index index.html index.htm;
-}
+}${reject_block}
 EOF
 }
 
@@ -299,7 +346,7 @@ nginx_mask_install() {
 # ----------------------------------------------------------------------
 nginx_mask_apply() {
     local domain="$1" port="$2"
-    local panel_vhost http2_flag=""
+    local panel_vhost http2_flag="" reject=""
 
     # Пустой порт приезжает из старого /etc/vsm/telemt.conf, где ключа
     # TELEMT_MASK_PORT ещё не было. Без проверки получился бы "listen
@@ -316,7 +363,10 @@ nginx_mask_apply() {
     if nginx_mask_http2_wanted "$panel_vhost"; then
         http2_flag=" http2"
     fi
+    if nginx_mask_reject_supported; then
+        reject=1
+    fi
 
     nginx_mask_install "$(nginx_mask_render \
-        "$port" "$domain" "$MASK_WEBROOT" "$MASK_CERT" "$MASK_KEY" "$http2_flag" "$MASK_TLS")"
+        "$port" "$domain" "$MASK_WEBROOT" "$MASK_CERT" "$MASK_KEY" "$http2_flag" "$MASK_TLS" "$reject")"
 }
