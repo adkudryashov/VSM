@@ -21,6 +21,12 @@ if [ -f "$VSM_LIB/xui_mihomo.sh" ]; then
     source "$VSM_LIB/xui_mihomo.sh"
 fi
 
+# Свой сайт-заглушка вместо общедоступного шаблона 3x-ui-pro.
+if [ -f "$VSM_LIB/stub_site.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$VSM_LIB/stub_site.sh"
+fi
+
 # Включить подписку mihomo после установки или патча. Отказ не страшен:
 # панель работает, пропадает только кнопка — о чём и говорим.
 function xui_mihomo_after_install {
@@ -754,6 +760,62 @@ function manage_xui_router {
 }
 
 # ======================================================================
+# САЙТ-ЗАГЛУШКА
+#
+# Страница, которую видят все, кто пришёл на наши домены не за подключением.
+# Шаблон 3x-ui-pro — один из десяти общих для всех установок, по нему сервер
+# узнают. Свой сайт собирается здесь; подробности — в шапке lib/stub_site.sh.
+# ======================================================================
+function manage_stub_site {
+    if ! declare -F stub_site_state >/dev/null 2>&1; then
+        echo -e "${RED}❌ Не найден lib/stub_site.sh — обновите VSM.${NC}"
+        read -p "Нажмите Enter..."; return
+    fi
+    while true; do
+        clear 2>/dev/null
+        ui_title "⚽  САЙТ-ЗАГЛУШКА"
+        ui_section "СОСТОЯНИЕ"
+        local state name
+        state="$(stub_site_state)"
+        name="$(stub_site_name)"
+        case "$state" in
+            "наш сайт") echo -e "   ${GREEN}✔${NC} Стоит свой сайт: ${name:-клуб}" ;;
+            "чужая страница") echo -e "   ${YELLOW}!${NC} Стоит чужая страница — шаблон 3x-ui-pro или ваша" ;;
+            *) echo -e "   ${C_DESC}Страницы нет.${NC}" ;;
+        esac
+        echo ""
+        echo -e "   ${C_DESC}Шведский футбольный клуб: название из домена, цвета, состав,${NC}"
+        echo -e "   ${C_DESC}календарь и новости — свои у каждого сервера. Раз в неделю${NC}"
+        echo -e "   ${C_DESC}сезон сдвигается сам. Прежняя страница сохраняется в копию.${NC}"
+        echo ""
+        ui_section "ДЕЙСТВИЯ"
+        ui_item "1" "⚽" "Поставить или обновить" "Свой сайт вместо текущей страницы"
+        ui_item "2" "🎨" "Другой облик"           "Новые цвета, герб и состав; название то же"
+        ui_danger_item "3" "Вернуть прежнюю"     "Страница, стоявшая до сайта VSM"
+        ui_item "X" "🔙" "Назад"
+        echo ""
+        local ch yn
+        read -p "Ваш выбор [1-3, X]: " ch || break
+        case "$ch" in
+            1) stub_site_apply && echo -e "${GREEN}✔ Сайт на месте: $(stub_site_name)${NC}"
+               read -p "Нажмите Enter..." ;;
+            2) stub_site_apply new && echo -e "${GREEN}✔ Новый облик: $(stub_site_name)${NC}"
+               read -p "Нажмите Enter..." ;;
+            3)
+                read -r -p "$(echo -e "${RED}Сайт VSM уберётся, вернётся прежняя страница. Продолжить? [y/N]: ${NC}")" yn || break
+                if [[ "$yn" =~ ^[YyДд]$ ]]; then
+                    local from
+                    from="$(stub_site_restore)" && echo -e "${GREEN}✔ Вернул из $(basename "$from")${NC}"
+                fi
+                read -p "Нажмите Enter..."
+                ;;
+            [Xx]) return ;;
+            *) echo -e "${RED}❌ Неверный ввод.${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+# ======================================================================
 # ШАБЛОН НАСТРОЕК 3X-UI
 #
 # Владелец доводит свежую панель руками: подписка, названия, хосты, hy2 и
@@ -885,16 +947,17 @@ function manage_xui_service {
         ui_item "7" "🔒" "AdGuard Home"       "DNS-over-HTTPS и блокировка рекламы"
         ui_item "8" "📡" "Роутер (XKeen)"     "Подписка mihomo и кнопка на странице подписки"
         ui_item "9" "🧩" "Шаблон настроек"    "Перенести подписки и входящие на другой сервер"
+        ui_item "10" "⚽" "Сайт-заглушка"     "Свой сайт вместо общего шаблона 3x-ui-pro"
         echo ""
-        # Удаление уехало с 7 на 8, на 9, а затем на 10 — каждый раз из-за
+        # Удаление уехало с 7 на 8, на 9, на 10, а затем на 11 — каждый раз из-за
         # нового пункта над ним. Сдвиг безопасен только в эту сторону: кто по
         # привычке нажмёт прежний номер, попадёт на безобидный экран, а не на
         # снос панели. Обратный порядок был бы недопустим.
-        ui_danger_item "10" "Удалить X-UI Pro" "Панель, база и nginx целиком"
+        ui_danger_item "11" "Удалить X-UI Pro" "Панель, база и nginx целиком"
         ui_item "X" "🔙" "Назад"
         echo ""
 
-        read -p "Ваш выбор [1-10, X]: " choice || break
+        read -p "Ваш выбор [1-11, X]: " choice || break
         echo ""
 
         case $choice in
@@ -921,7 +984,8 @@ function manage_xui_service {
             7) manage_adguard ;;
             8) manage_xui_router ;;
             9) manage_xui_profile ;;
-            10) uninstall_xui_pro ;;
+            10) manage_stub_site ;;
+            11) uninstall_xui_pro ;;
             [Xx]) return ;;
             *) echo -e "${RED}❌ Неверный ввод.${NC}" ;;
         esac
