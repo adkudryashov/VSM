@@ -233,7 +233,12 @@ _orphan_rights_files() {
     # _present, а не _installed: права снимаются молча, а молча снятое право —
     # это сломанная наглухо чужая служба. Пока файлы панели лежат, считаем, что
     # хозяин у прав есть. Настоящую брошенность видно, когда не осталось ничего.
-    panel_telemt_present   || [ ! -e "$TELEMT_PANEL_SUDOERS" ] || out+=("$TELEMT_PANEL_SUDOERS")
+    if ! panel_telemt_present; then
+        [ ! -e "$TELEMT_PANEL_SUDOERS" ] || out+=("$TELEMT_PANEL_SUDOERS")
+        # Помощник и политика панели 1.0.0-rc.3 (lib/panels.sh).
+        [ -z "${TELEMT_PANEL_HELPER:-}" ] || [ ! -e "$TELEMT_PANEL_HELPER" ] || out+=("$TELEMT_PANEL_HELPER")
+        [ -z "${TELEMT_PANEL_POLICY_DIR:-}" ] || [ ! -e "$TELEMT_PANEL_POLICY_DIR" ] || out+=("$TELEMT_PANEL_POLICY_DIR")
+    fi
     # MTProxyL-Panel VSM больше не ведёт, но её брошенные права ловить ОБЯЗАН —
     # именно теперь, когда её снимают при переходе на telemt_panel. При отказе
     # от поддержки 23.09.2026 эту ветку убрали вместе со всем остальным, и в тот
@@ -268,7 +273,13 @@ read_orphan_panel_rights() {
 fix_orphan_panel_rights() {
     local f
     while IFS= read -r f; do
-        [ -n "$f" ] && rm -f "$f"
+        # Каталог — только каталог политики панели, и только он: rm -rf по
+        # имени из списка, который собирает эта же функция.
+        if [ -n "$f" ] && [ -d "$f" ] && [ "$f" = "${TELEMT_PANEL_POLICY_DIR:-}" ]; then
+            rm -rf -- "$f"
+        elif [ -n "$f" ]; then
+            rm -f -- "$f"
+        fi
     done <<< "$(_orphan_rights_files)"
     [ -z "$(_orphan_rights_files)" ]
 }

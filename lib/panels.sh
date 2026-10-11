@@ -23,13 +23,22 @@
 # эффектом совпадения портов: сменит автор порт — и защита исчезнет молча.
 # ======================================================================
 
-TELEMT_PANEL_UNIT=/etc/systemd/system/telemt-panel.service
+TELEMT_PANEL_UNIT="${TELEMT_PANEL_UNIT:-/etc/systemd/system/telemt-panel.service}"
+# Пути переопределяются только ради тестов на временном каталоге.
+TELEMT_PANEL_BIN="${TELEMT_PANEL_BIN:-/usr/local/bin/telemt-panel}"
 MTPL_PANEL_UNIT=/etc/systemd/system/mtproxyl-panel.service
 
 # Права root, выданные панелям их установщиками. Снимаются вместе с панелью:
 # учётная запись остаётся в системе и после удаления, а права при ней — это
 # работающая возможность без всякой панели.
-TELEMT_PANEL_SUDOERS=/etc/sudoers.d/telemt-panel
+TELEMT_PANEL_SUDOERS="${TELEMT_PANEL_SUDOERS:-/etc/sudoers.d/telemt-panel}"
+# С 1.0.0-rc.3 права панели — не cp/mv от root, а один помощник автора со
+# своей политикой (`install.sh repair-privileges`, 11.10.2026). sudoers
+# разрешает только его; сам он без sudoers ничего не может, но снимать его
+# надо вместе с панелью — иначе после удаления остаётся root-бинарь и политика
+# с путями к уже несуществующим файлам.
+TELEMT_PANEL_HELPER="${TELEMT_PANEL_HELPER:-/usr/local/libexec/telemt-panel-privileged}"
+TELEMT_PANEL_POLICY_DIR="${TELEMT_PANEL_POLICY_DIR:-/etc/telemt-panel-privileged}"
 # Все файлы прав, которые разные версии панели клали за собой. Третий,
 # mtproxyl-panel-engine, её обновлятор добавил позже (замечен 09.09.2026), а в
 # этот список он не попал — и пережил снятие панели на стенде 23.09.2026: шесть
@@ -79,7 +88,7 @@ mtpl_proxy_remove() {
 #   _installed — есть юнит, то есть служба. Для экранов, статуса и реестра.
 # Бинарь без юнита — не служба, а файл.
 panel_telemt_present() {
-    [ -f "$TELEMT_PANEL_UNIT" ] || [ -x /usr/local/bin/telemt-panel ]
+    [ -f "$TELEMT_PANEL_UNIT" ] || [ -x "$TELEMT_PANEL_BIN" ]
 }
 panel_mtproxyl_present() {
     [ -f "$MTPL_PANEL_UNIT" ] || [ -x /usr/local/bin/mtproxyl-panel ]
@@ -176,7 +185,7 @@ panel_remove_telemt() {
     systemctl disable --now telemt-panel >/dev/null 2>&1
     rm -f "$TELEMT_PANEL_UNIT"
     systemctl daemon-reload >/dev/null 2>&1
-    rm -f /usr/local/bin/telemt-panel
+    rm -f "$TELEMT_PANEL_BIN"
     rm -rf /etc/telemt-panel
     # Рабочий каталог панели. Оставался лежать после удаления: внутри staging,
     # куда панель клала копии своего бинаря и бинаря telemt перед обновлением.
@@ -196,6 +205,10 @@ panel_remove_telemt() {
     # его завёл чужой установщик, и удаление учётной записи — не наше дело.
     # А вот права без панели не нужны никому.
     rm -f "$TELEMT_PANEL_SUDOERS"
+    # Помощник и политика 1.0.0-rc.3 — после sudoers: без правила sudo они
+    # уже ничего не дают, и порядок не оставляет окна с правом на пустоту.
+    rm -f "$TELEMT_PANEL_HELPER"
+    rm -rf "${TELEMT_PANEL_POLICY_DIR:?}"
     return 0
 }
 
