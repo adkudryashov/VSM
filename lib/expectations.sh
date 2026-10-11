@@ -43,7 +43,7 @@ VSM_TELEMT_CONF="${VSM_TELEMT_CONF:-/etc/vsm/telemt.conf}"
 
 # id|класс|заголовок|почему именно так
 EXPECTATIONS=(
-"telemt_mask|fix|Маскировка telemt направлена на локальный nginx|Это ядро незаметности: на чужой пробы отвечает сайт с настоящим сертификатом, а не прокси. Установщик telemt ставит свои умолчания, и запустить его может кто угодно — пункт VSM, MTProxyL, её панель. Возврат требует перезапуска telemt: без него файл говорит одно, а движок работает по-старому."
+"telemt_mask|fix|Маскировка telemt направлена на локальный nginx|Это ядро незаметности: на чужой пробы отвечает сайт с настоящим сертификатом, а не прокси, а чужое имя получает тот же отказ, что на 443. Установщик telemt ставит свои умолчания, и запустить его может кто угодно — пункт VSM, MTProxyL, её панель. Возврат требует перезапуска telemt: без него файл говорит одно, а движок работает по-старому."
 "avail_interval|fix|Проверка доступности раз в 30 минут|Умолчание автора — 15 минут, вдвое больше российских зондов к серверу, который маскируется."
 "avail_probes|fix|Проверка доступности по 20 зондов|Число выбрано владельцем: на десяти зондах один непроехавший даёт 10% разброса, на двадцати — 5%."
 "nginx_blocks|tell|Блоки VSM в nginx на месте|Установщик и патч 3x-ui-pro чистят /etc/nginx/sites-enabled целиком, унося с собой маску и доступ к панели."
@@ -293,15 +293,18 @@ _mask_port() {
 }
 
 applies_telemt_mask() { [ -r "$TELEMT_TOML" ] && [ -n "$(_mask_port)" ]; }
-want_telemt_mask()    { printf 'true 127.0.0.1 %s' "$(_mask_port)"; }
+want_telemt_mask()    { printf 'true 127.0.0.1 %s reject_handshake' "$(_mask_port)"; }
 read_telemt_mask() {
-    printf '%s %s %s' \
+    printf '%s %s %s %s' \
         "$(_toml_get "$TELEMT_TOML" censorship mask)" \
         "$(_toml_get "$TELEMT_TOML" censorship mask_host)" \
-        "$(_toml_get "$TELEMT_TOML" censorship mask_port)"
+        "$(_toml_get "$TELEMT_TOML" censorship mask_port)" \
+        "$(_toml_get "$TELEMT_TOML" censorship unknown_sni_action)"
 }
-# Три ключа одной позицией, а не тремя: это одно решение, и чинятся они вместе.
-# Тремя строками отчёт об одной поломке выглядел бы как три разные аварии.
+# Четыре ключа одной позицией, а не четырьмя: это одно решение, и чинятся они
+# вместе. Отдельными строками отчёт об одной поломке выглядел бы как разные
+# аварии. unknown_sni_action (11.10.2026): чужое имя получает «unrecognized
+# name», как на 443, а не молчаливый обрыв — умолчание telemt выдавало порт.
 fix_telemt_mask() {
     local port; port="$(_mask_port)"
     [ -n "$port" ] || return 1
@@ -309,6 +312,7 @@ fix_telemt_mask() {
     _toml_set "$TELEMT_TOML" censorship mask true || return 1
     _toml_set "$TELEMT_TOML" censorship mask_host '"127.0.0.1"' || return 1
     _toml_set "$TELEMT_TOML" censorship mask_port "$port" || return 1
+    _toml_set "$TELEMT_TOML" censorship unknown_sni_action '"reject_handshake"' || return 1
     # Перезапуск ТОЛЬКО если файл действительно стал таким, каким нужен.
     #
     # Иначе при устойчивой неудаче (секции censorship в файле нет, права ушли)

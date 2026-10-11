@@ -635,6 +635,10 @@ fi
 toml_set_in_section "$TOML" censorship mask true
 toml_set_in_section "$TOML" censorship mask_host '"127.0.0.1"'
 toml_set_in_section "$TOML" censorship mask_port "$TELEMT_MASK_PORT"
+# Чужое имя — «unrecognized name», как у nginx на 443 и у маски без имени.
+# Умолчание telemt (drop) закрывает соединение молча, и порт 8444 отличался
+# от 443 того же адреса за одно рукопожатие (11.10.2026).
+toml_set_in_section "$TOML" censorship unknown_sni_action '"reject_handshake"'
 
 # Экспортёр Prometheus. Движок умеет его в любой сборке, но по умолчанию не
 # поднимает, и слушает СВОЙ порт, а не порт API — из-за этого его однажды
