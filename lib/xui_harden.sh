@@ -9,9 +9,11 @@
 #           (было — получало сертификат REALITY-домена: так его и находят
 #           сканеры, чтобы маскироваться им же);
 #   listen  панель и подписка 3x-ui слушают только 127.0.0.1 (было — все
-#           адреса, закрывал один фаервол).
+#           адреса, закрывал один фаервол);
+#   hsts    заголовок Strict-Transport-Security на всех HTTPS-ответах nginx
+#           (было — нигде; сайт без HSTS отличается от настоящего, 14.10.2026).
 #
-# Все три — в реестре (lib/expectations.sh, класс fix): патч 3x-ui-pro
+# Все в реестре (lib/expectations.sh, класс fix): патч 3x-ui-pro
 # переписывает includes.conf и stream.conf целиком, и правка пропала бы молча.
 #
 # ПОРЯДОК ПРАВКИ nginx: копия в /var/backups/vsm/nginx, подмена, nginx -t,
@@ -25,6 +27,8 @@ XH_INCLUDES="${XH_INCLUDES:-$XH_NGINX/snippets/includes.conf}"
 XH_STREAM="${XH_STREAM:-$XH_NGINX/stream-enabled/stream.conf}"
 XH_REJECT_CONF="${XH_REJECT_CONF:-$XH_NGINX/conf.d/vsm-sni-reject.conf}"
 XH_REJECT_PORT="${XH_REJECT_PORT:-7449}"
+XH_HSTS_CONF="${XH_HSTS_CONF:-$XH_NGINX/conf.d/vsm-hsts.conf}"
+XH_HSTS_MAX_AGE="${XH_HSTS_MAX_AGE:-31536000}"
 XH_BACKUP_DIR="${XH_BACKUP_DIR:-/var/backups/vsm/nginx}"
 XH_WAIT="${XH_WAIT:-30}"
 
@@ -147,11 +151,49 @@ xui_listen_apply() {
     _xh_fail "панель не поднялась на 127.0.0.1 за ${XH_WAIT} с — настройки возвращены"
 }
 
-# Все три разом — этап установщика стека.
+# --- 4. HSTS ---------------------------------------------------------
+# Один файл на уровне http, а не строка в каждом vhost: vhost'ы переписывает
+# патч 3x-ui-pro, conf.d он не трогает. Через map по $https — на порт 80 с
+# его 301 заголовок не уходит (пустое значение nginx не ставит), на все
+# HTTPS-серверы уходит: сайт на 443 обоих доменов, маска telemt, хаб.
+#
+# ГРАНИЦА: add_header уровня http наследуется только туда, где своего
+# add_header нет. У сайта-заглушки (location / и location = /) его нет;
+# служебные location с Cache-Control заголовок не получат — они и не сайт.
+# Если 3x-ui-pro когда-нибудь поставит add_header на весь server, HSTS там
+# пропадёт молча, а файл останется тем же — это проверяется запросом, не
+# сверкой (curl -sI https://<домен>/ | grep -i strict).
+_xh_hsts_render() {
+    printf '%s\n' \
+        "# VSM (lib/xui_harden.sh): HSTS на всех HTTPS-ответах nginx. Файл" \
+        "# собирается целиком, правки затрутся сверкой с реестром." \
+        'map $https $vsm_hsts {' \
+        "    on      \"max-age=${XH_HSTS_MAX_AGE}\";" \
+        '    default "";' \
+        '}' \
+        'add_header Strict-Transport-Security $vsm_hsts always;'
+}
+xui_hsts_state() {
+    [ -r "$XH_HSTS_CONF" ] || { echo "нет"; return 0; }
+    if cmp -s <(_xh_hsts_render) "$XH_HSTS_CONF"; then echo "включён"; else echo "другой"; fi
+}
+xui_hsts_want() { echo "включён"; }
+xui_hsts_apply() {
+    local tmp rc
+    [ "$(xui_hsts_state)" = "включён" ] && return 0
+    tmp="$(mktemp)" || return 1
+    _xh_hsts_render > "$tmp"
+    _xh_nginx_swap "$XH_HSTS_CONF" "$tmp"; rc=$?
+    rm -f "$tmp"
+    return $rc
+}
+
+# Все разом — этап установщика стека.
 xui_harden_apply() {
     local rc=0
     xui_fwd_apply    || rc=1
     xui_sni_apply    || rc=1
     xui_listen_apply || rc=1
+    xui_hsts_apply   || rc=1
     return $rc
 }
