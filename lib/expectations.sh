@@ -609,8 +609,12 @@ read_foreign_timers() {
     # «-» — не таймер: так list-timers заполняет пустой столбец у таймера,
     # чья служба не загружена (маски хостера на apt-daily). Попадал в эталон и
     # поднимал расхождение, как только маски снимали.
+    # mdcheck_/mdmonitor- — штатные проверки RAID из mdadm. list-timers видит
+    # только загруженные таймеры, а эти грузит лишь установщик пакета или сам
+    # массив: после обновления mdadm они появлялись, после перезагрузки на
+    # сервере без RAID пропадали — два ложных расхождения подряд (23–24.10.2026).
     systemctl list-timers --all --no-pager --no-legend 2>/dev/null \
-        | awk '{print $NF}' | grep -vE '^(-$|vsm-|systemd-|apt-|dpkg-|man-db|logrotate|fstrim|e2scrub)' \
+        | awk '{print $NF}' | grep -vE '^(-$|vsm-|systemd-|apt-|dpkg-|man-db|logrotate|fstrim|e2scrub|mdcheck_|mdmonitor-)' \
         | sort -u | tr '\n' ' ' | sed 's/[[:space:]]*$//'
 }
 
