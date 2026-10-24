@@ -44,6 +44,7 @@ VSM_TELEMT_CONF="${VSM_TELEMT_CONF:-/etc/vsm/telemt.conf}"
 # id|класс|заголовок|почему именно так
 EXPECTATIONS=(
 "telemt_mask|fix|Маскировка telemt направлена на локальный nginx|Это ядро незаметности: на чужой пробы отвечает сайт с настоящим сертификатом, а не прокси, а чужое имя получает тот же отказ, что на 443. Установщик telemt ставит свои умолчания, и запустить его может кто угодно — пункт VSM, MTProxyL, её панель. Возврат требует перезапуска telemt: без него файл говорит одно, а движок работает по-старому."
+"avail_enabled|fix|Проверка доступности из России включена|Сторож бота сам не меряет — он читает вердикт MTProxyL, чтобы к серверу ходил один набор зондов, а не два. С версии 1.7.12 MTProxyL после установки держит расписание выключенным, и на новом сервере доступность не проверял бы никто. Сверка включает его сама; не трогает, если бот настроен мерить сам."
 "avail_interval|fix|Проверка доступности раз в 30 минут|Умолчание автора — 15 минут, вдвое больше российских зондов к серверу, который маскируется."
 "avail_probes|fix|Проверка доступности по 20 зондов|Число выбрано владельцем: на десяти зондах один непроехавший даёт 10% разброса, на двадцати — 5%."
 "nginx_blocks|tell|Блоки VSM в nginx на месте|Установщик и патч 3x-ui-pro чистят /etc/nginx/sites-enabled целиком, унося с собой маску и доступ к панели."
@@ -341,6 +342,28 @@ _avail_field() {
     mtproxyl availability status --json 2>/dev/null \
         | python3 -c "import json,sys; print(json.load(sys.stdin).get('$1',''))" 2>/dev/null
 }
+
+# Расписание проверки вообще включено. С MTProxyL 1.7.12 после установки оно
+# ВЫКЛЮЧЕНО (было включено), а сторож бота меряет не сам, а читает её вердикт:
+# на новом сервере доступность из России не проверялась бы никем. Не применима,
+# если бот сам выбран мерить (RU_CHECK_SOURCE=self): тогда расписание MTProxyL
+# лишь тратило бы общий на адрес лимит Globalping.
+VSM_BOTS_ENV="${VSM_BOTS_ENV:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/bots/.env}"
+_bots_ru_source() {
+    sed -nE "s/^RU_CHECK_SOURCE=[\"']?([a-z]*).*/\1/p" "$VSM_BOTS_ENV" 2>/dev/null | tail -1
+}
+applies_avail_enabled() {
+    command -v mtproxyl >/dev/null 2>&1 && [ "$(_bots_ru_source)" != "self" ]
+}
+want_avail_enabled() { echo "включена"; }
+read_avail_enabled() {
+    case "$(_avail_field auto_check)" in
+        True)  echo "включена" ;;
+        False) echo "выключена" ;;
+        *)     echo "не прочитать" ;;
+    esac
+}
+fix_avail_enabled() { mtproxyl availability on "$(want_avail_interval)" >/dev/null 2>&1; }
 
 applies_avail_interval() { command -v mtproxyl >/dev/null 2>&1; }
 want_avail_interval()    { echo "${VSM_AVAIL_INTERVAL:-30}"; }
