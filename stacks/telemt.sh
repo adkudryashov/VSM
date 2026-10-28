@@ -29,6 +29,8 @@ set -euo pipefail
 #   PANEL_ADMIN_USER=admin
 #   PANEL_ADMIN_PASS=<...>  (по умолчанию генерируется)
 #   XUI_VERSION=<3.7.0>     поставить ИМЕННО эту версию 3x-ui вместо последней
+#   XRAY_PIN_VERSION=26.7.28  ядро Xray в панели (пусто — оставить ядро панели;
+#                           только режим full, разбор — lib/xray_pin.sh)
 #   XUI_RESTORE_ARCHIVE=<архив>  вернуть 3x-ui из суточной копии VSM (только
 #                           режим full, те же домены); исключает шаблон
 #   XUI_PROFILE_APPLY=1     наложить шаблон /etc/vsm/xui-profile.json на свежую
@@ -514,6 +516,18 @@ if [[ "$MODE" == "full" && "${XUI_MIHOMO:-1}" == "1" ]] \
     log "Этап 1: включаю подписку mihomo для роутеров с XKeen"
     xui_mihomo_enable \
         || warn "подписка mihomo не включена — меню X-UI → «Роутер (XKeen)»"
+    verify_or_die systemctl is-active --quiet x-ui
+fi
+
+# Ядро Xray — закреплённой версии: с ядром 3x-ui 3.11.0 (Xray 26.10.21) REALITY
+# для mihomo не проходил (28.10.2026). Только на свежую панель: на доведённой
+# владельцем ядро — его выбор. Отказ не роняет стек — ядро остаётся панельным.
+if [[ "$MODE" == "full" && -n "${XRAY_PIN_VERSION-26.7.28}" && -f "$VSM_LIB/xray_pin.sh" ]]; then
+    # shellcheck disable=SC1091
+    . "$VSM_LIB/xray_pin.sh"
+    log "Этап 1: ядро Xray ${XRAY_PIN_VERSION} вместо $(xray_pin_state)"
+    xray_pin_apply \
+        || warn "ядро Xray осталось $(xray_pin_state) — проверьте REALITY (docs/DECISIONS.md, 28.10.2026)"
     verify_or_die systemctl is-active --quiet x-ui
 fi
 
