@@ -89,13 +89,18 @@ function ask_params {
     esac
 
     echo -e "\n${CYAN}--- Доступ ---${NC}"
-    echo -e "${YELLOW}Telegram ID админов через запятую${NC} (узнать свой — @userinfobot)"
+    echo -e "${YELLOW}Telegram ID админов через запятую или пробел${NC} (узнать свой — @userinfobot)"
     echo -e "${YELLOW}Остальные пользователи игнорируются молча.${NC}"
     read -p "Admin IDs${ADMIN_IDS:+ [$ADMIN_IDS]}: " in_a
     ASK_IDS="${in_a:-$ADMIN_IDS}"
     if [ -z "$ASK_IDS" ]; then echo -e "${RED}❌ Нужен хотя бы один ID.${NC}"; return 1; fi
-    if ! [[ "${ASK_IDS//[[:space:]]/}" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
-        echo -e "${RED}❌ Только числа через запятую, например: 12345678,87654321${NC}"; return 1
+    # Пробел — такой же разделитель, как запятая. Раньше пробелы выбрасывались,
+    # и «123 456» проходило проверку одним чужим номером 123456.
+    ASK_IDS="${ASK_IDS//[[:space:]]/,}"
+    while [[ "$ASK_IDS" == *,,* ]]; do ASK_IDS="${ASK_IDS//,,/,}"; done
+    ASK_IDS="${ASK_IDS#,}"; ASK_IDS="${ASK_IDS%,}"
+    if ! [[ "$ASK_IDS" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+        echo -e "${RED}❌ Только числа через запятую или пробел, например: 12345678,87654321${NC}"; return 1
     fi
 
     if [ "$mode" != "3xui" ]; then

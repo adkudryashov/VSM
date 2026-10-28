@@ -175,9 +175,25 @@ want_xui()      { [[ "$MODE" == "both" || "$MODE" == "3xui"   ]]; }
 # Карта и GeoIP нужны везде, где есть telemt-функциональность
 uses_telemt()   { want_combined || want_telemt; }
 
+# Список админов: числа через запятую или пробел (скобки от .env терпим).
+# Раньше пробелы просто выбрасывались, и «123 456» становилось одним чужим
+# номером 123456: бот вставал и молча не отвечал ни одному из админов, а
+# «123;456» валило его при запуске ошибкой разбора. Без меню (переменной
+# окружения) список не проверялся вовсе.
+normalize_ids() {
+    local ids="${1//[][]/}"
+    ids="${ids//[[:space:]]/,}"
+    while [[ "$ids" == *,,* ]]; do ids="${ids//,,/,}"; done
+    ids="${ids#,}"; ids="${ids%,}"
+    [[ "$ids" =~ ^[0-9]+(,[0-9]+)*$ ]] || return 1
+    printf '%s' "$ids"
+}
+
 # Проверки через if, а не «условие && die»: при set -e ложное условие
 # в конце такой цепочки само по себе обрывает скрипт.
-[[ -n "$ADMIN_IDS" ]] || die "Не задан ADMIN_IDS"
+if ! ADMIN_IDS="$(normalize_ids "$ADMIN_IDS")"; then
+    die "ADMIN_IDS: нужны Telegram ID числами через запятую или пробел"
+fi
 if want_combined && [[ -z "$COMBINED_BOT_TOKEN" ]]; then die "Не задан COMBINED_BOT_TOKEN"; fi
 if want_telemt   && [[ -z "$TELEMT_BOT_TOKEN"   ]]; then die "Не задан TELEMT_BOT_TOKEN";   fi
 if want_xui      && [[ -z "$XUI_BOT_TOKEN"      ]]; then die "Не задан XUI_BOT_TOKEN";      fi
