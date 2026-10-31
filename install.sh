@@ -59,10 +59,13 @@ fi
 echo -e "${GREEN}✓ Зависимости на месте${NC}"
 
 # 2. Определяем рабочую директорию
-TARGET_DIR="/root/VSM"
+# VSM_TARGET_DIR — только для проверок и нестандартных установок. Умолчание
+# прежнее: путь прописан в юнитах ботов и в crontab, и менять его «на лету»
+# без переноса этих файлов нельзя.
+TARGET_DIR="${VSM_TARGET_DIR:-/root/VSM}"
 OLD_DIR="/root/VPS-main-menu"
 OLD_CONF="/etc/server-menu"
-NEW_CONF="/etc/vsm"
+NEW_CONF="${VSM_ETC_DIR:-/etc/vsm}"
 
 # 2.1 Переезд со старого имени (VPS-main-menu / server-menu -> VSM / vsm).
 # Каталог репозитория прописан в юнитах ботов и в crontab, а /etc/server-menu
@@ -193,11 +196,17 @@ for link in /usr/local/bin/*; do
 done
 # 7. Настройка автозапуска при входе в систему
 echo -e "${YELLOW}>>> Настройка автозапуска меню...${NC}"
-if ! grep -q "vsm" ~/.bashrc; then
-    echo -e "\n# Автозапуск основного меню\nif [[ -t 0 ]]; then vsm; fi" >> ~/.bashrc
-    echo -e "${GREEN}✓ Автозапуск добавлен в ~/.bashrc${NC}"
-else
+# Признак — сама строка автозапуска, а не любое упоминание «vsm» в файле.
+# Прежняя проверка `grep -q "vsm"` считала установленным автозапуск, если в
+# .bashrc был, скажем, алиас или комментарий со словом vsm, — и строка не
+# добавлялась вовсе. Обратная операция в uninstall.sh удаляла по подстроке
+# все такие строки; теперь обе стороны говорят об одном и том же.
+VSM_BASHRC_LINE='if [[ -t 0 ]]; then vsm; fi'
+if grep -qxF "$VSM_BASHRC_LINE" ~/.bashrc 2>/dev/null; then
     echo -e "${YELLOW}! Автозапуск уже настроен${NC}"
+else
+    printf '\n# Автозапуск основного меню\n%s\n' "$VSM_BASHRC_LINE" >> ~/.bashrc
+    echo -e "${GREEN}✓ Автозапуск добавлен в ~/.bashrc${NC}"
 fi
 # 8. Поднимаем ботов, если они установлены. Код мог обновиться выше, а при
 # переезде со старого имени они были остановлены — оставить их лежать нельзя.

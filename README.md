@@ -107,6 +107,13 @@ bash <(curl -sL https://raw.githubusercontent.com/adkudryashov/VSM/main/install.
 bash <(curl -sL https://raw.githubusercontent.com/adkudryashov/VSM/main/uninstall.sh)
 ```
 
+Скрипт снимает ссылки в `/usr/local/bin`, службы ботов, свои таймеры
+(`vsm-heartbeat.timer`, `vsm-backup.timer`) и автозапуск из `~/.bashrc`, затем
+удаляет каталог. Секреты в `/etc/vsm` и суточные копии в `/var/backups/vsm`
+удаляются **отдельным вопросом**: по умолчанию они остаются, чтобы копию можно
+было забрать перед сносом сервера. Блоки nginx, правила UFW, fail2ban и
+сертификаты скрипт не трогает — их снимают пунктами меню до удаления.
+
 ## Подробнее
 
 | Документ | О чём |
