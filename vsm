@@ -74,8 +74,20 @@ function check_for_updates {
     # Проверяем наличие .git
     [ ! -d .git ] && return
 
-    # Запрашиваем инфо с GitHub
-    git fetch origin main &>/dev/null
+    # Запрашиваем инфо с GitHub.
+    #
+    # С ТАЙМАУТОМ, и это не украшение. Меню открывается из ~/.bashrc при КАЖДОМ
+    # входе по SSH: зависший fetch (GitHub недоступен, сеть режется, DNS молчит)
+    # держал бы логин минутами — ровно та беда, ради которой у curl в шапке
+    # стоят --max-time. Неудача здесь не ошибка: уведомления просто не будет,
+    # а следующая сессия попробует снова.
+    local fetch_rc=0
+    if command -v timeout >/dev/null 2>&1; then
+        timeout 20 git fetch --quiet origin main >/dev/null 2>&1 || fetch_rc=$?
+    else
+        git fetch --quiet origin main >/dev/null 2>&1 || fetch_rc=$?
+    fi
+    [ "$fetch_rc" -eq 0 ] || return 0
     
     # Считаем именно отставание, а не любое расхождение: при сравнении
     # хешей уведомление всплывало и когда локальные коммиты просто не
@@ -100,7 +112,7 @@ function check_for_updates {
             echo -e "  ${CYAN}… и ещё $((total - 5)); полный список — git log в каталоге VSM${NC}"
         fi
         echo -e "${YELLOW}------------------------------------------------------"
-        echo -e "Нажмите ${GREEN}[8]${NC} в меню для автообновления."
+        echo -e "Нажмите ${GREEN}[7]${NC} в меню для автообновления."
         echo -e "======================================================${NC}"
         # Пауза, чтобы уведомление не стёрлось командой clear. С таймаутом:
         # при автозапуске на каждом входе по SSH бессрочное ожидание
@@ -503,7 +515,7 @@ fi
 
     # СТАТУС ПРИЛОЖЕНИЙ
     echo ""
-    echo -e "${BLUE}  ── СТАТУС ─────────────────────────────────────────────────────────────────${NC}"
+    ui_section "СТАТУС"
     # Проверка X-UI. Отсутствие каталога и остановленная служба — разные вещи:
     # на чистом сервере «ОСТАНОВЛЕН» отправлял пользователя запускать службу
     # вместо установки. Признак установки тот же, что у telemt ниже, — свой
@@ -615,8 +627,34 @@ while true; do
            cd "$VSM_DIR" || exit
            # Запоминаем, откуда пришли: без этого отката нет вовсе.
            VSM_PREV=$(git rev-parse HEAD 2>/dev/null)
-           git fetch origin main &>/dev/null
-           if git reset --hard origin/main > /dev/null; then
+           # Код возврата fetch проверяется, и с таймаутом. Без этого при
+           # недоступном GitHub сброс шёл на СТАРЫЙ origin/main, все проверки
+           # проходили, и меню рапортовало «Обновлено», не обновив ничего.
+           # Ровно тот класс дефекта, с которым борется весь этот блок.
+           VSM_FETCH_RC=0
+           if command -v timeout >/dev/null 2>&1; then
+               timeout 60 git fetch --quiet origin main >/dev/null 2>&1 || VSM_FETCH_RC=$?
+           else
+               git fetch --quiet origin main >/dev/null 2>&1 || VSM_FETCH_RC=$?
+           fi
+           if [ "$VSM_FETCH_RC" -ne 0 ]; then
+               echo -e "${RED}❌ Не удалось получить обновление: GitHub недоступен или не ответил за 60 секунд.${NC}"
+               echo -e "${YELLOW}   Ничего не изменено, меню осталось рабочим.${NC}"
+               read -p "Нажмите Enter..."
+               continue
+           fi
+           VSM_NEW=$(git rev-parse origin/main 2>/dev/null)
+           if [ -z "$VSM_NEW" ]; then
+               echo -e "${RED}❌ В origin/main нет версии — обновляться не на что.${NC}"
+               read -p "Нажмите Enter..."
+               continue
+           fi
+           if [ "$VSM_NEW" = "$VSM_PREV" ]; then
+               echo -e "${GREEN}✓ Уже последняя версия (${VSM_PREV:0:7}), обновлять нечего.${NC}"
+               read -p "Нажмите Enter..."
+               continue
+           fi
+           if git reset --hard "$VSM_NEW" > /dev/null; then
                # Новый код проверяется на разбор ДО пересоздания ссылок и
                # перезапуска.
                #
@@ -649,6 +687,13 @@ while true; do
                # фактом, а не разбором.
                if [ -z "$VSM_BROKEN" ] && [ ! -f "$VSM_DIR/lib/common.sh" ]; then
                    VSM_BROKEN=" lib/common.sh не на месте — раскладка репозитория не та"
+               fi
+               # И третий факт: HEAD действительно стал тем коммитом, который
+               # мы только что получили. Без этой проверки «Обновлено!» могло
+               # стоять над каталогом, который reset не тронул (чужой HEAD,
+               # битый индекс, права), и откат тогда тоже не срабатывал.
+               if [ -z "$VSM_BROKEN" ] && [ "$(git rev-parse HEAD 2>/dev/null)" != "$VSM_NEW" ]; then
+                   VSM_BROKEN=" HEAD не совпал с $VSM_NEW — сброс не выполнился"
                fi
                if [ -n "$VSM_BROKEN" ]; then
                    echo -e "${RED}❌ В новой версии не разбираются:${NC}${VSM_BROKEN}"
