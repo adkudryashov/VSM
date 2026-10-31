@@ -1,4 +1,4 @@
-<!-- Generated: 2026-08-05 | Файлов просканировано: 5 | Оценка: ~800 токенов -->
+<!-- Обновлено: 2026-10-31 | Файлов просканировано: 5 | Оценка: ~800 токенов -->
 
 # Установщики
 
@@ -6,7 +6,7 @@
 общие помощники продублированы осознанно, это дешевле связности. У обоих
 `set -euo pipefail`, поэтому каждая подстановка команды требует `|| true`.
 
-## `stacks/telemt.sh` (477 строк)
+## `stacks/telemt.sh` (976 строк)
 
 Режимы: `--mode full` (ставит и панель) | `--mode addon` (панель уже есть).
 
@@ -36,7 +36,7 @@
 Секрет и пароль **переиспользуются**: читаются из существующего конфига до
 генерации новых.
 
-## `stacks/bots.sh` (377 строк)
+## `stacks/bots.sh` (713 строк)
 
 ```
 0  migrate_old_layout   переносит .db и geoip из прежней раскладки в bots/data
@@ -50,7 +50,7 @@
 
 ## Генераторы nginx
 
-`lib/nginx_mask.sh` (292):
+`lib/nginx_mask.sh` (372):
 ```
 nginx_mask_panel_vhost   ищет vhost домена в sites-available | sites-enabled
 nginx_mask_tls_block     вырезает server{} с ssl_certificate (не блок :80!)
@@ -61,7 +61,7 @@ nginx_mask_install       атомарная подмена через mv + nginx
 nginx_mask_apply         полный цикл, единственная точка входа
 ```
 
-`lib/nginx_panel_proxy.sh` (311):
+`lib/nginx_panel_proxy.sh` (436):
 ```
 panel_proxy_gen_prefix   openssl rand -hex 16
 panel_proxy_render       location + proxy_pass + sub_filter для <base href>
@@ -76,7 +76,7 @@ panel_proxy_remove       снятие при удалении стека
 Блок панели живёт в `sites-enabled` и **не переживает патч 3x-ui-pro** —
 переприменяется пунктом 4. Маска в `conf.d` переживает.
 
-## `stacks/nginx-openssl35.sh` (608)
+## `stacks/nginx-openssl35.sh` (611)
 
 Читает `configure`-флаги текущего nginx, пересобирает с OpenSSL 3.5 в
 `/opt/openssl-3.5`, подменяет `/usr/sbin/nginx` с бэкапом и откатом, делает

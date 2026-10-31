@@ -1,10 +1,10 @@
-<!-- Generated: 2026-08-05 | Файлов просканировано: 9 | Оценка: ~900 токенов -->
+<!-- Обновлено: 2026-10-31 | Файлов просканировано: 9 | Оценка: ~900 токенов -->
 
 # Карта меню
 
 Аналог маршрутов: пункт → функция → что вызывает. Нумерация совпадает с экраном.
 
-## Главное меню — `vsm` (426 строк)
+## Главное меню — `vsm` (758 строк)
 
 ```
 0 → show_access_info     4 → menus/tests.sh
@@ -37,7 +37,7 @@
 (порт в фаерволе, keepalive, конфиг для mihomo). Проверено на живом туннеле
 28.08.2026.
 
-## Управление X-UI — `menus/xui.sh` (335 строк)
+## Управление X-UI — `menus/xui.sh` (994 строки)
 
 ```
 1 install_xui_pro        xui_installer_fetch: отпечаток + снятие check_cpu;
@@ -52,17 +52,22 @@
                        в панели, путь и кнопка в nginx (tools/xui-mihomo.py,
                        tools/xui-sub-xkeen.js); 8→2 xui_awg_mihomo — файл AWG
                        и проверка порта в ufw
-9 uninstall_xui_pro      УДАЛИТЬ; снимает apt-mark hold от пересборки, иначе
+9 manage_xui_profile     шаблон настроек: снять с сервера / наложить / перенести
+                       (lib/xui_profile.sh, tools/xui-profile.py)
+10 manage_stub_site      свой сайт-заглушка вместо общего шаблона 3x-ui-pro
+                       (lib/stub_site.sh, tools/stub-site.py)
+11 uninstall_xui_pro     УДАЛИТЬ; снимает apt-mark hold от пересборки, иначе
                        purge nginx не проходит; вычищает /etc/nginx целиком
 
-Разрушающий пункт уезжал дважды (7 → 8 → 9) и только ВНИЗ: кто нажмёт по
-привычке прежний номер, попадёт на безобидный экран, а не на снос панели.
+Разрушающий пункт уезжал четырежды (7 → 8 → 9 → 10 → 11) и только ВНИЗ: кто
+нажмёт по привычке прежний номер, попадёт на безобидный экран, а не на снос
+панели.
 ```
 
 `warn_telemt_after_panel_change` вызывается после 1 и 2: патч чистит
 `sites-enabled`, а там живёт блок доступа к telemt_panel.
 
-## Стек telemt — `menus/telemt.sh` (1799 строк)
+## Стек telemt — `menus/telemt.sh` (1619 строк)
 
 ```
 УСТАНОВКА
@@ -95,7 +100,7 @@
 > пункты именем, а не номером: две подсказки в коде уже указывали не туда, и
 > заметить это было нельзя — они выглядели осмысленно.
 
-## Telegram-боты — `menus/bots.sh` (343 строки)
+## Telegram-боты — `menus/bots.sh` (780 строк)
 
 ```
 1 combined   3xui-telemt-bot     ─┐
@@ -218,7 +223,7 @@ nginx намеренно `tell`: автопочинка потребовала �
 регистрируются только в чатах администраторов (`common/runner.py`): перечень
 разделов сам по себе рассказывает, что за сервер за ботом стоит.
 
-## Настройка — `menus/setup.sh` (554 строки)
+## Настройка — `menus/setup.sh` (911 строк)
 
 ```
 1 show_bbr_menu     enable_bbr / disable_bbr, sysctl.conf
@@ -241,9 +246,9 @@ nginx намеренно `tell`: автопочинка потребовала �
 
 ## Прочее
 
-- `menus/tests.sh` (261) — IP region, доступность из РФ, iPerf3, YABS, IPQuality, sysbench, RealiTLScanner, DPI Detector, SNI Scan
-- `menus/utils.sh` (250) — htop, ncdu, nethogs, внешний IP, ping/mtr, порты, очистка, проверка домена, beszel: агент и хаб (9, lib/beszel_agent.sh, lib/beszel_hub.sh), kill (10)
-- `menus/warp.sh` (256) — Cloudflare WARP в режиме SOCKS5
+- `menus/tests.sh` (282) — IP region, доступность из РФ, iPerf3, YABS, IPQuality, sysbench, RealiTLScanner, DPI Detector, SNI Scan
+- `menus/utils.sh` (345) — htop, ncdu, nethogs, внешний IP, ping/mtr, порты, очистка, проверка домена, beszel: агент и хаб (9, lib/beszel_agent.sh, lib/beszel_hub.sh), kill (10)
+- `menus/warp.sh` (280) — Cloudflare WARP в режиме SOCKS5
 
 IPv6 отдельным файлом больше не живёт: `show_ipv6_menu` внутри
 `menus/setup.sh`, пункт 4. Прежний `ipv6-menu` был единственным меню без
